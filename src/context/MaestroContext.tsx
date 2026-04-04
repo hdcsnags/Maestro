@@ -1,0 +1,209 @@
+import { createContext, useContext, useReducer, ReactNode } from 'react';
+import {
+  Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
+  AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
+  ExecutionRun, ExecutionStrategy,
+} from '../types';
+
+export type ViewMode = 'stacked' | 'carousel';
+export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | null;
+
+interface MaestroState {
+  workspace: Workspace | null;
+  agents: Agent[];
+  agentSkills: AgentSkill[];
+  activeSession: Session | null;
+  sessions: Session[];
+  rounds: Round[];
+  responses: Response[];
+  syntheses: Synthesis[];
+  auditEvents: AuditEvent[];
+  providerConnections: ProviderConnection[];
+  repoConnections: RepoConnection[];
+  activeRepoConnection: RepoConnection | null;
+  executionRuns: ExecutionRun[];
+  executionMode: ExecutionMode;
+  executionStrategy: ExecutionStrategy;
+  broadcastingAgents: string[];
+  isBroadcasting: boolean;
+  viewMode: ViewMode;
+  activeDrawer: DrawerTarget;
+  shortcutOverlayOpen: boolean;
+  folioIndex: number;
+  patchModalOpen: boolean;
+  executionModalOpen: boolean;
+}
+
+type Action =
+  | { type: 'SET_WORKSPACE'; payload: Workspace | null }
+  | { type: 'SET_AGENTS'; payload: Agent[] }
+  | { type: 'SET_AGENT_SKILLS'; payload: AgentSkill[] }
+  | { type: 'ADD_AGENT_SKILL'; payload: AgentSkill }
+  | { type: 'REMOVE_AGENT_SKILL'; payload: string }
+  | { type: 'UPDATE_AGENT_SKILL'; payload: Partial<AgentSkill> & { id: string } }
+  | { type: 'UPDATE_AGENT'; payload: Partial<Agent> & { id: string } }
+  | { type: 'SET_ACTIVE_SESSION'; payload: Session | null }
+  | { type: 'SET_SESSIONS'; payload: Session[] }
+  | { type: 'SET_ROUNDS'; payload: Round[] }
+  | { type: 'ADD_ROUND'; payload: Round }
+  | { type: 'SET_RESPONSES'; payload: Response[] }
+  | { type: 'ADD_RESPONSE'; payload: Response }
+  | { type: 'UPDATE_RESPONSE'; payload: Partial<Response> & { id: string } }
+  | { type: 'SET_SYNTHESES'; payload: Synthesis[] }
+  | { type: 'ADD_SYNTHESIS'; payload: Synthesis }
+  | { type: 'SET_AUDIT_EVENTS'; payload: AuditEvent[] }
+  | { type: 'ADD_AUDIT_EVENT'; payload: AuditEvent }
+  | { type: 'SET_EXECUTION_MODE'; payload: ExecutionMode }
+  | { type: 'SET_EXECUTION_STRATEGY'; payload: ExecutionStrategy }
+  | { type: 'SET_PROVIDER_CONNECTIONS'; payload: ProviderConnection[] }
+  | { type: 'UPSERT_PROVIDER_CONNECTION'; payload: ProviderConnection }
+  | { type: 'SET_REPO_CONNECTIONS'; payload: RepoConnection[] }
+  | { type: 'SET_ACTIVE_REPO_CONNECTION'; payload: RepoConnection | null }
+  | { type: 'UPSERT_REPO_CONNECTION'; payload: RepoConnection }
+  | { type: 'SET_EXECUTION_RUNS'; payload: ExecutionRun[] }
+  | { type: 'ADD_EXECUTION_RUN'; payload: ExecutionRun }
+  | { type: 'UPDATE_EXECUTION_RUN'; payload: Partial<ExecutionRun> & { id: string } }
+  | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
+  | { type: 'SET_IS_BROADCASTING'; payload: boolean }
+  | { type: 'CLEAR_STAGE' }
+  | { type: 'SET_VIEW_MODE'; payload: ViewMode }
+  | { type: 'OPEN_DRAWER'; payload: DrawerTarget }
+  | { type: 'CLOSE_TRANSIENT' }
+  | { type: 'TOGGLE_SHORTCUTS' }
+  | { type: 'SET_FOLIO_INDEX'; payload: number }
+  | { type: 'SET_PATCH_MODAL'; payload: boolean }
+  | { type: 'SET_EXECUTION_MODAL'; payload: boolean };
+
+const initial: MaestroState = {
+  workspace: null,
+  agents: [],
+  agentSkills: [],
+  activeSession: null,
+  sessions: [],
+  rounds: [],
+  responses: [],
+  syntheses: [],
+  auditEvents: [],
+  providerConnections: [],
+  repoConnections: [],
+  activeRepoConnection: null,
+  executionRuns: [],
+  executionMode: 'pr_flow',
+  executionStrategy: 'synthesized',
+  broadcastingAgents: [],
+  isBroadcasting: false,
+  viewMode: 'carousel',
+  activeDrawer: null,
+  shortcutOverlayOpen: false,
+  folioIndex: 0,
+  patchModalOpen: false,
+  executionModalOpen: false,
+};
+
+function reducer(state: MaestroState, action: Action): MaestroState {
+  switch (action.type) {
+    case 'SET_WORKSPACE': return { ...state, workspace: action.payload };
+    case 'SET_AGENTS': return { ...state, agents: action.payload };
+    case 'SET_AGENT_SKILLS': return { ...state, agentSkills: action.payload };
+    case 'ADD_AGENT_SKILL': return { ...state, agentSkills: [...state.agentSkills, action.payload] };
+    case 'REMOVE_AGENT_SKILL': return { ...state, agentSkills: state.agentSkills.filter(s => s.id !== action.payload) };
+    case 'UPDATE_AGENT_SKILL':
+      return {
+        ...state,
+        agentSkills: state.agentSkills.map(s =>
+          s.id === action.payload.id ? { ...s, ...action.payload } : s
+        ),
+      };
+    case 'UPDATE_AGENT':
+      return {
+        ...state,
+        agents: state.agents.map(a =>
+          a.id === action.payload.id ? { ...a, ...action.payload } : a
+        ),
+      };
+    case 'SET_ACTIVE_SESSION': return { ...state, activeSession: action.payload };
+    case 'SET_SESSIONS': return { ...state, sessions: action.payload };
+    case 'SET_ROUNDS': return { ...state, rounds: action.payload };
+    case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload] };
+    case 'SET_RESPONSES': return { ...state, responses: action.payload };
+    case 'ADD_RESPONSE': return { ...state, responses: [...state.responses, action.payload] };
+    case 'UPDATE_RESPONSE':
+      return {
+        ...state,
+        responses: state.responses.map(r =>
+          r.id === action.payload.id ? { ...r, ...action.payload } : r
+        ),
+      };
+    case 'SET_SYNTHESES': return { ...state, syntheses: action.payload };
+    case 'ADD_SYNTHESIS': return { ...state, syntheses: [...state.syntheses, action.payload] };
+    case 'SET_AUDIT_EVENTS': return { ...state, auditEvents: action.payload };
+    case 'ADD_AUDIT_EVENT': return { ...state, auditEvents: [action.payload, ...state.auditEvents] };
+    case 'SET_EXECUTION_MODE': return { ...state, executionMode: action.payload };
+    case 'SET_EXECUTION_STRATEGY': return { ...state, executionStrategy: action.payload };
+    case 'SET_PROVIDER_CONNECTIONS': return { ...state, providerConnections: action.payload };
+    case 'UPSERT_PROVIDER_CONNECTION': {
+      const exists = state.providerConnections.find(p => p.id === action.payload.id);
+      return {
+        ...state,
+        providerConnections: exists
+          ? state.providerConnections.map(p => p.id === action.payload.id ? action.payload : p)
+          : [...state.providerConnections, action.payload],
+      };
+    }
+    case 'SET_REPO_CONNECTIONS': return { ...state, repoConnections: action.payload };
+    case 'SET_ACTIVE_REPO_CONNECTION': return { ...state, activeRepoConnection: action.payload };
+    case 'UPSERT_REPO_CONNECTION': {
+      const exists = state.repoConnections.find(r => r.id === action.payload.id);
+      return {
+        ...state,
+        repoConnections: exists
+          ? state.repoConnections.map(r => r.id === action.payload.id ? action.payload : r)
+          : [...state.repoConnections, action.payload],
+        activeRepoConnection: action.payload,
+      };
+    }
+    case 'SET_EXECUTION_RUNS': return { ...state, executionRuns: action.payload };
+    case 'ADD_EXECUTION_RUN': return { ...state, executionRuns: [...state.executionRuns, action.payload] };
+    case 'UPDATE_EXECUTION_RUN':
+      return {
+        ...state,
+        executionRuns: state.executionRuns.map(r =>
+          r.id === action.payload.id ? { ...r, ...action.payload } : r
+        ),
+      };
+    case 'SET_BROADCASTING_AGENTS': return { ...state, broadcastingAgents: action.payload };
+    case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
+    case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
+    case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
+    case 'OPEN_DRAWER': {
+      const isSame = state.activeDrawer === action.payload;
+      return { ...state, activeDrawer: isSame ? null : action.payload, shortcutOverlayOpen: false };
+    }
+    case 'CLOSE_TRANSIENT': return { ...state, activeDrawer: null, shortcutOverlayOpen: false };
+    case 'TOGGLE_SHORTCUTS': return { ...state, shortcutOverlayOpen: !state.shortcutOverlayOpen, activeDrawer: null };
+    case 'SET_FOLIO_INDEX': return { ...state, folioIndex: action.payload };
+    case 'SET_PATCH_MODAL': return { ...state, patchModalOpen: action.payload };
+    case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
+    default: return state;
+  }
+}
+
+const MaestroContext = createContext<{
+  state: MaestroState;
+  dispatch: React.Dispatch<Action>;
+} | null>(null);
+
+export function MaestroProvider({ children }: { children: ReactNode }) {
+  const [state, dispatch] = useReducer(reducer, initial);
+  return (
+    <MaestroContext.Provider value={{ state, dispatch }}>
+      {children}
+    </MaestroContext.Provider>
+  );
+}
+
+export function useMaestro() {
+  const ctx = useContext(MaestroContext);
+  if (!ctx) throw new Error('useMaestro must be used within MaestroProvider');
+  return ctx;
+}
