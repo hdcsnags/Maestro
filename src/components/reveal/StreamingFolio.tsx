@@ -2,9 +2,11 @@ interface Props {
   agentName: string;
   agentRole: string;
   agentColor: string;
+  agentProvider?: string;
+  agentModel?: string;
 }
 
-export default function StreamingFolio({ agentName, agentRole, agentColor }: Props) {
+export default function StreamingFolio({ agentName, agentRole, agentColor, agentProvider, agentModel }: Props) {
   return (
     <div className="h-full flex flex-col items-center justify-center" style={{ position: 'relative', zIndex: 2 }}>
       <div
@@ -41,7 +43,7 @@ export default function StreamingFolio({ agentName, agentRole, agentColor }: Pro
           marginBottom: '24px',
         }}
       >
-        {agentRole}
+        {agentProvider === 'openrouter' && agentModel ? agentModel : agentRole}
       </div>
       <div
         className="font-mono-dm"

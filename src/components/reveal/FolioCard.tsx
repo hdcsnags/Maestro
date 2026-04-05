@@ -76,7 +76,7 @@ export default function FolioCard({ response, roundNumber }: Props) {
                 whiteSpace: 'nowrap',
               }}
             >
-              {response.agent_name} -- {response.agent_role}
+              {response.agent_name} -- {response.provider === 'openrouter' ? response.model : response.agent_role}
             </div>
             <div
               className="font-mono-dm"

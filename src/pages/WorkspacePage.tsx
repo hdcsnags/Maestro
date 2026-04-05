@@ -91,6 +91,12 @@ export default function WorkspacePage() {
         return;
       }
 
+      if (ctrl && key === '.') {
+        e.preventDefault();
+        dispatch({ type: 'TOGGLE_FOCUS_MODE' });
+        return;
+      }
+
       if (isTyping || anyTransientOpen) return;
 
       if (e.key === 'ArrowRight' && totalFolioItems > 0) {
@@ -180,8 +186,8 @@ export default function WorkspacePage() {
       />
 
       <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
-        <RevealTopbar />
-        <HeroContext />
+        {!state.focusMode && <RevealTopbar />}
+        {!state.focusMode && <HeroContext />}
 
         {hasContent ? (
           <FolioCarousel />
@@ -189,7 +195,7 @@ export default function WorkspacePage() {
           <EmptyStage />
         )}
 
-        <RevealComposer onBroadcast={handleBroadcast} />
+        {!state.focusMode && <RevealComposer onBroadcast={handleBroadcast} />}
       </div>
 
       <OrchestraDrawer />

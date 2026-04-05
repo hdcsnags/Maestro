@@ -11,6 +11,8 @@ interface FolioItem {
   response?: MaestroResponse;
   agentName?: string;
   agentRole?: string;
+  agentProvider?: string;
+  agentModel?: string;
   roundNumber: number;
 }
 
@@ -32,7 +34,7 @@ export default function FolioCarousel() {
       result.push({ type: 'response', color: r.agent_color, response: r, roundNumber });
     }
     for (const a of streamingAgents) {
-      result.push({ type: 'streaming', color: a.color, agentName: a.name, agentRole: a.role, roundNumber });
+      result.push({ type: 'streaming', color: a.color, agentName: a.name, agentRole: a.role, agentProvider: a.provider, agentModel: a.model, roundNumber });
     }
     return result;
   }, [latestResponses, streamingAgents, roundNumber]);
@@ -61,9 +63,9 @@ export default function FolioCarousel() {
       <OrbitDots items={items} />
       <div
         className="absolute folio-perspective"
-        style={{ inset: '140px 0 126px', display: 'grid', placeItems: 'center', zIndex: 10 }}
+        style={{ inset: state.focusMode ? '20px 0 20px' : '140px 0 126px', display: 'grid', placeItems: 'center', zIndex: 10, transition: 'inset 0.35s ease' }}
       >
-        <div className="relative" style={{ width: 'min(1260px, 100vw - 60px)', height: 'min(62vh, 700px)' }}>
+        <div className="relative" style={{ width: 'min(1260px, 100vw - 60px)', height: state.focusMode ? 'min(90vh, 900px)' : 'min(62vh, 700px)', transition: 'height 0.35s ease' }}>
           {items.map((item, i) => (
             <div
               key={item.type === 'response' ? item.response!.id : `streaming-${item.agentName}`}
@@ -78,7 +80,7 @@ export default function FolioCarousel() {
               {item.type === 'response' ? (
                 <FolioCard response={item.response!} roundNumber={item.roundNumber} />
               ) : (
-                <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} />
+                <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} />
               )}
             </div>
           ))}

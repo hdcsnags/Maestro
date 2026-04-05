@@ -33,6 +33,7 @@ interface MaestroState {
   folioIndex: number;
   patchModalOpen: boolean;
   executionModalOpen: boolean;
+  focusMode: boolean;
 }
 
 type Action =
@@ -74,6 +75,7 @@ type Action =
   | { type: 'SET_FOLIO_INDEX'; payload: number }
   | { type: 'SET_PATCH_MODAL'; payload: boolean }
   | { type: 'SET_EXECUTION_MODAL'; payload: boolean }
+  | { type: 'TOGGLE_FOCUS_MODE' }
   | { type: 'SET_INIT_ERROR'; payload: string | null };
 
 const initial: MaestroState = {
@@ -101,6 +103,7 @@ const initial: MaestroState = {
   folioIndex: 0,
   patchModalOpen: false,
   executionModalOpen: false,
+  focusMode: false,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -187,6 +190,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_FOLIO_INDEX': return { ...state, folioIndex: action.payload };
     case 'SET_PATCH_MODAL': return { ...state, patchModalOpen: action.payload };
     case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
+    case 'TOGGLE_FOCUS_MODE': return { ...state, focusMode: !state.focusMode };
     case 'SET_INIT_ERROR': return { ...state, initError: action.payload };
     default: return state;
   }
