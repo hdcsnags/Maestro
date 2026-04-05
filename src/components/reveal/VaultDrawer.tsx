@@ -3,7 +3,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_REGISTRY, ProviderConnection, PROVIDER_COLORS } from '../../types';
 import { supabase } from '../../lib/supabase';
-import { Eye, EyeOff, Check, Loader2, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Check, Loader2, Trash2, Database } from 'lucide-react';
 import RepoSection from './RepoSection';
 
 export default function VaultDrawer() {
@@ -133,6 +133,8 @@ export default function VaultDrawer() {
       )}
 
       <RepoSection />
+
+      <SupabaseSection />
 
       <div className="reveal-label mb-3" style={{ marginTop: '8px' }}>AI Providers</div>
 
@@ -274,5 +276,202 @@ export default function VaultDrawer() {
         })}
       </div>
     </aside>
+  );
+}
+
+function SupabaseSection() {
+  const { user } = useAuth();
+
+  const [projectUrl, setProjectUrl] = useState('');
+  const [serviceRoleKey, setServiceRoleKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [error, setError] = useState('');
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  // Check if Supabase project credentials are already stored
+  useState(() => {
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (!token) { setChecking(false); return; }
+
+        // Check if supabase_project_url secret exists
+        const res = await fetch(`${supabaseUrl}/functions/v1/vault?action=list`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        const connections = data.connections ?? [];
+        const hasSupabaseUrl = connections.some((c: ProviderConnection) => c.provider === 'supabase_project_url' && c.is_connected);
+        const hasServiceKey = connections.some((c: ProviderConnection) => c.provider === 'supabase_service_role_key' && c.is_connected);
+        setConnected(hasSupabaseUrl && hasServiceKey);
+      } catch { /* ignore */ }
+      setChecking(false);
+    })();
+  });
+
+  const handleSave = async () => {
+    if (!user) return;
+    setSaving(true);
+    setError('');
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      // Save project URL
+      if (projectUrl.trim()) {
+        const res1 = await fetch(`${supabaseUrl}/functions/v1/vault?action=save_key`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'supabase_project_url',
+            display_name: 'Supabase Project URL',
+            api_key: projectUrl.trim(),
+            models: [],
+          }),
+        });
+        if (!res1.ok) throw new Error('Failed to save project URL');
+      }
+
+      // Save service role key
+      if (serviceRoleKey.trim()) {
+        const res2 = await fetch(`${supabaseUrl}/functions/v1/vault?action=save_key`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: 'supabase_service_role_key',
+            display_name: 'Supabase Service Role Key',
+            api_key: serviceRoleKey.trim(),
+            models: [],
+          }),
+        });
+        if (!res2.ok) throw new Error('Failed to save service role key');
+      }
+
+      setConnected(true);
+      setProjectUrl('');
+      setServiceRoleKey('');
+      setShowKey(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="reveal-card" style={{ marginBottom: '16px' }}>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2.5">
+          <Database size={14} style={{ color: 'var(--text)' }} />
+          <strong style={{ color: 'var(--text)', fontWeight: 500, fontSize: '14px' }}>
+            Supabase
+          </strong>
+        </div>
+        {checking ? (
+          <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-dim)' }} />
+        ) : connected ? (
+          <span
+            className="reveal-chip"
+            style={{ color: 'var(--ok)', borderColor: 'rgba(78,187,127,0.25)', background: 'rgba(78,187,127,0.06)', fontSize: '10px', height: '24px', padding: '0 8px' }}
+          >
+            <Check size={10} /> Connected
+          </span>
+        ) : (
+          <span className="reveal-chip" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
+            Not configured
+          </span>
+        )}
+      </div>
+
+      <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '10px' }}>
+        Project credentials for agent-scoped writes
+      </div>
+
+      {error && (
+        <div style={{ color: 'var(--risk)', fontSize: '12px', marginBottom: '8px' }}>{error}</div>
+      )}
+
+      {!connected && (
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            value={projectUrl}
+            onChange={e => setProjectUrl(e.target.value)}
+            placeholder="Project URL (https://xxx.supabase.co)"
+            style={{
+              height: '34px',
+              padding: '0 12px',
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(255,255,255,0.03)',
+              color: 'var(--text)',
+              fontSize: '12px',
+              outline: 'none',
+              width: '100%',
+            }}
+          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={serviceRoleKey}
+              onChange={e => setServiceRoleKey(e.target.value)}
+              placeholder="Service Role Key"
+              style={{
+                width: '100%',
+                height: '34px',
+                padding: '0 36px 0 12px',
+                borderRadius: '12px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.03)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={() => setShowKey(!showKey)}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-dim)',
+                cursor: 'pointer',
+                padding: '4px',
+              }}
+            >
+              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          <button
+            className="reveal-pill primary"
+            style={{ height: '30px', fontSize: '11px', alignSelf: 'flex-start' }}
+            onClick={handleSave}
+            disabled={saving || (!projectUrl.trim() && !serviceRoleKey.trim())}
+          >
+            {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+            {saving ? 'Saving...' : 'Save credentials'}
+          </button>
+        </div>
+      )}
+
+      {connected && (
+        <button
+          className="reveal-pill"
+          style={{ height: '28px', fontSize: '11px' }}
+          onClick={() => setConnected(false)}
+        >
+          Update credentials
+        </button>
+      )}
+    </div>
   );
 }
