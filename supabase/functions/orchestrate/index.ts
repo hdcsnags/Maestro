@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,15 @@ interface OrchestrateResult {
   signals: SignalMap;
   artifacts?: ArtifactResult[];
 }
+
+const PROVIDER_MAP: Record<string, string> = {
+  anthropic: "anthropic",
+  openai: "openai",
+  google: "google",
+  moonshot: "moonshot",
+  qwen: "qwen",
+  openrouter: "openrouter",
+};
 
 function buildSystemPrompt(agentName: string, agentRole: string, skills?: AgentSkillPayload[], scopedPaths?: string[]): string {
   let prompt = `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.
@@ -98,28 +108,77 @@ function parseResult(rawText: string, agentName: string): OrchestrateResult {
   return { title: `${agentName}'s Analysis`, content: rawText, signals: {}, artifacts: [] };
 }
 
+async function getUserApiKey(userId: string, provider: string): Promise<string | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const adminClient = createClient(supabaseUrl, serviceKey);
+
+  const { data } = await adminClient
+    .from("encrypted_secrets")
+    .select("encrypted_key")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .maybeSingle();
+
+  return data?.encrypted_key ?? null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "No authorization header", title: "Error", content: "No authorization header", signals: {}, artifacts: [] }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", title: "Error", content: "Unauthorized", signals: {}, artifacts: [] }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const body: OrchestrationRequest = await req.json();
     const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths } = body;
 
     const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths);
 
+    const lookupProvider = PROVIDER_MAP[provider] ?? provider;
+    const apiKey = await getUserApiKey(user.id, lookupProvider);
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({
+          title: `${agentName} — No API Key`,
+          content: `No API key found for ${provider}. Please add your ${provider} API key in the Provider Vault.`,
+          signals: { risk: "No API key configured", confidence: "N/A" },
+          artifacts: [],
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     let result: OrchestrateResult = { title: '', content: '', signals: {}, artifacts: [] };
 
     if (provider === 'anthropic') {
-      const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-      if (!anthropicKey) throw new Error('Anthropic API key not configured');
-
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': anthropicKey,
+          'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
@@ -137,14 +196,11 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else if (provider === 'openai') {
-      const openaiKey = Deno.env.get('OPENAI_API_KEY');
-      if (!openaiKey) throw new Error('OpenAI API key not configured');
-
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: model || 'gpt-4o',
@@ -164,12 +220,9 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else if (provider === 'google') {
-      const geminiKey = Deno.env.get('GEMINI_API_KEY');
-      if (!geminiKey) throw new Error('Gemini API key not configured');
-
       const geminiModel = model || 'gemini-1.5-flash';
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -188,15 +241,12 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else if (provider === 'openrouter') {
-      const openrouterKey = Deno.env.get('OPENROUTER_API_KEY');
-      if (!openrouterKey) throw new Error('OpenRouter API key not configured');
-
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openrouterKey}`,
-          'HTTP-Referer': 'https://maestro.app',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://maestro.thamos.ca',
           'X-Title': 'Maestro Orchestration',
         },
         body: JSON.stringify({
@@ -217,16 +267,30 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else {
-      result = {
-        title: `${agentName} — Simulated Response`,
-        content: `[${agentName} — ${agentRole}]\n\nThis is a simulated response. Configure an API key for ${provider} in the Provider Vault to enable live responses.\n\nPrompt received: "${prompt}"`,
-        signals: {
-          synthesis_fit: 'Configure API key to enable real synthesis',
-          risk: 'No API key configured for this provider',
-          confidence: 'N/A — Simulated',
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://maestro.thamos.ca',
+          'X-Title': 'Maestro Orchestration',
         },
-        artifacts: [],
-      };
+        body: JSON.stringify({
+          model: model || 'auto',
+          max_tokens: 4096,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || `${provider} API error`);
+
+      const rawText = data.choices?.[0]?.message?.content ?? '';
+      result = parseResult(rawText, agentName);
     }
 
     return new Response(JSON.stringify(result), {
