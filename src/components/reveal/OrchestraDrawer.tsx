@@ -3,7 +3,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { PROVIDER_REGISTRY, AgentSkill } from '../../types';
 import { supabase } from '../../lib/supabase';
-import { Plus, X, FolderTree, Zap, Loader2 } from 'lucide-react';
+import { Plus, X, FolderTree, Zap, Loader2, KeyRound } from 'lucide-react';
 
 export default function OrchestraDrawer() {
   const { state, dispatch } = useMaestro();
@@ -83,6 +83,23 @@ export default function OrchestraDrawer() {
     dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, scoped_paths: paths } });
   };
 
+  const handleToggleAgent = async (agentId: string) => {
+    const agent = state.agents.find(a => a.id === agentId);
+    if (!agent) return;
+    const newActive = !agent.is_active;
+    await supabase
+      .from('agents')
+      .update({ is_active: newActive } as never)
+      .eq('id', agentId);
+    dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, is_active: newActive } });
+  };
+
+  const hasKey = (providerId: string) =>
+    state.providerConnections.some(c => c.provider === providerId && c.is_connected);
+
+  const connectedCount = state.providerConnections.filter(c => c.is_connected).length;
+  const activeCount = state.agents.filter(a => a.is_active).length;
+
   return (
     <aside className={`drawer-panel drawer-left ${isOpen ? 'open' : ''}`}>
       <div className="flex items-center justify-between gap-3 mb-6">
@@ -103,10 +120,40 @@ export default function OrchestraDrawer() {
         </button>
       </div>
 
-      <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '20px' }}>
+      <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '16px' }}>
         The orchestra remains offstage until you ask for it. Roles, models, skills,
         and scoped paths live here -- not on the planning canvas.
       </p>
+
+      <div className="flex items-center gap-3 mb-5">
+        <span className="reveal-chip accent" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
+          {activeCount} active
+        </span>
+        <span
+          className="reveal-chip"
+          style={{
+            fontSize: '10px',
+            height: '24px',
+            padding: '0 8px',
+            color: connectedCount > 0 ? 'var(--ok)' : 'var(--risk)',
+            borderColor: connectedCount > 0 ? 'rgba(78,187,127,0.25)' : 'rgba(224,90,90,0.25)',
+            background: connectedCount > 0 ? 'rgba(78,187,127,0.06)' : 'rgba(224,90,90,0.06)',
+          }}
+        >
+          {connectedCount} key{connectedCount !== 1 ? 's' : ''} connected
+        </span>
+        <button
+          className="reveal-pill"
+          style={{ height: '24px', fontSize: '10px', marginLeft: 'auto' }}
+          onClick={() => {
+            dispatch({ type: 'CLOSE_TRANSIENT' });
+            setTimeout(() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' }), 150);
+          }}
+        >
+          <KeyRound size={10} />
+          Manage keys
+        </button>
+      </div>
 
       <div className="flex flex-col gap-3">
         {state.agents.map(agent => {
@@ -114,9 +161,14 @@ export default function OrchestraDrawer() {
           const isExpanded = expandedAgent === agent.id;
           const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
           const scopedPaths = agent.scoped_paths || [];
+          const providerHasKey = hasKey(agent.provider);
 
           return (
-            <div key={agent.id} className="reveal-card">
+            <div
+              key={agent.id}
+              className="reveal-card"
+              style={{ opacity: agent.is_active ? 1 : 0.55, transition: 'opacity 0.2s ease' }}
+            >
               <div
                 className="flex items-center justify-between gap-3 mb-2"
                 style={{ cursor: 'pointer' }}
@@ -128,9 +180,10 @@ export default function OrchestraDrawer() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: agent.color,
-                      boxShadow: `0 0 12px ${agent.color}55`,
+                      background: agent.is_active ? agent.color : 'var(--text-dim)',
+                      boxShadow: agent.is_active ? `0 0 12px ${agent.color}55` : 'none',
                       flexShrink: 0,
+                      transition: 'all 0.2s ease',
                     }}
                   />
                   <strong style={{ color: 'var(--text)', fontWeight: 500, fontSize: '14px' }}>
@@ -143,20 +196,40 @@ export default function OrchestraDrawer() {
                       {skills.filter(s => s.is_active).length} skill{skills.filter(s => s.is_active).length !== 1 ? 's' : ''}
                     </span>
                   )}
-                  <span className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}>
+                  <button
+                    className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}
+                    style={{ cursor: 'pointer', border: 'none' }}
+                    onClick={e => { e.stopPropagation(); handleToggleAgent(agent.id); }}
+                    title={agent.is_active ? 'Click to deactivate' : 'Click to activate'}
+                  >
                     {agent.is_active ? 'Active' : 'Inactive'}
-                  </span>
+                  </button>
                 </div>
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.5, marginBottom: '8px' }}>
                 {agent.role}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="reveal-chip" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
                   {providerInfo?.name ?? agent.provider}
                 </span>
                 <span className="reveal-chip" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
                   {agent.model}
+                </span>
+                <span
+                  className="reveal-chip"
+                  style={{
+                    fontSize: '9px',
+                    height: '22px',
+                    padding: '0 7px',
+                    gap: '4px',
+                    color: providerHasKey ? 'var(--ok)' : 'var(--risk)',
+                    borderColor: providerHasKey ? 'rgba(78,187,127,0.2)' : 'rgba(224,90,90,0.2)',
+                    background: providerHasKey ? 'rgba(78,187,127,0.05)' : 'rgba(224,90,90,0.05)',
+                  }}
+                >
+                  <KeyRound size={9} />
+                  {providerHasKey ? 'Key set' : 'No key'}
                 </span>
               </div>
 
