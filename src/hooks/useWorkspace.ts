@@ -277,15 +277,25 @@ export function useWorkspace() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const ws = await ensureWorkspace();
-      if (!ws) return;
-      await ensureAgents(ws.id);
-      await loadSessions(ws.id);
-      await loadProviderConnections();
-      await loadAgentSkills();
-      await loadRepoConnections(ws.id);
-      const sess = await ensureSession(ws.id);
-      if (sess) await loadSessionHistory(sess.id);
+      try {
+        const ws = await ensureWorkspace();
+        if (!ws) {
+          dispatch({ type: 'SET_INIT_ERROR', payload: 'Failed to load workspace. Check your connection and try again.' });
+          return;
+        }
+        await Promise.all([
+          ensureAgents(ws.id),
+          loadSessions(ws.id),
+          loadProviderConnections(),
+          loadAgentSkills(),
+          loadRepoConnections(ws.id),
+        ]);
+        const sess = await ensureSession(ws.id);
+        if (sess) await loadSessionHistory(sess.id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown initialization error';
+        dispatch({ type: 'SET_INIT_ERROR', payload: msg });
+      }
     })();
   }, [user]);
 

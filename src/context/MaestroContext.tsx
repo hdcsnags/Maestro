@@ -10,6 +10,7 @@ export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | null;
 
 interface MaestroState {
   workspace: Workspace | null;
+  initError: string | null;
   agents: Agent[];
   agentSkills: AgentSkill[];
   activeSession: Session | null;
@@ -72,10 +73,12 @@ type Action =
   | { type: 'TOGGLE_SHORTCUTS' }
   | { type: 'SET_FOLIO_INDEX'; payload: number }
   | { type: 'SET_PATCH_MODAL'; payload: boolean }
-  | { type: 'SET_EXECUTION_MODAL'; payload: boolean };
+  | { type: 'SET_EXECUTION_MODAL'; payload: boolean }
+  | { type: 'SET_INIT_ERROR'; payload: string | null };
 
 const initial: MaestroState = {
   workspace: null,
+  initError: null,
   agents: [],
   agentSkills: [],
   activeSession: null,
@@ -184,6 +187,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_FOLIO_INDEX': return { ...state, folioIndex: action.payload };
     case 'SET_PATCH_MODAL': return { ...state, patchModalOpen: action.payload };
     case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
+    case 'SET_INIT_ERROR': return { ...state, initError: action.payload };
     default: return state;
   }
 }

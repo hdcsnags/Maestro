@@ -1,7 +1,9 @@
 import { useEffect, useCallback } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { useMaestro } from '../context/MaestroContext';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useOrchestration } from '../hooks/useOrchestration';
+import { useAuth } from '../context/AuthContext';
 import LoadingScreen from '../components/ui/LoadingScreen';
 import RevealTopbar from '../components/reveal/RevealTopbar';
 import HeroContext from '../components/reveal/HeroContext';
@@ -19,6 +21,7 @@ import ExecutionModal from '../components/reveal/ExecutionModal';
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
   const { broadcast } = useOrchestration();
+  const { signOut } = useAuth();
   useWorkspace();
 
   const drawerOpen = state.activeDrawer !== null;
@@ -102,6 +105,59 @@ export default function WorkspacePage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.patchModalOpen, state.executionModalOpen, dispatch]);
+
+  if (state.initError) {
+    return (
+      <div className="relative z-10 flex items-center justify-center h-screen">
+        <div className="flex flex-col items-center gap-4 max-w-md px-6 text-center">
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{ background: 'rgba(224,90,90,0.1)', border: '1px solid rgba(224,90,90,0.25)' }}
+          >
+            <AlertTriangle size={20} style={{ color: 'var(--risk)' }} />
+          </div>
+          <p
+            className="text-xs tracking-widest uppercase"
+            style={{ fontFamily: 'DM Mono', color: 'var(--risk)', letterSpacing: '0.22em' }}
+          >
+            Initialization Failed
+          </p>
+          <p className="text-sm" style={{ color: 'var(--text-muted)', lineHeight: '1.6' }}>
+            {state.initError}
+          </p>
+          <div className="flex gap-3 mt-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
+              style={{
+                fontFamily: 'DM Mono',
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase' as const,
+                background: 'var(--text)',
+                color: 'var(--void)',
+              }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => signOut()}
+              className="px-5 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
+              style={{
+                fontFamily: 'DM Mono',
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase' as const,
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-muted)',
+              }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!state.workspace) {
     return <LoadingScreen />;
