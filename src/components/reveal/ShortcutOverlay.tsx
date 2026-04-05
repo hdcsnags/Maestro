@@ -1,13 +1,15 @@
 import { useMaestro } from '../../context/MaestroContext';
 
+const MOD = navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl';
+
 const SHORTCUTS = [
-  { key: 'O', desc: 'Open orchestra drawer' },
-  { key: 'T', desc: 'Open trust rail' },
-  { key: 'S', desc: 'Open synthesis drawer' },
-  { key: 'V', desc: 'Open provider vault' },
+  { key: `${MOD} O`, desc: 'Open orchestra drawer' },
+  { key: `${MOD} J`, desc: 'Open trust rail' },
+  { key: `${MOD} E`, desc: 'Open synthesis drawer' },
+  { key: `${MOD} K`, desc: 'Open provider vault' },
   { key: '\u2190 / \u2192', desc: 'Move across the council' },
   { key: 'Esc', desc: 'Dismiss drawers and overlays' },
-  { key: '?', desc: 'Toggle shortcut legend' },
+  { key: `${MOD} /`, desc: 'Toggle shortcut legend' },
 ];
 
 export default function ShortcutOverlay() {

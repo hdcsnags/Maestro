@@ -42,11 +42,11 @@ export default function RevealTopbar() {
       </div>
 
       <div className="flex items-center gap-2">
-        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })} title="Orchestra (O)">O</button>
-        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'trust' })} title="Trust (T)">T</button>
-        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'synthesis' })} title="Synthesis (S)">S</button>
-        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })} title="Vault (V)">V</button>
-        <button className="keycap" onClick={() => dispatch({ type: 'TOGGLE_SHORTCUTS' })} title="Shortcuts (?)">?</button>
+        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })} title="Orchestra (Ctrl+O)">O</button>
+        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'trust' })} title="Trust (Ctrl+J)">T</button>
+        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'synthesis' })} title="Synthesis (Ctrl+E)">S</button>
+        <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })} title="Vault (Ctrl+K)">V</button>
+        <button className="keycap" onClick={() => dispatch({ type: 'TOGGLE_SHORTCUTS' })} title="Shortcuts (Ctrl+/)">?</button>
         <button
           className="keycap"
           onClick={signOut}

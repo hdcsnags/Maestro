@@ -58,36 +58,40 @@ export default function WorkspacePage() {
         return;
       }
 
-      if (isTyping) return;
-
+      const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      if (key === '?') {
+      if (ctrl && key === '/') {
+        e.preventDefault();
         dispatch({ type: 'TOGGLE_SHORTCUTS' });
         return;
       }
 
-      if (key === 'o') {
+      if (ctrl && key === 'o') {
+        e.preventDefault();
         dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' });
         return;
       }
 
-      if (key === 't') {
+      if (ctrl && key === 'j') {
+        e.preventDefault();
         dispatch({ type: 'OPEN_DRAWER', payload: 'trust' });
         return;
       }
 
-      if (key === 's') {
+      if (ctrl && key === 'e') {
+        e.preventDefault();
         dispatch({ type: 'OPEN_DRAWER', payload: 'synthesis' });
         return;
       }
 
-      if (key === 'v') {
+      if (ctrl && key === 'k') {
+        e.preventDefault();
         dispatch({ type: 'OPEN_DRAWER', payload: 'vault' });
         return;
       }
 
-      if (anyTransientOpen) return;
+      if (isTyping || anyTransientOpen) return;
 
       if (e.key === 'ArrowRight' && totalFolioItems > 0) {
         const next = Math.min(state.folioIndex + 1, totalFolioItems - 1);
