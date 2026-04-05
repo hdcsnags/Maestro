@@ -33,8 +33,7 @@ ${synthesis.content}
 ---
 
 # End of patch stub
-# To apply: review the synthesis above and implement the recommended changes.
-# Maestro does not have GitHub integration yet — copy this stub and apply manually.`
+# To apply: use "Prepare execution" in the Synthesis drawer to push this to GitHub as a branch and PR.`
     : '# No synthesis available for the current round.';
 
   const handleCopy = async () => {
