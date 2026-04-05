@@ -167,8 +167,6 @@ export const PROVIDER_COLORS: Record<string, string> = {
   anthropic: '#e07b5a',
   openai: '#5ab88e',
   google: '#5a8fe0',
-  moonshot: '#b45ae0',
-  qwen: '#e0c25a',
   openrouter: '#8a8ae0',
 };
 
@@ -210,10 +208,8 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
 ];
 
 export const PROVIDER_REGISTRY = [
-  { id: 'anthropic', name: 'Anthropic', models: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-3-5'] },
-  { id: 'openai', name: 'OpenAI', models: ['gpt-4o', 'o1', 'gpt-4o-mini'] },
-  { id: 'google', name: 'Google Gemini', models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'] },
-  { id: 'moonshot', name: 'Kimi / Moonshot', models: ['moonshot-v1-128k', 'moonshot-v1-32k'] },
-  { id: 'qwen', name: 'Qwen', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
+  { id: 'anthropic', name: 'Anthropic', models: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'] },
+  { id: 'openai', name: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o', 'o1'] },
+  { id: 'google', name: 'Google Gemini', models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-ultra'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
 ];

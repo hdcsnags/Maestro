@@ -45,8 +45,6 @@ const PROVIDER_MAP: Record<string, string> = {
   anthropic: "anthropic",
   openai: "openai",
   google: "google",
-  moonshot: "moonshot",
-  qwen: "qwen",
   openrouter: "openrouter",
 };
 
@@ -267,30 +265,15 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://maestro.thamos.ca',
-          'X-Title': 'Maestro Orchestration',
-        },
-        body: JSON.stringify({
-          model: model || 'auto',
-          max_tokens: 4096,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt },
-          ],
+      return new Response(
+        JSON.stringify({
+          title: `${agentName} — Unsupported Provider`,
+          content: `Provider "${provider}" is not supported. Supported providers: anthropic, openai, google, openrouter.`,
+          signals: { risk: "Unsupported provider", confidence: "N/A" },
+          artifacts: [],
         }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error?.message || `${provider} API error`);
-
-      const rawText = data.choices?.[0]?.message?.content ?? '';
-      result = parseResult(rawText, agentName);
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(JSON.stringify(result), {
