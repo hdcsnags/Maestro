@@ -56,8 +56,34 @@ export function useWorkspace() {
       .order('sort_order', { ascending: true });
 
     const existingAgents = (rawExistingAgents ?? []) as Agent[];
+
     if (existingAgents.length > 0) {
-      dispatch({ type: 'SET_AGENTS', payload: existingAgents });
+      const hasRouter = existingAgents.some(a => a.provider === 'openrouter');
+      if (!hasRouter) {
+        const routerDefaults = AGENT_DEFAULTS.filter(a => a.provider === 'openrouter');
+        const startSort = existingAgents.length;
+        const { data: rawNew } = await supabase
+          .from('agents')
+          .insert(
+            routerDefaults.map((a, i) => ({
+              workspace_id: workspaceId,
+              user_id: user.id,
+              name: a.name,
+              role: a.role,
+              provider: a.provider,
+              model: a.model,
+              color: a.color,
+              is_active: false,
+              sort_order: startSort + i,
+            })) as never
+          )
+          .select();
+
+        const newAgents = (rawNew ?? []) as Agent[];
+        dispatch({ type: 'SET_AGENTS', payload: [...existingAgents, ...newAgents] });
+      } else {
+        dispatch({ type: 'SET_AGENTS', payload: existingAgents });
+      }
       return;
     }
 

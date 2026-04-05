@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
-import { PROVIDER_REGISTRY, AgentSkill } from '../../types';
+import { PROVIDER_REGISTRY, AgentSkill, OPENROUTER_MODELS, Agent } from '../../types';
 import { supabase } from '../../lib/supabase';
-import { Plus, X, FolderTree, Zap, Loader2, KeyRound } from 'lucide-react';
+import { Plus, X, FolderTree, Zap, Loader2, KeyRound, ChevronDown } from 'lucide-react';
 
 export default function OrchestraDrawer() {
   const { state, dispatch } = useMaestro();
@@ -94,11 +94,196 @@ export default function OrchestraDrawer() {
     dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, is_active: newActive } });
   };
 
+  const handleModelChange = async (agentId: string, model: string) => {
+    await supabase
+      .from('agents')
+      .update({ model } as never)
+      .eq('id', agentId);
+    dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, model } });
+  };
+
   const hasKey = (providerId: string) =>
     state.providerConnections.some(c => c.provider === providerId && c.is_connected);
 
   const connectedCount = state.providerConnections.filter(c => c.is_connected).length;
   const activeCount = state.agents.filter(a => a.is_active).length;
+
+  const directAgents = state.agents.filter(a => a.provider !== 'openrouter');
+  const routerAgents = state.agents.filter(a => a.provider === 'openrouter');
+
+  const renderExpandedSection = (agent: Agent) => {
+    const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
+    const scopedPaths = agent.scoped_paths || [];
+
+    return (
+      <div className="mt-3 flex flex-col gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <Zap size={11} style={{ color: 'var(--gold)' }} />
+            <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
+              Skills
+            </span>
+          </div>
+
+          {skills.length > 0 && (
+            <div className="flex flex-col gap-1.5 mb-2">
+              {skills.map(skill => (
+                <div
+                  key={skill.id}
+                  className="flex items-center gap-2"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '10px',
+                    background: skill.is_active ? 'rgba(201,168,76,0.06)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${skill.is_active ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.04)'}`,
+                  }}
+                >
+                  <button
+                    onClick={() => handleToggleSkill(skill)}
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: skill.is_active ? 'var(--gold)' : 'var(--text-dim)',
+                      boxShadow: skill.is_active ? '0 0 6px var(--gold)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      padding: 0,
+                    }}
+                    title={skill.is_active ? 'Disable skill' : 'Enable skill'}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', color: skill.is_active ? 'var(--text)' : 'var(--text-dim)', fontWeight: 500 }}>
+                      {skill.name}
+                    </div>
+                    <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {skill.instruction}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveSkill(skill.id)}
+                    className="keycap"
+                    style={{ width: '20px', height: '20px', minWidth: '20px' }}
+                  >
+                    <X size={9} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <input
+              type="text"
+              value={newSkillName}
+              onChange={e => setNewSkillName(e.target.value)}
+              placeholder="Skill name..."
+              style={{
+                height: '30px',
+                padding: '0 10px',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.025)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                outline: 'none',
+                width: '100%',
+              }}
+            />
+            <textarea
+              value={newSkillInstruction}
+              onChange={e => setNewSkillInstruction(e.target.value)}
+              placeholder="Instruction (system prompt fragment)..."
+              rows={2}
+              style={{
+                padding: '8px 10px',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.025)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                outline: 'none',
+                width: '100%',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              className="reveal-pill"
+              style={{ height: '28px', fontSize: '11px', alignSelf: 'flex-start' }}
+              onClick={() => handleAddSkill(agent.id)}
+              disabled={saving || !newSkillName.trim() || !newSkillInstruction.trim()}
+            >
+              {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+              Add skill
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <FolderTree size={11} style={{ color: 'var(--gemini)' }} />
+            <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
+              Scoped Paths
+            </span>
+          </div>
+
+          {scopedPaths.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {scopedPaths.map(path => (
+                <span
+                  key={path}
+                  className="reveal-chip"
+                  style={{ fontSize: '9px', height: '22px', padding: '0 6px', gap: '4px' }}
+                >
+                  {path}
+                  <button
+                    onClick={() => handleRemoveScopePath(agent.id, path)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: 0, display: 'flex' }}
+                  >
+                    <X size={8} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={newScopePath}
+              onChange={e => setNewScopePath(e.target.value)}
+              placeholder="src/components/**"
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleAddScopePath(agent.id);
+              }}
+              style={{
+                flex: 1,
+                height: '28px',
+                padding: '0 8px',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.025)',
+                color: 'var(--text)',
+                fontSize: '11px',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                outline: 'none',
+              }}
+            />
+            <button
+              className="keycap"
+              style={{ width: '28px', height: '28px' }}
+              onClick={() => handleAddScopePath(agent.id)}
+              disabled={!newScopePath.trim()}
+            >
+              <Plus size={10} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <aside className={`drawer-panel drawer-left ${isOpen ? 'open' : ''}`}>
@@ -155,12 +340,13 @@ export default function OrchestraDrawer() {
         </button>
       </div>
 
+      <div className="reveal-label mb-3">Direct Providers</div>
+
       <div className="flex flex-col gap-3">
-        {state.agents.map(agent => {
+        {directAgents.map(agent => {
           const providerInfo = PROVIDER_REGISTRY.find(p => p.id === agent.provider);
           const isExpanded = expandedAgent === agent.id;
           const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
-          const scopedPaths = agent.scoped_paths || [];
           const providerHasKey = hasKey(agent.provider);
 
           return (
@@ -233,178 +419,165 @@ export default function OrchestraDrawer() {
                 </span>
               </div>
 
-              {isExpanded && (
-                <div className="mt-3 flex flex-col gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <Zap size={11} style={{ color: 'var(--gold)' }} />
-                      <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
-                        Skills
-                      </span>
-                    </div>
-
-                    {skills.length > 0 && (
-                      <div className="flex flex-col gap-1.5 mb-2">
-                        {skills.map(skill => (
-                          <div
-                            key={skill.id}
-                            className="flex items-center gap-2"
-                            style={{
-                              padding: '6px 10px',
-                              borderRadius: '10px',
-                              background: skill.is_active ? 'rgba(201,168,76,0.06)' : 'rgba(255,255,255,0.02)',
-                              border: `1px solid ${skill.is_active ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.04)'}`,
-                            }}
-                          >
-                            <button
-                              onClick={() => handleToggleSkill(skill)}
-                              style={{
-                                width: '6px',
-                                height: '6px',
-                                borderRadius: '50%',
-                                background: skill.is_active ? 'var(--gold)' : 'var(--text-dim)',
-                                boxShadow: skill.is_active ? '0 0 6px var(--gold)' : 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                flexShrink: 0,
-                                padding: 0,
-                              }}
-                              title={skill.is_active ? 'Disable skill' : 'Enable skill'}
-                            />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '12px', color: skill.is_active ? 'var(--text)' : 'var(--text-dim)', fontWeight: 500 }}>
-                                {skill.name}
-                              </div>
-                              <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {skill.instruction}
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleRemoveSkill(skill.id)}
-                              className="keycap"
-                              style={{ width: '20px', height: '20px', minWidth: '20px' }}
-                            >
-                              <X size={9} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-1.5">
-                      <input
-                        type="text"
-                        value={newSkillName}
-                        onChange={e => setNewSkillName(e.target.value)}
-                        placeholder="Skill name..."
-                        style={{
-                          height: '30px',
-                          padding: '0 10px',
-                          borderRadius: '10px',
-                          border: '1px solid rgba(255,255,255,0.06)',
-                          background: 'rgba(255,255,255,0.025)',
-                          color: 'var(--text)',
-                          fontSize: '12px',
-                          outline: 'none',
-                          width: '100%',
-                        }}
-                      />
-                      <textarea
-                        value={newSkillInstruction}
-                        onChange={e => setNewSkillInstruction(e.target.value)}
-                        placeholder="Instruction (system prompt fragment)..."
-                        rows={2}
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: '10px',
-                          border: '1px solid rgba(255,255,255,0.06)',
-                          background: 'rgba(255,255,255,0.025)',
-                          color: 'var(--text)',
-                          fontSize: '12px',
-                          outline: 'none',
-                          width: '100%',
-                          resize: 'vertical',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                      <button
-                        className="reveal-pill"
-                        style={{ height: '28px', fontSize: '11px', alignSelf: 'flex-start' }}
-                        onClick={() => handleAddSkill(agent.id)}
-                        disabled={saving || !newSkillName.trim() || !newSkillInstruction.trim()}
-                      >
-                        {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-                        Add skill
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-2">
-                      <FolderTree size={11} style={{ color: 'var(--gemini)' }} />
-                      <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
-                        Scoped Paths
-                      </span>
-                    </div>
-
-                    {scopedPaths.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {scopedPaths.map(path => (
-                          <span
-                            key={path}
-                            className="reveal-chip"
-                            style={{ fontSize: '9px', height: '22px', padding: '0 6px', gap: '4px' }}
-                          >
-                            {path}
-                            <button
-                              onClick={() => handleRemoveScopePath(agent.id, path)}
-                              style={{ background: 'none', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', padding: 0, display: 'flex' }}
-                            >
-                              <X size={8} />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={newScopePath}
-                        onChange={e => setNewScopePath(e.target.value)}
-                        placeholder="src/components/**"
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleAddScopePath(agent.id);
-                        }}
-                        style={{
-                          flex: 1,
-                          height: '28px',
-                          padding: '0 8px',
-                          borderRadius: '8px',
-                          border: '1px solid rgba(255,255,255,0.06)',
-                          background: 'rgba(255,255,255,0.025)',
-                          color: 'var(--text)',
-                          fontSize: '11px',
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                          outline: 'none',
-                        }}
-                      />
-                      <button
-                        className="keycap"
-                        style={{ width: '28px', height: '28px' }}
-                        onClick={() => handleAddScopePath(agent.id)}
-                        disabled={!newScopePath.trim()}
-                      >
-                        <Plus size={10} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {isExpanded && renderExpandedSection(agent)}
             </div>
           );
         })}
       </div>
+
+      {routerAgents.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 mt-6 mb-3">
+            <div className="reveal-label" style={{ margin: 0 }}>OpenRouter Voices</div>
+            <span
+              className="reveal-chip"
+              style={{
+                fontSize: '9px',
+                height: '20px',
+                padding: '0 6px',
+                color: hasKey('openrouter') ? 'var(--ok)' : 'var(--risk)',
+                borderColor: hasKey('openrouter') ? 'rgba(78,187,127,0.2)' : 'rgba(224,90,90,0.2)',
+                background: hasKey('openrouter') ? 'rgba(78,187,127,0.05)' : 'rgba(224,90,90,0.05)',
+              }}
+            >
+              <KeyRound size={8} />
+              {hasKey('openrouter') ? 'Key set' : 'No key'}
+            </span>
+          </div>
+
+          <p style={{ color: 'var(--text-dim)', fontSize: '12px', lineHeight: 1.5, marginBottom: '12px' }}>
+            Pick up to 4 models routed through your OpenRouter key.
+            Free-tier models are marked with a tag.
+          </p>
+
+          <div className="flex flex-col gap-3">
+            {routerAgents.map(agent => {
+              const isExpanded = expandedAgent === agent.id;
+              const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
+              const currentModel = OPENROUTER_MODELS.find(m => m.id === agent.model);
+              const isFree = currentModel?.tier === 'free';
+
+              return (
+                <div
+                  key={agent.id}
+                  className="reveal-card"
+                  style={{
+                    opacity: agent.is_active ? 1 : 0.55,
+                    transition: 'opacity 0.2s ease',
+                    borderColor: agent.is_active ? 'rgba(138,138,224,0.15)' : undefined,
+                  }}
+                >
+                  <div
+                    className="flex items-center justify-between gap-3 mb-2"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: agent.is_active ? '#8a8ae0' : 'var(--text-dim)',
+                          boxShadow: agent.is_active ? '0 0 12px rgba(138,138,224,0.35)' : 'none',
+                          flexShrink: 0,
+                          transition: 'all 0.2s ease',
+                        }}
+                      />
+                      <strong style={{ color: 'var(--text)', fontWeight: 500, fontSize: '14px' }}>
+                        {agent.name}
+                      </strong>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {skills.length > 0 && (
+                        <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                          {skills.filter(s => s.is_active).length} skill{skills.filter(s => s.is_active).length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      <button
+                        className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}
+                        style={{ cursor: 'pointer', border: 'none' }}
+                        onClick={e => { e.stopPropagation(); handleToggleAgent(agent.id); }}
+                        title={agent.is_active ? 'Click to deactivate' : 'Click to activate'}
+                      >
+                        {agent.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ position: 'relative', marginBottom: '8px' }}>
+                    <select
+                      value={agent.model}
+                      onChange={e => handleModelChange(agent.id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        width: '100%',
+                        height: '34px',
+                        padding: '0 28px 0 10px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(138,138,224,0.15)',
+                        background: 'rgba(138,138,224,0.04)',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                        outline: 'none',
+                        cursor: 'pointer',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                      }}
+                    >
+                      <optgroup label="Free Tier">
+                        {OPENROUTER_MODELS.filter(m => m.tier === 'free').map(m => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Paid">
+                        {OPENROUTER_MODELS.filter(m => m.tier === 'paid').map(m => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <ChevronDown
+                      size={12}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'var(--text-dim)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {isFree && (
+                      <span
+                        className="reveal-chip"
+                        style={{
+                          fontSize: '9px',
+                          height: '20px',
+                          padding: '0 6px',
+                          color: 'var(--ok)',
+                          borderColor: 'rgba(78,187,127,0.2)',
+                          background: 'rgba(78,187,127,0.05)',
+                        }}
+                      >
+                        Free
+                      </span>
+                    )}
+                    <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                      {agent.model}
+                    </span>
+                  </div>
+
+                  {isExpanded && renderExpandedSection(agent)}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </aside>
   );
 }

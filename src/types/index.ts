@@ -178,6 +178,35 @@ export const AGENT_DEFAULTS: Array<{ name: string; role: string; provider: strin
   { name: 'Gemini', role: 'Design lead · Spatial UI · Motion', provider: 'google', model: 'gemini-1.5-pro', color: '#5a8fe0' },
   { name: 'Kimi K2', role: 'External research · Web · Docs', provider: 'moonshot', model: 'moonshot-v1-128k', color: '#b45ae0' },
   { name: 'Qwen', role: 'Internal context · Repo · Session history', provider: 'qwen', model: 'qwen-plus', color: '#e0c25a' },
+  { name: 'Router A', role: 'OpenRouter slot 1', provider: 'openrouter', model: 'anthropic/claude-sonnet-4', color: '#8a8ae0' },
+  { name: 'Router B', role: 'OpenRouter slot 2', provider: 'openrouter', model: 'qwen/qwen3.6-plus:free', color: '#8a8ae0' },
+  { name: 'Router C', role: 'OpenRouter slot 3', provider: 'openrouter', model: 'openai/gpt-oss-120b:free', color: '#8a8ae0' },
+  { name: 'Router D', role: 'OpenRouter slot 4', provider: 'openrouter', model: 'google/gemini-2.0-flash-001', color: '#8a8ae0' },
+];
+
+export interface OpenRouterModel {
+  id: string;
+  label: string;
+  tier: 'free' | 'paid';
+}
+
+export const OPENROUTER_MODELS: OpenRouterModel[] = [
+  { id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4', tier: 'paid' },
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6', tier: 'paid' },
+  { id: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6', tier: 'paid' },
+  { id: 'anthropic/claude-haiku-3-5', label: 'Claude Haiku 3.5', tier: 'paid' },
+  { id: 'openai/gpt-4o', label: 'GPT-4o', tier: 'paid' },
+  { id: 'openai/o1', label: 'o1', tier: 'paid' },
+  { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', tier: 'paid' },
+  { id: 'google/gemini-1.5-pro', label: 'Gemini 1.5 Pro', tier: 'paid' },
+  { id: 'deepseek/deepseek-chat-v3-0324', label: 'DeepSeek V3', tier: 'paid' },
+  { id: 'z-ai/glm-5v-turbo', label: 'Z.AI GLM-5V Turbo', tier: 'paid' },
+  { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
+  { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
+  { id: 'meta-llama/llama-4-maverick:free', label: 'Llama 4 Maverick', tier: 'free' },
+  { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
+  { id: 'nvidia/nemotron-3-super:free', label: 'Nemotron 3 Super', tier: 'free' },
+  { id: 'qwen/qwen3-235b-a22b:free', label: 'Qwen 3 235B', tier: 'free' },
 ];
 
 export const PROVIDER_REGISTRY = [
@@ -186,5 +215,5 @@ export const PROVIDER_REGISTRY = [
   { id: 'google', name: 'Google Gemini', models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash'] },
   { id: 'moonshot', name: 'Kimi / Moonshot', models: ['moonshot-v1-128k', 'moonshot-v1-32k'] },
   { id: 'qwen', name: 'Qwen', models: ['qwen-plus', 'qwen-max', 'qwen-turbo'] },
-  { id: 'openrouter', name: 'OpenRouter', models: ['auto'] },
+  { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
 ];
