@@ -57,56 +57,44 @@ export function useWorkspace() {
 
     const existingAgents = (rawExistingAgents ?? []) as Agent[];
 
-    if (existingAgents.length > 0) {
-      const hasRouter = existingAgents.some(a => a.provider === 'openrouter');
-      if (!hasRouter) {
-        const routerDefaults = AGENT_DEFAULTS.filter(a => a.provider === 'openrouter');
-        const startSort = existingAgents.length;
-        const { data: rawNew } = await supabase
-          .from('agents')
-          .insert(
-            routerDefaults.map((a, i) => ({
-              workspace_id: workspaceId,
-              user_id: user.id,
-              name: a.name,
-              role: a.role,
-              provider: a.provider,
-              model: a.model,
-              color: a.color,
-              is_active: false,
-              sort_order: startSort + i,
-            })) as never
-          )
-          .select();
+    // Deduplicate: find which provider_group + slot_index combinations already exist
+    const existingSlots = new Set(
+      existingAgents
+        .filter(a => a.provider_group && a.slot_index !== undefined)
+        .map(a => `${a.provider_group}:${a.slot_index}`)
+    );
 
-        const newAgents = (rawNew ?? []) as Agent[];
-        dispatch({ type: 'SET_AGENTS', payload: [...existingAgents, ...newAgents] });
-      } else {
-        dispatch({ type: 'SET_AGENTS', payload: existingAgents });
-      }
-      return;
-    }
+    // Determine which defaults need to be inserted
+    const toInsert = AGENT_DEFAULTS.filter(
+      a => !existingSlots.has(`${a.provider_group}:${a.slot_index}`)
+    );
 
-    const { data: rawCreated } = await supabase
-      .from('agents')
-      .insert(
-        AGENT_DEFAULTS.map((a, i) => ({
-          workspace_id: workspaceId,
-          user_id: user.id,
-          name: a.name,
-          role: a.role,
-          provider: a.provider,
-          model: a.model,
-          color: a.color,
-          is_active: i < 4,
-          sort_order: i,
-        })) as never
-      )
-      .select();
+    if (toInsert.length > 0) {
+      const startSort = existingAgents.length;
+      const { data: rawNew } = await supabase
+        .from('agents')
+        .insert(
+          toInsert.map((a, i) => ({
+            workspace_id: workspaceId,
+            user_id: user.id,
+            name: a.name,
+            display_name: a.display_name,
+            role: a.role,
+            provider: a.provider,
+            model: a.model,
+            color: a.color,
+            is_active: a.is_active,
+            sort_order: startSort + i,
+            slot_index: a.slot_index,
+            provider_group: a.provider_group,
+          })) as never
+        )
+        .select();
 
-    const created = (rawCreated ?? []) as Agent[];
-    if (created.length > 0) {
-      dispatch({ type: 'SET_AGENTS', payload: created });
+      const newAgents = (rawNew ?? []) as Agent[];
+      dispatch({ type: 'SET_AGENTS', payload: [...existingAgents, ...newAgents] });
+    } else {
+      dispatch({ type: 'SET_AGENTS', payload: existingAgents });
     }
   }, [user, dispatch]);
 

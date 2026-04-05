@@ -43,7 +43,7 @@ export default function StreamingFolio({ agentName, agentRole, agentColor, agent
           marginBottom: '24px',
         }}
       >
-        {agentProvider === 'openrouter' && agentModel ? agentModel : agentRole}
+        {agentRole}
       </div>
       <div
         className="font-mono-dm"

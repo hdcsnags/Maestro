@@ -13,6 +13,7 @@ interface FolioItem {
   agentRole?: string;
   agentProvider?: string;
   agentModel?: string;
+  agentDisplayName?: string;
   roundNumber: number;
 }
 
@@ -34,7 +35,7 @@ export default function FolioCarousel() {
       result.push({ type: 'response', color: r.agent_color, response: r, roundNumber });
     }
     for (const a of streamingAgents) {
-      result.push({ type: 'streaming', color: a.color, agentName: a.name, agentRole: a.role, agentProvider: a.provider, agentModel: a.model, roundNumber });
+      result.push({ type: 'streaming', color: a.color, agentName: a.display_name || a.name, agentRole: a.role, agentProvider: a.provider, agentModel: a.model, agentDisplayName: a.display_name || a.name, roundNumber });
     }
     return result;
   }, [latestResponses, streamingAgents, roundNumber]);

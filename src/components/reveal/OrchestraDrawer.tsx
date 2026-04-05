@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
-import { PROVIDER_REGISTRY, AgentSkill, OPENROUTER_MODELS, Agent } from '../../types';
+import { PROVIDER_REGISTRY, AgentSkill, OPENROUTER_FREE_MODELS, CO_LEAD_MODELS, PROVIDER_COLORS, Agent } from '../../types';
 import { supabase } from '../../lib/supabase';
-import { Plus, X, FolderTree, Zap, Loader2, KeyRound, ChevronDown } from 'lucide-react';
+import { Plus, X, FolderTree, Zap, Loader2, KeyRound, ChevronDown, Lock } from 'lucide-react';
+
+const PROVIDER_GROUP_ORDER = ['anthropic', 'openai', 'google', 'openrouter'];
 
 export default function OrchestraDrawer() {
   const { state, dispatch } = useMaestro();
@@ -86,6 +88,8 @@ export default function OrchestraDrawer() {
   const handleToggleAgent = async (agentId: string) => {
     const agent = state.agents.find(a => a.id === agentId);
     if (!agent) return;
+    // Reserved slots (slot_index 2 on openrouter) cannot be toggled
+    if (agent.provider_group === 'openrouter' && agent.slot_index === 2) return;
     const newActive = !agent.is_active;
     await supabase
       .from('agents')
@@ -95,11 +99,13 @@ export default function OrchestraDrawer() {
   };
 
   const handleModelChange = async (agentId: string, model: string) => {
+    const modelInfo = [...OPENROUTER_FREE_MODELS, ...CO_LEAD_MODELS].find(m => m.id === model);
+    const displayName = modelInfo?.label ?? model;
     await supabase
       .from('agents')
-      .update({ model } as never)
+      .update({ model, display_name: displayName } as never)
       .eq('id', agentId);
-    dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, model } });
+    dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, model, display_name: displayName } });
   };
 
   const hasKey = (providerId: string) =>
@@ -108,8 +114,18 @@ export default function OrchestraDrawer() {
   const connectedCount = state.providerConnections.filter(c => c.is_connected).length;
   const activeCount = state.agents.filter(a => a.is_active).length;
 
-  const directAgents = state.agents.filter(a => a.provider !== 'openrouter');
-  const routerAgents = state.agents.filter(a => a.provider === 'openrouter');
+  // Group agents by provider_group
+  const agentsByGroup: Record<string, Agent[]> = {};
+  for (const agent of state.agents) {
+    const group = agent.provider_group || agent.provider;
+    if (!agentsByGroup[group]) agentsByGroup[group] = [];
+    agentsByGroup[group].push(agent);
+  }
+
+  // Sort each group by slot_index
+  for (const group of Object.keys(agentsByGroup)) {
+    agentsByGroup[group].sort((a, b) => (a.slot_index ?? 0) - (b.slot_index ?? 0));
+  }
 
   const renderExpandedSection = (agent: Agent) => {
     const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
@@ -285,6 +301,179 @@ export default function OrchestraDrawer() {
     );
   };
 
+  const renderSlot = (agent: Agent, providerHasKey: boolean) => {
+    const isExpanded = expandedAgent === agent.id;
+    const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
+    const isReserved = agent.provider_group === 'openrouter' && agent.slot_index === 2;
+    const isCoLead = agent.provider_group === 'openrouter' && agent.slot_index === 1;
+    const isFreeSlot = agent.slot_index === 0;
+    const isLocked = !providerHasKey;
+
+    return (
+      <div
+        key={agent.id}
+        style={{
+          padding: '10px 12px',
+          borderRadius: '14px',
+          background: isLocked ? 'rgba(255,255,255,0.01)' : agent.is_active ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.015)',
+          border: `1px solid ${agent.is_active && !isLocked ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)'}`,
+          opacity: isReserved ? 0.4 : isLocked ? 0.6 : agent.is_active ? 1 : 0.65,
+          transition: 'all 0.2s ease',
+        }}
+      >
+        <div
+          className="flex items-center justify-between gap-2"
+          style={{ cursor: isReserved ? 'default' : 'pointer' }}
+          onClick={() => !isReserved && setExpandedAgent(isExpanded ? null : agent.id)}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: agent.is_active && !isLocked ? agent.color : 'var(--text-dim)',
+                boxShadow: agent.is_active && !isLocked ? `0 0 8px ${agent.color}55` : 'none',
+                flexShrink: 0,
+              }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <div className="flex items-center gap-1.5">
+                <span style={{ fontSize: '13px', fontWeight: 500, color: isLocked ? 'var(--text-dim)' : 'var(--text)' }}>
+                  {agent.display_name || agent.name}
+                </span>
+                {isCoLead && (
+                  <span className="font-mono-dm" style={{ fontSize: '8px', color: '#8a8ae0', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+                    Co-Lead
+                  </span>
+                )}
+              </div>
+              <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isReserved ? 'Reserved for future use' : agent.model || 'Select model'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {isFreeSlot && !isLocked && (
+              <span className="reveal-chip" style={{ fontSize: '8px', height: '18px', padding: '0 5px', color: 'var(--ok)', borderColor: 'rgba(78,187,127,0.2)', background: 'rgba(78,187,127,0.05)' }}>
+                Free
+              </span>
+            )}
+            {!isFreeSlot && !isReserved && !isLocked && (
+              <span className="reveal-chip" style={{ fontSize: '8px', height: '18px', padding: '0 5px' }}>
+                Paid
+              </span>
+            )}
+            {skills.length > 0 && (
+              <span className="font-mono-dm" style={{ fontSize: '8px', color: 'var(--text-dim)' }}>
+                {skills.filter(s => s.is_active).length} skill{skills.filter(s => s.is_active).length !== 1 ? 's' : ''}
+              </span>
+            )}
+            {isLocked ? (
+              <button
+                className="reveal-pill"
+                style={{ height: '22px', fontSize: '9px', gap: '3px' }}
+                onClick={e => {
+                  e.stopPropagation();
+                  dispatch({ type: 'CLOSE_TRANSIENT' });
+                  setTimeout(() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' }), 150);
+                }}
+              >
+                <Lock size={8} />
+                Add key in Vault
+              </button>
+            ) : isReserved ? (
+              <span className="reveal-chip" style={{ fontSize: '8px', height: '18px', padding: '0 5px' }}>
+                Locked
+              </span>
+            ) : (
+              <button
+                className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}
+                style={{ cursor: 'pointer', border: 'none', fontSize: '9px', height: '20px', padding: '0 6px' }}
+                onClick={e => { e.stopPropagation(); handleToggleAgent(agent.id); }}
+                title={agent.is_active ? 'Remove from broadcast' : 'Add to broadcast'}
+              >
+                {agent.is_active ? 'On' : 'Off'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* OpenRouter slot 0: free model dropdown */}
+        {agent.provider_group === 'openrouter' && agent.slot_index === 0 && !isLocked && isExpanded && (
+          <div style={{ position: 'relative', marginTop: '8px' }}>
+            <select
+              value={agent.model}
+              onChange={e => handleModelChange(agent.id, e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: '100%',
+                height: '32px',
+                padding: '0 28px 0 10px',
+                borderRadius: '10px',
+                border: '1px solid rgba(138,138,224,0.15)',
+                background: 'rgba(138,138,224,0.04)',
+                color: 'var(--text)',
+                fontSize: '11px',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                outline: 'none',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+              }}
+            >
+              {OPENROUTER_FREE_MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+            <ChevronDown
+              size={11}
+              style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)', pointerEvents: 'none' }}
+            />
+          </div>
+        )}
+
+        {/* OpenRouter slot 1: Co-Lead premium dropdown */}
+        {isCoLead && !isLocked && isExpanded && (
+          <div style={{ position: 'relative', marginTop: '8px' }}>
+            <select
+              value={agent.model}
+              onChange={e => handleModelChange(agent.id, e.target.value)}
+              onClick={e => e.stopPropagation()}
+              style={{
+                width: '100%',
+                height: '32px',
+                padding: '0 28px 0 10px',
+                borderRadius: '10px',
+                border: '1px solid rgba(138,138,224,0.15)',
+                background: 'rgba(138,138,224,0.04)',
+                color: 'var(--text)',
+                fontSize: '11px',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                outline: 'none',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+              }}
+            >
+              <option value="">Select a premium model...</option>
+              {CO_LEAD_MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+            <ChevronDown
+              size={11}
+              style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-dim)', pointerEvents: 'none' }}
+            />
+          </div>
+        )}
+
+        {isExpanded && !isReserved && !isLocked && renderExpandedSection(agent)}
+      </div>
+    );
+  };
+
   return (
     <aside className={`drawer-panel drawer-left ${isOpen ? 'open' : ''}`}>
       <div className="flex items-center justify-between gap-3 mb-6">
@@ -306,8 +495,8 @@ export default function OrchestraDrawer() {
       </div>
 
       <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '16px' }}>
-        The orchestra remains offstage until you ask for it. Roles, models, skills,
-        and scoped paths live here -- not on the planning canvas.
+        Four providers, three model slots each. Slot 1 is the free tier default.
+        Toggle slots on to add voices to the broadcast.
       </p>
 
       <div className="flex items-center gap-3 mb-5">
@@ -340,244 +529,63 @@ export default function OrchestraDrawer() {
         </button>
       </div>
 
-      <div className="reveal-label mb-3">Direct Providers</div>
+      <div className="flex flex-col gap-5">
+        {PROVIDER_GROUP_ORDER.map(groupId => {
+          const providerInfo = PROVIDER_REGISTRY.find(p => p.id === groupId);
+          const agents = agentsByGroup[groupId] ?? [];
+          if (agents.length === 0) return null;
 
-      <div className="flex flex-col gap-3">
-        {directAgents.map(agent => {
-          const providerInfo = PROVIDER_REGISTRY.find(p => p.id === agent.provider);
-          const isExpanded = expandedAgent === agent.id;
-          const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
-          const providerHasKey = hasKey(agent.provider);
+          const providerHasKey = hasKey(groupId);
+          const color = PROVIDER_COLORS[groupId] ?? 'var(--text-muted)';
+          const activeInGroup = agents.filter(a => a.is_active).length;
 
           return (
-            <div
-              key={agent.id}
-              className="reveal-card"
-              style={{ opacity: agent.is_active ? 1 : 0.55, transition: 'opacity 0.2s ease' }}
-            >
-              <div
-                className="flex items-center justify-between gap-3 mb-2"
-                style={{ cursor: 'pointer' }}
-                onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
-              >
-                <div className="flex items-center gap-2.5">
+            <div key={groupId}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
                   <div
                     style={{
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      background: agent.is_active ? agent.color : 'var(--text-dim)',
-                      boxShadow: agent.is_active ? `0 0 12px ${agent.color}55` : 'none',
+                      background: color,
+                      boxShadow: providerHasKey ? `0 0 10px ${color}55` : 'none',
                       flexShrink: 0,
-                      transition: 'all 0.2s ease',
                     }}
                   />
-                  <strong style={{ color: 'var(--text)', fontWeight: 500, fontSize: '14px' }}>
-                    {agent.name}
-                  </strong>
+                  <span style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text)' }}>
+                    {providerInfo?.name ?? groupId}
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  {skills.length > 0 && (
-                    <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
-                      {skills.filter(s => s.is_active).length} skill{skills.filter(s => s.is_active).length !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                  <button
-                    className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}
-                    style={{ cursor: 'pointer', border: 'none' }}
-                    onClick={e => { e.stopPropagation(); handleToggleAgent(agent.id); }}
-                    title={agent.is_active ? 'Click to deactivate' : 'Click to activate'}
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                    {activeInGroup}/3
+                  </span>
+                  <span
+                    className="reveal-chip"
+                    style={{
+                      fontSize: '8px',
+                      height: '18px',
+                      padding: '0 5px',
+                      gap: '3px',
+                      color: providerHasKey ? 'var(--ok)' : 'var(--risk)',
+                      borderColor: providerHasKey ? 'rgba(78,187,127,0.2)' : 'rgba(224,90,90,0.2)',
+                      background: providerHasKey ? 'rgba(78,187,127,0.05)' : 'rgba(224,90,90,0.05)',
+                    }}
                   >
-                    {agent.is_active ? 'Active' : 'Inactive'}
-                  </button>
+                    <KeyRound size={8} />
+                    {providerHasKey ? 'Key set' : 'No key'}
+                  </span>
                 </div>
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.5, marginBottom: '8px' }}>
-                {agent.role}
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="reveal-chip" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
-                  {providerInfo?.name ?? agent.provider}
-                </span>
-                <span className="reveal-chip" style={{ fontSize: '10px', height: '24px', padding: '0 8px' }}>
-                  {agent.model}
-                </span>
-                <span
-                  className="reveal-chip"
-                  style={{
-                    fontSize: '9px',
-                    height: '22px',
-                    padding: '0 7px',
-                    gap: '4px',
-                    color: providerHasKey ? 'var(--ok)' : 'var(--risk)',
-                    borderColor: providerHasKey ? 'rgba(78,187,127,0.2)' : 'rgba(224,90,90,0.2)',
-                    background: providerHasKey ? 'rgba(78,187,127,0.05)' : 'rgba(224,90,90,0.05)',
-                  }}
-                >
-                  <KeyRound size={9} />
-                  {providerHasKey ? 'Key set' : 'No key'}
-                </span>
               </div>
 
-              {isExpanded && renderExpandedSection(agent)}
+              <div className="flex flex-col gap-1.5">
+                {agents.map(agent => renderSlot(agent, providerHasKey))}
+              </div>
             </div>
           );
         })}
       </div>
-
-      {routerAgents.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 mt-6 mb-3">
-            <div className="reveal-label" style={{ margin: 0 }}>OpenRouter Voices</div>
-            <span
-              className="reveal-chip"
-              style={{
-                fontSize: '9px',
-                height: '20px',
-                padding: '0 6px',
-                color: hasKey('openrouter') ? 'var(--ok)' : 'var(--risk)',
-                borderColor: hasKey('openrouter') ? 'rgba(78,187,127,0.2)' : 'rgba(224,90,90,0.2)',
-                background: hasKey('openrouter') ? 'rgba(78,187,127,0.05)' : 'rgba(224,90,90,0.05)',
-              }}
-            >
-              <KeyRound size={8} />
-              {hasKey('openrouter') ? 'Key set' : 'No key'}
-            </span>
-          </div>
-
-          <p style={{ color: 'var(--text-dim)', fontSize: '12px', lineHeight: 1.5, marginBottom: '12px' }}>
-            Pick up to 4 models routed through your OpenRouter key.
-            Free-tier models are marked with a tag.
-          </p>
-
-          <div className="flex flex-col gap-3">
-            {routerAgents.map(agent => {
-              const isExpanded = expandedAgent === agent.id;
-              const skills = state.agentSkills.filter(s => s.agent_id === agent.id);
-              const currentModel = OPENROUTER_MODELS.find(m => m.id === agent.model);
-              const isFree = currentModel?.tier === 'free';
-
-              return (
-                <div
-                  key={agent.id}
-                  className="reveal-card"
-                  style={{
-                    opacity: agent.is_active ? 1 : 0.55,
-                    transition: 'opacity 0.2s ease',
-                    borderColor: agent.is_active ? 'rgba(138,138,224,0.15)' : undefined,
-                  }}
-                >
-                  <div
-                    className="flex items-center justify-between gap-3 mb-2"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setExpandedAgent(isExpanded ? null : agent.id)}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        style={{
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          background: agent.is_active ? '#8a8ae0' : 'var(--text-dim)',
-                          boxShadow: agent.is_active ? '0 0 12px rgba(138,138,224,0.35)' : 'none',
-                          flexShrink: 0,
-                          transition: 'all 0.2s ease',
-                        }}
-                      />
-                      <strong style={{ color: 'var(--text)', fontWeight: 500, fontSize: '14px' }}>
-                        {agent.name}
-                      </strong>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {skills.length > 0 && (
-                        <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
-                          {skills.filter(s => s.is_active).length} skill{skills.filter(s => s.is_active).length !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                      <button
-                        className={`reveal-chip ${agent.is_active ? 'accent' : ''}`}
-                        style={{ cursor: 'pointer', border: 'none' }}
-                        onClick={e => { e.stopPropagation(); handleToggleAgent(agent.id); }}
-                        title={agent.is_active ? 'Click to deactivate' : 'Click to activate'}
-                      >
-                        {agent.is_active ? 'Active' : 'Inactive'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ position: 'relative', marginBottom: '8px' }}>
-                    <select
-                      value={agent.model}
-                      onChange={e => handleModelChange(agent.id, e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                      style={{
-                        width: '100%',
-                        height: '34px',
-                        padding: '0 28px 0 10px',
-                        borderRadius: '10px',
-                        border: '1px solid rgba(138,138,224,0.15)',
-                        background: 'rgba(138,138,224,0.04)',
-                        color: 'var(--text)',
-                        fontSize: '12px',
-                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                        outline: 'none',
-                        cursor: 'pointer',
-                        appearance: 'none',
-                        WebkitAppearance: 'none',
-                      }}
-                    >
-                      <optgroup label="Free Tier">
-                        {OPENROUTER_MODELS.filter(m => m.tier === 'free').map(m => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Paid">
-                        {OPENROUTER_MODELS.filter(m => m.tier === 'paid').map(m => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
-                      </optgroup>
-                    </select>
-                    <ChevronDown
-                      size={12}
-                      style={{
-                        position: 'absolute',
-                        right: '10px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'var(--text-dim)',
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {isFree && (
-                      <span
-                        className="reveal-chip"
-                        style={{
-                          fontSize: '9px',
-                          height: '20px',
-                          padding: '0 6px',
-                          color: 'var(--ok)',
-                          borderColor: 'rgba(78,187,127,0.2)',
-                          background: 'rgba(78,187,127,0.05)',
-                        }}
-                      >
-                        Free
-                      </span>
-                    )}
-                    <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
-                      {agent.model}
-                    </span>
-                  </div>
-
-                  {isExpanded && renderExpandedSection(agent)}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
     </aside>
   );
 }
