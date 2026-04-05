@@ -67,6 +67,17 @@ body {
   color: var(--text);
 }
 
+select option,
+select optgroup {
+  background: #1a1a1f;
+  color: var(--text);
+}
+
+select option:checked {
+  background: rgba(138,138,224,0.25);
+  color: #fff;
+}
+
 @layer utilities {
   .font-syne { font-family: 'Syne', sans-serif; }
   .font-mono-dm { font-family: 'DM Mono', monospace; }
