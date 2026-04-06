@@ -1,4 +1,5 @@
 import { useMaestro } from '../../context/MaestroContext';
+import { Github } from 'lucide-react';
 
 export default function HeroContext() {
   const { state } = useMaestro();
@@ -8,6 +9,8 @@ export default function HeroContext() {
   const activeAgentCount = state.agents.filter(a => a.is_active).length;
 
   const hasContent = latestRound !== null;
+  const boundRepo = state.activeSession?.github_repo
+    || (state.activeRepoConnection ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}` : '');
 
   return (
     <section
@@ -30,6 +33,23 @@ export default function HeroContext() {
       >
         {hasContent ? `Round ${String(currentRound).padStart(2, '0')} -- ${activeAgentCount} voices` : 'Intentional by default'}
       </div>
+
+      {boundRepo && (
+        <div
+          className="font-mono-dm flex items-center justify-center gap-1.5"
+          style={{
+            color: 'var(--text-dim)',
+            fontSize: '10px',
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase' as const,
+            marginBottom: '10px',
+            opacity: 0.8,
+          }}
+        >
+          <Github size={10} />
+          <span>{boundRepo}</span>
+        </div>
+      )}
 
       <h1
         className="font-syne"

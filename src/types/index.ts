@@ -58,6 +58,8 @@ export interface Session {
   title: string;
   execution_mode: ExecutionMode;
   status: SessionStatus;
+  github_repo?: string;
+  supabase_project_url?: string;
   created_at: string;
 }
 

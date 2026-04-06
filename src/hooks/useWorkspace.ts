@@ -130,6 +130,17 @@ export function useWorkspace() {
       return latest;
     }
 
+    // Auto-bind to the active repo connection if one exists for this workspace
+    const { data: rawActiveRepo } = await supabase
+      .from('repo_connections')
+      .select('owner, repo')
+      .eq('workspace_id', workspaceId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle();
+    const activeRepo = rawActiveRepo as { owner: string; repo: string } | null;
+    const githubRepo = activeRepo ? `${activeRepo.owner}/${activeRepo.repo}` : '';
+
     const { data: rawNewSession } = await supabase
       .from('sessions')
       .insert({
@@ -138,6 +149,7 @@ export function useWorkspace() {
         title: 'Maestro — Session 1',
         execution_mode: 'pr_flow',
         status: 'active',
+        github_repo: githubRepo,
       } as never)
       .select()
       .maybeSingle();
@@ -239,6 +251,9 @@ export function useWorkspace() {
   const createSession = useCallback(async (workspaceId: string) => {
     if (!user) return null;
     const sessionCount = state.sessions.length + 1;
+    const activeRepo = state.activeRepoConnection;
+    const githubRepo = activeRepo ? `${activeRepo.owner}/${activeRepo.repo}` : '';
+
     const { data: rawNew } = await supabase
       .from('sessions')
       .insert({
@@ -247,6 +262,7 @@ export function useWorkspace() {
         title: `Session ${sessionCount}`,
         execution_mode: 'pr_flow',
         status: 'active',
+        github_repo: githubRepo,
       } as never)
       .select()
       .maybeSingle();
@@ -263,7 +279,7 @@ export function useWorkspace() {
     dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
     dispatch({ type: 'SET_SESSIONS', payload: [newSession, ...state.sessions] });
     return newSession;
-  }, [user, state.sessions, dispatch]);
+  }, [user, state.sessions, state.activeRepoConnection, dispatch]);
 
   const switchSession = useCallback(async (session: Session) => {
     dispatch({ type: 'SET_ACTIVE_SESSION', payload: session });
