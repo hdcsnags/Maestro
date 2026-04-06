@@ -204,26 +204,38 @@ export interface AgentDefault {
   provider_group: string;
 }
 
+// Canonical 5×3 lineup. Must stay in sync with the reseed migration
+// (20260406150000_reseed_agents_5x3.sql). Default-on policy: only the four
+// free-or-near-free slot-0 entries are is_active=true. All premium slots —
+// including OpenRouter B slot 0 — are OFF by default. A brand-new user can
+// sign up, broadcast, and pay $0 by default.
 export const AGENT_DEFAULTS: AgentDefault[] = [
-  // Anthropic — 3 slots
-  { name: 'Claude Haiku 4.5', display_name: 'Claude Haiku 4.5', role: 'Fast analysis · Triage', provider: 'anthropic', model: 'claude-haiku-4-5', color: '#e07b5a', is_active: true, slot_index: 0, provider_group: 'anthropic' },
-  { name: 'Claude Sonnet 4.6', display_name: 'Claude Sonnet 4.6', role: 'Build lead · Code generation', provider: 'anthropic', model: 'claude-sonnet-4-6', color: '#e07b5a', is_active: false, slot_index: 1, provider_group: 'anthropic' },
-  { name: 'Claude Opus 4.6', display_name: 'Claude Opus 4.6', role: 'Deep reasoning · Architecture', provider: 'anthropic', model: 'claude-opus-4-6', color: '#e07b5a', is_active: false, slot_index: 2, provider_group: 'anthropic' },
+  // ─── Anthropic ──────────────────────────────────────────────────
+  { name: 'Claude Haiku 4.5',  display_name: 'Claude Haiku 4.5',  role: 'Fast analysis · Triage',          provider: 'anthropic', model: 'claude-haiku-4-5',  color: '#e07b5a', is_active: true,  slot_index: 0, provider_group: 'anthropic' },
+  { name: 'Claude Sonnet 4.6', display_name: 'Claude Sonnet 4.6', role: 'Build lead · Code generation',    provider: 'anthropic', model: 'claude-sonnet-4-6', color: '#e07b5a', is_active: false, slot_index: 1, provider_group: 'anthropic' },
+  { name: 'Claude Opus 4.6',   display_name: 'Claude Opus 4.6',   role: 'Deep reasoning · Architecture',   provider: 'anthropic', model: 'claude-opus-4-6',   color: '#e07b5a', is_active: false, slot_index: 2, provider_group: 'anthropic' },
 
-  // OpenAI — 3 slots
-  { name: 'GPT-4o mini', display_name: 'GPT-4o mini', role: 'Fast drafting · Summarization', provider: 'openai', model: 'gpt-4o-mini', color: '#5ab88e', is_active: true, slot_index: 0, provider_group: 'openai' },
-  { name: 'GPT-4o', display_name: 'GPT-4o', role: 'PM · Policy · Scope enforcement', provider: 'openai', model: 'gpt-4o', color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai' },
-  { name: 'o1', display_name: 'o1', role: 'Reasoning · Complex analysis', provider: 'openai', model: 'o1', color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai' },
+  // ─── OpenAI ─────────────────────────────────────────────────────
+  { name: 'GPT-4o mini', display_name: 'GPT-4o mini', role: 'Fast drafting · Summarization',     provider: 'openai', model: 'gpt-4o-mini', color: '#5ab88e', is_active: true,  slot_index: 0, provider_group: 'openai' },
+  { name: 'GPT-4o',      display_name: 'GPT-4o',      role: 'PM · Policy · Scope enforcement',   provider: 'openai', model: 'gpt-4o',      color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai' },
+  { name: 'o1',          display_name: 'o1',          role: 'Reasoning · Complex analysis',      provider: 'openai', model: 'o1',          color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai' },
 
-  // Gemini — 3 slots
-  { name: 'Gemini Flash 2.0', display_name: 'Gemini Flash 2.0', role: 'Speed · Design · Spatial UI', provider: 'google', model: 'gemini-2.0-flash', color: '#5a8fe0', is_active: true, slot_index: 0, provider_group: 'google' },
-  { name: 'Gemini 1.5 Pro', display_name: 'Gemini 1.5 Pro', role: 'Research · Long context', provider: 'google', model: 'gemini-1.5-pro', color: '#5a8fe0', is_active: false, slot_index: 1, provider_group: 'google' },
-  { name: 'Gemini Ultra', display_name: 'Gemini Ultra', role: 'Advanced reasoning · Multimodal', provider: 'google', model: 'gemini-ultra', color: '#5a8fe0', is_active: false, slot_index: 2, provider_group: 'google' },
+  // ─── Google Gemini ──────────────────────────────────────────────
+  { name: 'Gemini Flash 2.0', display_name: 'Gemini Flash 2.0', role: 'Speed · Design · Spatial UI', provider: 'google', model: 'gemini-2.0-flash', color: '#5a8fe0', is_active: true,  slot_index: 0, provider_group: 'google' },
+  { name: 'Gemini 1.5 Pro',   display_name: 'Gemini 1.5 Pro',   role: 'Research · Long context',     provider: 'google', model: 'gemini-1.5-pro',   color: '#5a8fe0', is_active: false, slot_index: 1, provider_group: 'google' },
+  { name: 'Gemini 1.5 Flash', display_name: 'Gemini 1.5 Flash', role: 'Long context · Flash',        provider: 'google', model: 'gemini-1.5-flash', color: '#5a8fe0', is_active: false, slot_index: 2, provider_group: 'google' },
 
-  // OpenRouter — 3 slots
-  { name: 'Qwen 3 235B', display_name: 'Qwen 3 235B', role: 'Free tier · General purpose', provider: 'openrouter', model: 'qwen/qwen3-235b-a22b:free', color: '#8a8ae0', is_active: true, slot_index: 0, provider_group: 'openrouter' },
-  { name: 'Co-Lead', display_name: 'Co-Lead', role: 'Premium co-lead via OpenRouter', provider: 'openrouter', model: '', color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter' },
-  { name: 'Reserved', display_name: 'Reserved', role: 'Reserved for future use', provider: 'openrouter', model: '', color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter' },
+  // ─── OpenRouter A — Free row ────────────────────────────────────
+  { name: 'Qwen 3 235B',        display_name: 'Qwen 3 235B',        role: 'Free · General purpose flagship', provider: 'openrouter', model: 'qwen/qwen3-235b-a22b:free',         color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a' },
+  { name: 'DeepSeek V3 (free)', display_name: 'DeepSeek V3 (free)', role: 'Free · Coding heavyweight',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_a' },
+  { name: 'Llama 4 Maverick',   display_name: 'Llama 4 Maverick',   role: 'Free · Meta frontier',            provider: 'openrouter', model: 'meta-llama/llama-4-maverick:free',  color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_a' },
+
+  // ─── OpenRouter B — Premium row (all OFF by default) ────────────
+  { name: 'Sonnet 4.6 (OR)', display_name: 'Sonnet 4.6 (OR)', role: 'Premium · Build lead',              provider: 'openrouter', model: 'anthropic/claude-sonnet-4-6',     color: '#8a8ae0', is_active: false, slot_index: 0, provider_group: 'openrouter_b' },
+  { name: 'GPT-4o (OR)',     display_name: 'GPT-4o (OR)',     role: 'Premium · Policy · PM',             provider: 'openrouter', model: 'openai/gpt-4o',                   color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_b' },
+  // Kimi K2 — Moonshot rotates slugs (e.g. moonshotai/kimi-k2-0905). If
+  // broadcasts to this slot 404, update to whatever OpenRouter currently lists.
+  { name: 'Kimi K2',         display_name: 'Kimi K2',         role: 'Premium · Long context · Reasoning', provider: 'openrouter', model: 'moonshotai/kimi-k2',              color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_b' },
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [

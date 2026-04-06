@@ -48,54 +48,43 @@ export function useWorkspace() {
   const ensureAgents = useCallback(async (workspaceId: string) => {
     if (!user) return;
 
-    const { data: rawExistingAgents } = await supabase
+    // Race-safe seed. Upsert all 15 canonical defaults in one round trip,
+    // keyed on the unique (workspace_id, provider_group, slot_index)
+    // constraint added in 20260406150100_unique_agent_slots.sql. Existing
+    // rows are left untouched (ignoreDuplicates: true) so user toggles like
+    // is_active aren't clobbered on every page load. Concurrent calls from
+    // multiple tabs collapse to a single canonical row per slot.
+    await supabase
+      .from('agents')
+      .upsert(
+        AGENT_DEFAULTS.map(a => ({
+          workspace_id: workspaceId,
+          user_id: user.id,
+          name: a.name,
+          display_name: a.display_name,
+          role: a.role,
+          provider: a.provider,
+          model: a.model,
+          color: a.color,
+          is_active: a.is_active,
+          sort_order: a.slot_index,
+          slot_index: a.slot_index,
+          provider_group: a.provider_group,
+        })) as never,
+        { onConflict: 'workspace_id,provider_group,slot_index', ignoreDuplicates: true }
+      );
+
+    // Read back the canonical state, ordered by provider group then slot.
+    const { data: rawAgents } = await supabase
       .from('agents')
       .select('*')
       .eq('workspace_id', workspaceId)
       .eq('user_id', user.id)
-      .order('sort_order', { ascending: true });
+      .order('provider_group', { ascending: true })
+      .order('slot_index', { ascending: true });
 
-    const existingAgents = (rawExistingAgents ?? []) as Agent[];
-
-    // Deduplicate: find which provider_group + slot_index combinations already exist
-    const existingSlots = new Set(
-      existingAgents
-        .filter(a => a.provider_group && a.slot_index !== undefined)
-        .map(a => `${a.provider_group}:${a.slot_index}`)
-    );
-
-    // Determine which defaults need to be inserted
-    const toInsert = AGENT_DEFAULTS.filter(
-      a => !existingSlots.has(`${a.provider_group}:${a.slot_index}`)
-    );
-
-    if (toInsert.length > 0) {
-      const startSort = existingAgents.length;
-      const { data: rawNew } = await supabase
-        .from('agents')
-        .insert(
-          toInsert.map((a, i) => ({
-            workspace_id: workspaceId,
-            user_id: user.id,
-            name: a.name,
-            display_name: a.display_name,
-            role: a.role,
-            provider: a.provider,
-            model: a.model,
-            color: a.color,
-            is_active: a.is_active,
-            sort_order: startSort + i,
-            slot_index: a.slot_index,
-            provider_group: a.provider_group,
-          })) as never
-        )
-        .select();
-
-      const newAgents = (rawNew ?? []) as Agent[];
-      dispatch({ type: 'SET_AGENTS', payload: [...existingAgents, ...newAgents] });
-    } else {
-      dispatch({ type: 'SET_AGENTS', payload: existingAgents });
-    }
+    const agents = (rawAgents ?? []) as Agent[];
+    dispatch({ type: 'SET_AGENTS', payload: agents });
   }, [user, dispatch]);
 
   const loadSessions = useCallback(async (workspaceId: string) => {
