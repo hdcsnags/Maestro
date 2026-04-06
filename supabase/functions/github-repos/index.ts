@@ -50,25 +50,39 @@ Deno.serve(async (req: Request) => {
 
     const ghToken = secret.encrypted_key;
 
-    const ghResponse = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member", {
-      headers: {
-        Authorization: `Bearer ${ghToken}`,
-        "User-Agent": "Maestro",
-        Accept: "application/vnd.github+json",
-      },
-    });
+    const allRawRepos: Record<string, unknown>[] = [];
+    let page = 1;
+    const maxPages = 10; // safety cap: 1000 repos max
 
-    if (!ghResponse.ok) {
-      const errData = await ghResponse.json();
-      return new Response(JSON.stringify({ error: errData.message || "GitHub API error", repos: [] }), {
-        status: ghResponse.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    while (page <= maxPages) {
+      const ghResponse = await fetch(
+        `https://api.github.com/user/repos?per_page=100&page=${page}&sort=updated&direction=desc&affiliation=owner,collaborator,organization_member`,
+        {
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            "User-Agent": "Maestro",
+            Accept: "application/vnd.github+json",
+          },
+        }
+      );
+
+      if (!ghResponse.ok) {
+        const errData = await ghResponse.json();
+        return new Response(JSON.stringify({ error: errData.message || "GitHub API error", repos: [] }), {
+          status: ghResponse.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const pageRepos = await ghResponse.json();
+      allRawRepos.push(...pageRepos);
+
+      // Stop if this page returned fewer than 100 (last page)
+      if (pageRepos.length < 100) break;
+      page++;
     }
 
-    const rawRepos = await ghResponse.json();
-
-    const repos = rawRepos.map((r: Record<string, unknown>) => ({
+    const repos = allRawRepos.map((r) => ({
       full_name: r.full_name,
       owner: (r.owner as Record<string, unknown>)?.login ?? "",
       name: r.name,
