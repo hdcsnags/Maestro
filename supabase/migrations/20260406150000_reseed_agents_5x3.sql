@@ -79,16 +79,16 @@ CROSS JOIN (VALUES
    'openai','o1','#5ab88e',false,2,'openai'),
 
   -- ─── Google Gemini ────────────────────────────────────────
-  ('Gemini Flash 2.0','Gemini Flash 2.0','Speed · Design · Spatial UI',
-   'google','gemini-2.0-flash','#5a8fe0',true ,0,'google'),
+  ('Gemini 3 Flash','Gemini 3 Flash','Speed · Design · Spatial UI',
+   'google','gemini-3-flash-preview','#5a8fe0',true ,0,'google'),
   ('Gemini 1.5 Pro','Gemini 1.5 Pro','Research · Long context',
    'google','gemini-1.5-pro','#5a8fe0',false,1,'google'),
   ('Gemini 1.5 Flash','Gemini 1.5 Flash','Long context · Flash',
    'google','gemini-1.5-flash','#5a8fe0',false,2,'google'),
 
   -- ─── OpenRouter A — Free row ──────────────────────────────
-  ('Qwen 3 235B','Qwen 3 235B','Free · General purpose flagship',
-   'openrouter','qwen/qwen3-235b-a22b:free','#8a8ae0',true ,0,'openrouter_a'),
+  ('Qwen 3.6 Plus','Qwen 3.6 Plus','Free · General purpose flagship',
+   'openrouter','qwen/qwen3.6-plus:free','#8a8ae0',true ,0,'openrouter_a'),
   ('DeepSeek V3 (free)','DeepSeek V3 (free)','Free · Coding heavyweight',
    'openrouter','deepseek/deepseek-chat-v3-0324:free','#8a8ae0',false,1,'openrouter_a'),
   ('Llama 4 Maverick','Llama 4 Maverick','Free · Meta frontier',

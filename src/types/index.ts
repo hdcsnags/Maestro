@@ -221,12 +221,12 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   { name: 'o1',          display_name: 'o1',          role: 'Reasoning · Complex analysis',      provider: 'openai', model: 'o1',          color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai' },
 
   // ─── Google Gemini ──────────────────────────────────────────────
-  { name: 'Gemini Flash 2.0', display_name: 'Gemini Flash 2.0', role: 'Speed · Design · Spatial UI', provider: 'google', model: 'gemini-2.0-flash', color: '#5a8fe0', is_active: true,  slot_index: 0, provider_group: 'google' },
+  { name: 'Gemini 3 Flash', display_name: 'Gemini 3 Flash', role: 'Speed · Design · Spatial UI', provider: 'google', model: 'gemini-3-flash-preview', color: '#5a8fe0', is_active: true,  slot_index: 0, provider_group: 'google' },
   { name: 'Gemini 1.5 Pro',   display_name: 'Gemini 1.5 Pro',   role: 'Research · Long context',     provider: 'google', model: 'gemini-1.5-pro',   color: '#5a8fe0', is_active: false, slot_index: 1, provider_group: 'google' },
   { name: 'Gemini 1.5 Flash', display_name: 'Gemini 1.5 Flash', role: 'Long context · Flash',        provider: 'google', model: 'gemini-1.5-flash', color: '#5a8fe0', is_active: false, slot_index: 2, provider_group: 'google' },
 
   // ─── OpenRouter A — Free row ────────────────────────────────────
-  { name: 'Qwen 3 235B',        display_name: 'Qwen 3 235B',        role: 'Free · General purpose flagship', provider: 'openrouter', model: 'qwen/qwen3-235b-a22b:free',         color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a' },
+  { name: 'Qwen 3.6 Plus',      display_name: 'Qwen 3.6 Plus',      role: 'Free · General purpose flagship', provider: 'openrouter', model: 'qwen/qwen3.6-plus:free',           color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a' },
   { name: 'DeepSeek V3 (free)', display_name: 'DeepSeek V3 (free)', role: 'Free · Coding heavyweight',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_a' },
   { name: 'Llama 4 Maverick',   display_name: 'Llama 4 Maverick',   role: 'Free · Meta frontier',            provider: 'openrouter', model: 'meta-llama/llama-4-maverick:free',  color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_a' },
 
@@ -239,7 +239,6 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
-  { id: 'qwen/qwen3-235b-a22b:free', label: 'Qwen 3 235B', tier: 'free' },
   { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
   { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
   { id: 'meta-llama/llama-4-maverick:free', label: 'Llama 4 Maverick', tier: 'free' },
@@ -277,12 +276,11 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
   { id: 'meta-llama/llama-4-maverick:free', label: 'Llama 4 Maverick', tier: 'free' },
   { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
   { id: 'nvidia/nemotron-3-super:free', label: 'Nemotron 3 Super', tier: 'free' },
-  { id: 'qwen/qwen3-235b-a22b:free', label: 'Qwen 3 235B', tier: 'free' },
 ];
 
 export const PROVIDER_REGISTRY = [
   { id: 'anthropic', name: 'Anthropic', models: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'] },
   { id: 'openai', name: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o', 'o1'] },
-  { id: 'google', name: 'Google Gemini', models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-ultra'] },
+  { id: 'google', name: 'Google Gemini', models: ['gemini-3-flash-preview', 'gemini-1.5-pro', 'gemini-1.5-flash'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
 ];
