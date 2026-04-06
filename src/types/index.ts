@@ -159,6 +159,12 @@ export interface ExecutionRun {
   updated_at: string;
 }
 
+export interface ApprovalFileEntry {
+  path: string;
+  lines_added?: number;
+  lines_removed?: number;
+}
+
 export interface ApprovalRequest {
   id: string;
   execution_run_id: string;
@@ -168,6 +174,15 @@ export interface ApprovalRequest {
   status: ApprovalStatus;
   decided_at: string | null;
   created_at: string;
+  // P11 scope binding
+  expires_at?: string | null;
+  repo_connection_id?: string | null;
+  branch_name?: string;
+  scope_paths?: string[];
+  agent_name?: string;
+  files_affected?: ApprovalFileEntry[];
+  lines_added?: number;
+  lines_removed?: number;
 }
 
 export const PROVIDER_COLORS: Record<string, string> = {

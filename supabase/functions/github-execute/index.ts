@@ -20,10 +20,18 @@ interface ExecuteRequest {
   mode: "per_agent" | "synthesized";
   repo_connection_id: string;
   execution_run_id: string;
+  approval_request_id?: string | null;
   patches: AgentPatch[];
   synthesis_content?: string;
   commit_message?: string;
   conductor_approved?: boolean;
+}
+
+function scopePathsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
 }
 
 /**
@@ -205,6 +213,73 @@ Deno.serve(async (req: Request) => {
     const owner = repoConn.owner;
     const repo = repoConn.repo;
     const defaultBranch = repoConn.default_branch || "main";
+
+    // P11 — Elevated runs must reference a valid, scope-matching approval_request.
+    const { data: runRow } = await supabase
+      .from("execution_runs")
+      .select("execution_mode")
+      .eq("id", execution_run_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (runRow?.execution_mode === "elevated") {
+      if (!body.approval_request_id) {
+        return new Response(
+          JSON.stringify({ error: "Elevated execution requires approval_request_id" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const { data: approval } = await supabase
+        .from("approval_requests")
+        .select("*")
+        .eq("id", body.approval_request_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!approval || approval.status !== "approved") {
+        return new Response(
+          JSON.stringify({ error: "Approval request not found or not approved" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if (approval.expires_at && new Date(approval.expires_at).getTime() < Date.now()) {
+        return new Response(
+          JSON.stringify({ error: "Approval has expired" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if (approval.repo_connection_id !== repo_connection_id) {
+        return new Response(
+          JSON.stringify({ error: "Approval scope mismatch: repo_connection_id" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if ((approval.branch_name ?? "") !== defaultBranch) {
+        return new Response(
+          JSON.stringify({ error: "Approval scope mismatch: branch_name" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Derive effective scope paths from this request: union across patches,
+      // or [] if any patch is unscoped or conductor_approved is set globally.
+      const anyUnscoped = (body.conductor_approved ?? false)
+        || patches.some(p => !p.scoped_paths || p.scoped_paths.length === 0);
+      const effectiveScope = anyUnscoped
+        ? []
+        : Array.from(new Set(patches.flatMap(p => p.scoped_paths))).sort();
+
+      if (!scopePathsEqual(approval.scope_paths ?? [], effectiveScope)) {
+        return new Response(
+          JSON.stringify({ error: "Approval scope mismatch: scope_paths" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     await supabase
       .from("execution_runs")

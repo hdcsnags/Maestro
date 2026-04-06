@@ -2,8 +2,25 @@ import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { ExecutionRun, ExecutionStrategy } from '../../types';
+import { ExecutionRun, ApprovalRequest, ApprovalFileEntry } from '../../types';
 import { X, GitBranch, GitMerge, Loader2, ExternalLink, AlertTriangle, Check } from 'lucide-react';
+import ApprovalModal from './ApprovalModal';
+
+// Union + sort scope paths across agents. Returns [] if any agent is unscoped
+// (which implicitly means "entire repo" — approval must be re-requested each run).
+function unionScopePaths(paths: string[][]): string[] {
+  if (paths.some(p => p.length === 0)) return [];
+  const set = new Set<string>();
+  paths.forEach(arr => arr.forEach(p => set.add(p)));
+  return Array.from(set).sort();
+}
+
+function scopePathsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((v, i) => v === sb[i]);
+}
 
 export default function ExecutionModal() {
   const { state, dispatch } = useMaestro();
@@ -14,6 +31,9 @@ export default function ExecutionModal() {
   const [error, setError] = useState('');
   const [completedRun, setCompletedRun] = useState<ExecutionRun | null>(null);
   const [conductorOverride, setConductorOverride] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null);
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
 
   if (!state.executionModalOpen) return null;
 
@@ -38,75 +58,222 @@ export default function ExecutionModal() {
     setCompletedRun(null);
   };
 
+  // Scope binding for approval: the set of paths writes will touch, anchored
+  // to the PR base branch. Union across per-agent scopes; empty = "unscoped"
+  // (conductor override required, approval reuse disabled).
+  const agentScopes = latestResponses.map(r =>
+    state.agents.find(a => a.id === r.agent_id)?.scoped_paths ?? []
+  );
+  const effectiveScopePaths = conductorOverride ? [] : unionScopePaths(agentScopes);
+  const scopeBranch = activeRepo?.default_branch ?? '';
+
+  const filesAffected: ApprovalFileEntry[] = latestResponses.flatMap(r => {
+    const mods = (r.signals as Record<string, unknown> | undefined)?.files_modified;
+    if (Array.isArray(mods)) return mods.map(p => ({ path: String(p) }));
+    return [];
+  });
+
+  const createRun = async (status: 'approved' | 'pending') => {
+    if (!user || !activeRepo || !state.activeSession) throw new Error('Missing context');
+    const { data: rawRun } = await supabase
+      .from('execution_runs')
+      .insert({
+        session_id: state.activeSession.id,
+        user_id: user.id,
+        synthesis_id: latestSynthesis?.id ?? null,
+        repo_connection_id: activeRepo.id,
+        execution_mode: state.executionMode,
+        status,
+        strategy,
+        patch_content: latestSynthesis?.content ?? latestResponses.map(r => r.content).join('\n\n---\n\n'),
+        requires_approval: state.executionMode !== 'analyze',
+      } as never)
+      .select()
+      .maybeSingle();
+    const run = rawRun as ExecutionRun | null;
+    if (!run) throw new Error('Failed to create execution run');
+    dispatch({ type: 'ADD_EXECUTION_RUN', payload: run });
+    return run;
+  };
+
+  const doExecute = async (runId: string, approvalRequestId: string | null) => {
+    const patches = latestResponses.map(r => ({
+      agent_name: r.agent_name,
+      agent_id: r.agent_id ?? '',
+      content: r.content,
+      scoped_paths: state.agents.find(a => a.id === r.agent_id)?.scoped_paths ?? [],
+      commit_message: r.title || `${r.agent_name} contribution`,
+      conductor_approved: conductorOverride,
+    }));
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: strategy,
+        repo_connection_id: activeRepo!.id,
+        execution_run_id: runId,
+        approval_request_id: approvalRequestId,
+        patches,
+        conductor_approved: conductorOverride,
+        synthesis_content: latestSynthesis?.content,
+        commit_message: `[Maestro] Round ${latestRound?.round_number ?? 0} — ${strategy === 'per_agent' ? 'Society of Mind' : 'Synthesized'}`,
+      }),
+    });
+
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Execution failed');
+
+    const updatedRun = {
+      ...(state.executionRuns.find(r => r.id === runId) as ExecutionRun),
+      status: 'complete' as const,
+      result: result.result,
+      pr_url: result.result?.prs?.[0] ?? '',
+    };
+    dispatch({ type: 'UPDATE_EXECUTION_RUN', payload: { id: runId, ...updatedRun } });
+    setCompletedRun(updatedRun);
+  };
+
+  const findReusableApproval = async (): Promise<string | null> => {
+    if (!user || !activeRepo) return null;
+    // Reuse requires exact repo_connection + branch match AND exact scope_paths
+    // array match. Never reuse when effectiveScopePaths is empty (unscoped).
+    if (effectiveScopePaths.length === 0) return null;
+
+    const { data } = await supabase
+      .from('approval_requests')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('repo_connection_id', activeRepo.id)
+      .eq('branch_name', scopeBranch)
+      .eq('status', 'approved')
+      .gt('expires_at', new Date().toISOString());
+
+    const rows = (data ?? []) as ApprovalRequest[];
+    const match = rows.find(r => scopePathsEqual(r.scope_paths ?? [], effectiveScopePaths));
+    return match?.id ?? null;
+  };
+
   const handleExecute = async () => {
     if (!user || !activeRepo || !state.activeSession) return;
     setExecuting(true);
     setError('');
 
     try {
-      const { data: rawRun } = await supabase
-        .from('execution_runs')
+      // Non-elevated paths execute immediately as before.
+      if (state.executionMode !== 'elevated') {
+        const run = await createRun('approved');
+        await doExecute(run.id, null);
+        setExecuting(false);
+        return;
+      }
+
+      // Elevated: try to reuse an existing live approval with matching scope.
+      const reusableId = await findReusableApproval();
+      const run = await createRun(reusableId ? 'approved' : 'pending');
+
+      if (reusableId) {
+        await doExecute(run.id, reusableId);
+        setExecuting(false);
+        return;
+      }
+
+      // No reusable approval — create a pending approval_request and show modal.
+      const totalAdded = filesAffected.reduce((a, f) => a + (f.lines_added ?? 0), 0);
+      const totalRemoved = filesAffected.reduce((a, f) => a + (f.lines_removed ?? 0), 0);
+      const agentNames = latestResponses.map(r => r.agent_name).join(', ');
+
+      const { data: rawApproval, error: aErr } = await supabase
+        .from('approval_requests')
         .insert({
-          session_id: state.activeSession.id,
+          execution_run_id: run.id,
           user_id: user.id,
-          synthesis_id: latestSynthesis?.id ?? null,
+          action_type: strategy === 'per_agent' ? 'per-agent branch writes' : 'synthesized PR',
+          description: `Round ${latestRound?.round_number ?? 0}: ${agentNames}`,
+          status: 'pending',
           repo_connection_id: activeRepo.id,
-          execution_mode: state.executionMode,
-          status: 'approved',
-          strategy,
-          patch_content: latestSynthesis?.content ?? latestResponses.map(r => r.content).join('\n\n---\n\n'),
-          requires_approval: state.executionMode !== 'analyze',
+          branch_name: scopeBranch,
+          scope_paths: effectiveScopePaths,
+          agent_name: agentNames,
+          files_affected: filesAffected,
+          lines_added: totalAdded,
+          lines_removed: totalRemoved,
         } as never)
         .select()
         .maybeSingle();
 
-      const run = rawRun as ExecutionRun | null;
-      if (!run) throw new Error('Failed to create execution run');
+      if (aErr || !rawApproval) throw new Error(aErr?.message || 'Failed to create approval request');
 
-      dispatch({ type: 'ADD_EXECUTION_RUN', payload: run });
-
-      const patches = latestResponses.map(r => ({
-        agent_name: r.agent_name,
-        agent_id: r.agent_id ?? '',
-        content: r.content,
-        scoped_paths: state.agents.find(a => a.id === r.agent_id)?.scoped_paths ?? [],
-        commit_message: r.title || `${r.agent_name} contribution`,
-        conductor_approved: conductorOverride,
-      }));
-
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: strategy,
-          repo_connection_id: activeRepo.id,
-          execution_run_id: run.id,
-          patches,
-          conductor_approved: conductorOverride,
-          synthesis_content: latestSynthesis?.content,
-          commit_message: `[Maestro] Round ${latestRound?.round_number ?? 0} — ${strategy === 'per_agent' ? 'Society of Mind' : 'Synthesized'}`,
-        }),
-      });
-
-      const result = await res.json();
-
-      if (!res.ok) throw new Error(result.error || 'Execution failed');
-
-      const updatedRun = { ...run, status: 'complete' as const, result: result.result, pr_url: result.result?.prs?.[0] ?? '' };
-      dispatch({ type: 'UPDATE_EXECUTION_RUN', payload: { id: run.id, ...updatedRun } });
-      setCompletedRun(updatedRun);
-
+      setPendingApproval(rawApproval as ApprovalRequest);
+      setPendingRunId(run.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Execution failed');
     }
     setExecuting(false);
+  };
+
+  const handleApprove = async (expiresInMinutes: number | null) => {
+    if (!pendingApproval || !pendingRunId) return;
+    setApprovalBusy(true);
+    setError('');
+    try {
+      const now = new Date();
+      const expiresAt = expiresInMinutes
+        ? new Date(now.getTime() + expiresInMinutes * 60_000).toISOString()
+        : null;
+
+      const { error: updErr } = await supabase
+        .from('approval_requests')
+        .update({
+          status: 'approved',
+          decided_at: now.toISOString(),
+          expires_at: expiresAt,
+        } as never)
+        .eq('id', pendingApproval.id);
+      if (updErr) throw new Error(updErr.message);
+
+      await supabase
+        .from('execution_runs')
+        .update({ status: 'approved', approved_at: now.toISOString() } as never)
+        .eq('id', pendingRunId);
+
+      const runId = pendingRunId;
+      const approvalId = pendingApproval.id;
+      setPendingApproval(null);
+      setPendingRunId(null);
+      setExecuting(true);
+      await doExecute(runId, approvalId);
+      setExecuting(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approval failed');
+      setExecuting(false);
+    }
+    setApprovalBusy(false);
+  };
+
+  const handleDeny = async () => {
+    if (!pendingApproval || !pendingRunId) return;
+    setApprovalBusy(true);
+    try {
+      await supabase
+        .from('approval_requests')
+        .update({ status: 'rejected', decided_at: new Date().toISOString() } as never)
+        .eq('id', pendingApproval.id);
+      await supabase
+        .from('execution_runs')
+        .update({ status: 'failed' } as never)
+        .eq('id', pendingRunId);
+      setPendingApproval(null);
+      setPendingRunId(null);
+      setError('Approval denied.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deny failed');
+    }
+    setApprovalBusy(false);
   };
 
   const prUrls = completedRun?.result?.prs as string[] | undefined;
@@ -387,6 +554,17 @@ export default function ExecutionModal() {
           </div>
         </div>
       </div>
+
+      {pendingApproval && activeRepo && (
+        <ApprovalModal
+          approval={pendingApproval}
+          repoOwner={activeRepo.owner}
+          repoName={activeRepo.repo}
+          onApprove={handleApprove}
+          onDeny={handleDeny}
+          busy={approvalBusy}
+        />
+      )}
     </>
   );
 }
