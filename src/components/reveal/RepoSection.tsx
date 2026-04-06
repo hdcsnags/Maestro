@@ -28,6 +28,11 @@ export default function RepoSection() {
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState('');
   const [error, setError] = useState('');
+  const [repoSearch, setRepoSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [newRepoName, setNewRepoName] = useState('');
+  const [newRepoPrivate, setNewRepoPrivate] = useState(true);
+  const [creatingRepo, setCreatingRepo] = useState(false);
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const activeRepo = state.activeRepoConnection;
@@ -179,6 +184,53 @@ export default function RepoSection() {
     setSaving(false);
   };
 
+  const handleCreateRepo = async () => {
+    if (!user || !state.workspace || !newRepoName.trim()) return;
+    setCreatingRepo(true);
+    setError('');
+    try {
+      const token = await getAuthToken();
+      const res = await fetch(`${supabaseUrl}/functions/v1/github-create-repo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newRepoName.trim(), private: newRepoPrivate }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.repo) {
+        setError(data.error || 'Failed to create repo');
+        setCreatingRepo(false);
+        return;
+      }
+
+      // Persist as the active repo connection for this workspace
+      const { data: raw } = await supabase
+        .from('repo_connections')
+        .insert({
+          workspace_id: state.workspace.id,
+          user_id: user.id,
+          provider: 'github',
+          owner: data.repo.owner,
+          repo: data.repo.name,
+          default_branch: data.repo.default_branch,
+          scoped_paths: [],
+          is_active: true,
+        } as never)
+        .select()
+        .maybeSingle();
+
+      const conn = raw as RepoConnection | null;
+      if (conn) {
+        dispatch({ type: 'UPSERT_REPO_CONNECTION', payload: conn });
+      }
+
+      setNewRepoName('');
+      setShowCreate(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create repo');
+    }
+    setCreatingRepo(false);
+  };
+
   const handleAddRepoPath = async (path: string) => {
     if (!activeRepo || !path.trim()) return;
     const paths = [...(activeRepo.scoped_paths || []), path.trim()];
@@ -244,49 +296,179 @@ export default function RepoSection() {
 
       {ghConnected && !activeRepo && (
         <div className="flex flex-col gap-2 mt-2">
-          {repos.length === 0 ? (
-            <button
-              className="reveal-pill"
-              style={{ height: '30px', fontSize: '11px' }}
-              onClick={handleLoadRepos}
-              disabled={loadingRepos}
+          {repos.length === 0 && !showCreate ? (
+            <div className="flex items-center gap-2">
+              <button
+                className="reveal-pill"
+                style={{ height: '30px', fontSize: '11px' }}
+                onClick={handleLoadRepos}
+                disabled={loadingRepos}
+              >
+                {loadingRepos ? <Loader2 size={10} className="animate-spin" /> : null}
+                {loadingRepos ? 'Loading...' : 'Select repository'}
+              </button>
+              {state.orchestrationMode === 'build' && (
+                <button
+                  className="reveal-pill"
+                  style={{ height: '30px', fontSize: '11px' }}
+                  onClick={() => setShowCreate(true)}
+                >
+                  <Plus size={10} />
+                  Create new repo
+                </button>
+              )}
+            </div>
+          ) : showCreate ? (
+            <div
+              style={{
+                padding: '12px',
+                borderRadius: '12px',
+                background: 'rgba(201,168,76,0.05)',
+                border: '1px solid rgba(201,168,76,0.15)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
             >
-              {loadingRepos ? <Loader2 size={10} className="animate-spin" /> : null}
-              {loadingRepos ? 'Loading...' : 'Select repository'}
-            </button>
-          ) : (
-            <>
-              <select
-                value={selectedRepo}
-                onChange={e => setSelectedRepo(e.target.value)}
+              <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
+                New GitHub repository
+              </div>
+              <input
+                type="text"
+                value={newRepoName}
+                onChange={e => setNewRepoName(e.target.value)}
+                placeholder="my-new-project"
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateRepo(); }}
+                autoFocus
                 style={{
-                  height: '34px',
+                  height: '32px',
                   padding: '0 10px',
-                  borderRadius: '12px',
+                  borderRadius: '10px',
                   border: '1px solid rgba(255,255,255,0.08)',
                   background: 'rgba(255,255,255,0.03)',
                   color: 'var(--text)',
                   fontSize: '12px',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
                   outline: 'none',
                   width: '100%',
                 }}
+              />
+              <label className="flex items-center gap-2" style={{ fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={newRepoPrivate}
+                  onChange={e => setNewRepoPrivate(e.target.checked)}
+                  style={{ accentColor: 'var(--gold)' }}
+                />
+                Private repository
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  className="reveal-pill primary"
+                  style={{ height: '28px', fontSize: '11px' }}
+                  onClick={handleCreateRepo}
+                  disabled={creatingRepo || !newRepoName.trim()}
+                >
+                  {creatingRepo ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+                  {creatingRepo ? 'Creating...' : 'Create & connect'}
+                </button>
+                <button
+                  className="reveal-pill"
+                  style={{ height: '28px', fontSize: '11px' }}
+                  onClick={() => { setShowCreate(false); setNewRepoName(''); setError(''); }}
+                  disabled={creatingRepo}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={repoSearch}
+                onChange={e => setRepoSearch(e.target.value)}
+                placeholder={`Search ${repos.length} repos...`}
+                style={{
+                  height: '30px',
+                  padding: '0 10px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.03)',
+                  color: 'var(--text)',
+                  fontSize: '11px',
+                  outline: 'none',
+                  width: '100%',
+                }}
+              />
+              <div
+                style={{
+                  maxHeight: '240px',
+                  overflowY: 'auto',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  background: 'rgba(255,255,255,0.02)',
+                  padding: '4px',
+                }}
               >
-                <option value="">Select a repo...</option>
-                {repos.map(r => (
-                  <option key={r.full_name} value={r.full_name}>
-                    {r.full_name} ({r.default_branch})
-                  </option>
-                ))}
-              </select>
-              <button
-                className="reveal-pill primary"
-                style={{ height: '30px', fontSize: '11px', alignSelf: 'flex-start' }}
-                onClick={handleSaveRepo}
-                disabled={saving || !selectedRepo}
-              >
-                {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
-                Connect repo
-              </button>
+                {repos
+                  .filter(r => !repoSearch || r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
+                  .map(r => {
+                    const isSelected = selectedRepo === r.full_name;
+                    return (
+                      <button
+                        key={r.full_name}
+                        onClick={() => setSelectedRepo(r.full_name)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          width: '100%',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: isSelected ? 'rgba(201,168,76,0.12)' : 'transparent',
+                          color: isSelected ? 'var(--gold)' : 'var(--text)',
+                          fontSize: '11px',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'background 0.12s ease',
+                        }}
+                        onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                        onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.full_name}
+                        </span>
+                        <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', flexShrink: 0, marginLeft: '8px' }}>
+                          {r.default_branch}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="reveal-pill primary"
+                  style={{ height: '30px', fontSize: '11px' }}
+                  onClick={handleSaveRepo}
+                  disabled={saving || !selectedRepo}
+                >
+                  {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                  Connect repo
+                </button>
+                {state.orchestrationMode === 'build' && (
+                  <button
+                    className="reveal-pill"
+                    style={{ height: '30px', fontSize: '11px' }}
+                    onClick={() => setShowCreate(true)}
+                  >
+                    <Plus size={10} />
+                    Create new repo
+                  </button>
+                )}
+              </div>
             </>
           )}
         </div>
