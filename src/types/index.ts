@@ -3,6 +3,7 @@ export type SessionStatus = 'active' | 'archived';
 export type RoundStatus = 'pending' | 'broadcasting' | 'complete';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type ExecutionStrategy = 'per_agent' | 'synthesized';
+export type OrchestrationMode = 'analysis' | 'build' | 'artifact';
 export type ExecutionRunStatus = 'pending' | 'approved' | 'running' | 'complete' | 'failed';
 
 export interface Workspace {

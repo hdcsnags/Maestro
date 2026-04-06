@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
-  ExecutionRun, ExecutionStrategy,
+  ExecutionRun, ExecutionStrategy, OrchestrationMode,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -25,6 +25,7 @@ interface MaestroState {
   executionRuns: ExecutionRun[];
   executionMode: ExecutionMode;
   executionStrategy: ExecutionStrategy;
+  orchestrationMode: OrchestrationMode;
   broadcastingAgents: string[];
   isBroadcasting: boolean;
   viewMode: ViewMode;
@@ -57,6 +58,7 @@ type Action =
   | { type: 'ADD_AUDIT_EVENT'; payload: AuditEvent }
   | { type: 'SET_EXECUTION_MODE'; payload: ExecutionMode }
   | { type: 'SET_EXECUTION_STRATEGY'; payload: ExecutionStrategy }
+  | { type: 'SET_ORCHESTRATION_MODE'; payload: OrchestrationMode }
   | { type: 'SET_PROVIDER_CONNECTIONS'; payload: ProviderConnection[] }
   | { type: 'UPSERT_PROVIDER_CONNECTION'; payload: ProviderConnection }
   | { type: 'SET_REPO_CONNECTIONS'; payload: RepoConnection[] }
@@ -95,6 +97,7 @@ const initial: MaestroState = {
   executionRuns: [],
   executionMode: 'pr_flow',
   executionStrategy: 'synthesized',
+  orchestrationMode: 'analysis',
   broadcastingAgents: [],
   isBroadcasting: false,
   viewMode: 'carousel',
@@ -146,6 +149,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'ADD_AUDIT_EVENT': return { ...state, auditEvents: [action.payload, ...state.auditEvents] };
     case 'SET_EXECUTION_MODE': return { ...state, executionMode: action.payload };
     case 'SET_EXECUTION_STRATEGY': return { ...state, executionStrategy: action.payload };
+    case 'SET_ORCHESTRATION_MODE': return { ...state, orchestrationMode: action.payload };
     case 'SET_PROVIDER_CONNECTIONS': return { ...state, providerConnections: action.payload };
     case 'UPSERT_PROVIDER_CONNECTION': {
       const exists = state.providerConnections.find(p => p.id === action.payload.id);

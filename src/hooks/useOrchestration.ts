@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact } from '../types';
+import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode } from '../types';
 
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
@@ -88,7 +88,7 @@ export function useOrchestration() {
       const roundId = roundData.id as string;
 
       await Promise.all(
-        targetAgents.map(agent => callAgent(agent, prompt, roundId))
+        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode))
       );
 
       await supabase
@@ -102,7 +102,7 @@ export function useOrchestration() {
     }
   }, [user, state, dispatch, logAudit]);
 
-  const callAgent = useCallback(async (agent: Agent, prompt: string, roundId: string) => {
+  const callAgent = useCallback(async (agent: Agent, prompt: string, roundId: string, mode: OrchestrationMode = 'analysis') => {
     if (!user) return;
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -129,6 +129,8 @@ export function useOrchestration() {
           agentRole: agent.role,
           agentSkills: agentSkills.length > 0 ? agentSkills : undefined,
           scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
+          mode,
+          repo_connection_id: state.activeRepoConnection?.id,
         }),
       });
 
@@ -214,7 +216,7 @@ export function useOrchestration() {
         });
       }
     }
-  }, [user, state.agentSkills, dispatch, logAudit]);
+  }, [user, state.agentSkills, state.activeRepoConnection, dispatch, logAudit]);
 
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;

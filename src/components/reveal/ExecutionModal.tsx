@@ -13,6 +13,7 @@ export default function ExecutionModal() {
   const [confirmText, setConfirmText] = useState('');
   const [error, setError] = useState('');
   const [completedRun, setCompletedRun] = useState<ExecutionRun | null>(null);
+  const [conductorOverride, setConductorOverride] = useState(false);
 
   if (!state.executionModalOpen) return null;
 
@@ -22,6 +23,12 @@ export default function ExecutionModal() {
   const latestSynthesis = latestRound ? state.syntheses.find(s => s.round_id === latestRound.id) : null;
   const activeRepo = state.activeRepoConnection;
   const needsConfirm = state.executionMode === 'elevated';
+
+  const unscopedAgents = latestResponses.filter(r => {
+    const agent = state.agents.find(a => a.id === r.agent_id);
+    return !agent?.scoped_paths || agent.scoped_paths.length === 0;
+  });
+
   const canExecute = activeRepo && latestResponses.length > 0 && (!needsConfirm || confirmText === 'EXECUTE');
 
   const handleClose = () => {
@@ -64,6 +71,7 @@ export default function ExecutionModal() {
         content: r.content,
         scoped_paths: state.agents.find(a => a.id === r.agent_id)?.scoped_paths ?? [],
         commit_message: r.title || `${r.agent_name} contribution`,
+        conductor_approved: conductorOverride,
       }));
 
       const { data: sessionData } = await supabase.auth.getSession();
@@ -81,6 +89,7 @@ export default function ExecutionModal() {
           repo_connection_id: activeRepo.id,
           execution_run_id: run.id,
           patches,
+          conductor_approved: conductorOverride,
           synthesis_content: latestSynthesis?.content,
           commit_message: `[Maestro] Round ${latestRound?.round_number ?? 0} — ${strategy === 'per_agent' ? 'Society of Mind' : 'Synthesized'}`,
         }),
@@ -225,6 +234,36 @@ export default function ExecutionModal() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {unscopedAgents.length > 0 && (
+              <div
+                className="rounded-xl p-3"
+                style={{ background: 'rgba(224,169,74,0.06)', border: '1px solid rgba(224,169,74,0.18)' }}
+              >
+                <div className="flex items-center gap-2 mb-2" style={{ color: 'var(--warn)', fontSize: '13px' }}>
+                  <AlertTriangle size={13} />
+                  {unscopedAgents.length} agent{unscopedAgents.length !== 1 ? 's' : ''} ha{unscopedAgents.length !== 1 ? 've' : 's'} no scoped paths — writes will be blocked without conductor approval
+                </div>
+                <div className="flex flex-col gap-1 mb-3" style={{ paddingLeft: '21px' }}>
+                  {unscopedAgents.map(r => (
+                    <div key={r.id} className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--warn)', letterSpacing: '0.08em' }}>
+                      {r.agent_name}
+                    </div>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer" style={{ paddingLeft: '21px' }}>
+                  <input
+                    type="checkbox"
+                    checked={conductorOverride}
+                    onChange={e => setConductorOverride(e.target.checked)}
+                    style={{ accentColor: 'var(--gold)', width: '14px', height: '14px' }}
+                  />
+                  <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+                    Conductor override — allow all agents to write
+                  </span>
+                </label>
               </div>
             )}
 

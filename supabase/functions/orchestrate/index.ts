@@ -12,6 +12,8 @@ interface AgentSkillPayload {
   instruction: string;
 }
 
+type OrchestrationMode = "analysis" | "build" | "artifact";
+
 interface OrchestrationRequest {
   prompt: string;
   provider: string;
@@ -22,6 +24,7 @@ interface OrchestrationRequest {
   scopedPaths?: string[];
   context_files?: ContextFile[];
   repo_connection_id?: string;
+  mode?: OrchestrationMode;
 }
 
 interface ContextFile {
@@ -109,16 +112,71 @@ async function fetchFileContent(
   }
 }
 
-function buildSystemPrompt(agentName: string, agentRole: string, skills?: AgentSkillPayload[], scopedPaths?: string[], codebaseContext?: string): string {
+function buildSystemPrompt(
+  agentName: string,
+  agentRole: string,
+  skills?: AgentSkillPayload[],
+  scopedPaths?: string[],
+  codebaseContext?: string,
+  mode: OrchestrationMode = "analysis",
+): string {
   let prompt = "";
 
   if (codebaseContext) {
     prompt += `Current codebase context:\n${codebaseContext}\n\n`;
   }
 
-  prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.
+  prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.\n\n`;
+
+  if (mode === "build") {
+    prompt += `You are in BUILD mode. Output concrete code changes as a unified diff patch.
 
 When responding:
+1. Lead with a short title describing the change (under 12 words)
+2. Give 1-2 paragraphs of rationale for the change
+3. Output actual code changes as a unified diff in the "content" field, using standard diff format with file headers (--- a/path, +++ b/path) and hunks (@@ -X,Y +X,Y @@)
+4. Be precise. Only change what is necessary.
+
+Return your response as JSON with this structure:
+{
+  "title": "Your change title here",
+  "content": "Rationale paragraph(s), then the unified diff",
+  "signals": {
+    "files_modified": "comma-separated list of file paths",
+    "lines_added": "integer count",
+    "lines_removed": "integer count"
+  },
+  "artifacts": []
+}`;
+  } else if (mode === "artifact") {
+    prompt += `You are in ARTIFACT mode. Produce a single downloadable file that fulfills the request.
+
+When responding:
+1. Lead with a title naming the artifact (under 12 words)
+2. Write 1-2 sentences describing what the artifact is in the "content" field
+3. Put the full file content in the "artifacts" array as a single entry
+
+Return your response as JSON with this structure:
+{
+  "title": "Your artifact title",
+  "content": "Brief description of the artifact",
+  "signals": {
+    "artifact_type": "markdown or html",
+    "confidence": "High/Medium/Low — one line reasoning"
+  },
+  "artifacts": [
+    {
+      "filename": "output.md",
+      "content_type": "text/markdown",
+      "content": "the full file contents here"
+    }
+  ]
+}
+
+The artifacts array MUST contain exactly one entry. Use either text/markdown (.md) or text/html (.html).`;
+  } else {
+    // analysis (default)
+    prompt += `When responding:
 1. Lead with a bold, memorable title (one sentence, no colon, under 12 words)
 2. Give your expert perspective on the prompt from your specific role
 3. Be direct, insightful, and opinionated — not generic
@@ -142,6 +200,7 @@ If the user's prompt asks you to generate a file (HTML wireframe, markdown plan,
 - "content": the full file content as a string
 
 Only include artifacts when file generation is clearly requested or would be genuinely useful. The artifacts array can be empty.`;
+  }
 
   if (skills && skills.length > 0) {
     prompt += `\n\nYou have the following specialized skills active for this session:`;
@@ -217,7 +276,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: OrchestrationRequest = await req.json();
-    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id } = body;
+    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, mode } = body;
+    const orchestrationMode: OrchestrationMode = mode ?? "analysis";
 
     // Resolve context files if provided
     let codebaseContext = "";
@@ -238,7 +298,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext);
+    const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode);
 
     const lookupProvider = PROVIDER_MAP[provider] ?? provider;
     const apiKey = await getUserApiKey(user.id, lookupProvider);

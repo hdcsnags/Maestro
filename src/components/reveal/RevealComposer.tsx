@@ -1,6 +1,7 @@
 import { useState, useRef, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { Send, Music } from 'lucide-react';
+import { OrchestrationMode } from '../../types';
 
 interface Props {
   onBroadcast: (prompt: string, selectedAgentIds: string[]) => Promise<void>;
@@ -155,14 +156,53 @@ export default function RevealComposer({ onBroadcast }: Props) {
           </div>
         </div>
 
-        <button
-          className="reveal-pill"
-          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
-          style={{ height: '42px', fontSize: '13px' }}
-        >
-          <Music size={14} />
-          Orchestra
-        </button>
+        <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center"
+            style={{
+              padding: '3px',
+              borderRadius: '999px',
+              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            {(['analysis', 'build', 'artifact'] as OrchestrationMode[]).map(m => {
+              const active = state.orchestrationMode === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: m })}
+                  style={{
+                    height: '28px',
+                    padding: '0 12px',
+                    borderRadius: '999px',
+                    border: 'none',
+                    background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
+                    color: active ? 'var(--gold)' : 'var(--text-dim)',
+                    fontSize: '11px',
+                    letterSpacing: '0.06em',
+                    textTransform: 'capitalize' as const,
+                    cursor: 'pointer',
+                    fontWeight: active ? 500 : 400,
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={`${m.charAt(0).toUpperCase() + m.slice(1)} mode`}
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            className="reveal-pill"
+            onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
+            style={{ height: '42px', fontSize: '13px' }}
+          >
+            <Music size={14} />
+            Orchestra
+          </button>
+        </div>
 
         <button
           onClick={handleBroadcast}

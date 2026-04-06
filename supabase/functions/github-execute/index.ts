@@ -13,6 +13,7 @@ interface AgentPatch {
   content: string;
   scoped_paths: string[];
   commit_message: string;
+  conductor_approved?: boolean;
 }
 
 interface ExecuteRequest {
@@ -22,6 +23,72 @@ interface ExecuteRequest {
   patches: AgentPatch[];
   synthesis_content?: string;
   commit_message?: string;
+  conductor_approved?: boolean;
+}
+
+/**
+ * Check if a file path matches any of the scoped path globs.
+ * Supports simple glob patterns: * matches within a segment, ** matches across segments.
+ */
+function pathMatchesScope(filePath: string, scopedPaths: string[]): boolean {
+  if (scopedPaths.length === 0) return false;
+  for (const pattern of scopedPaths) {
+    if (globMatch(filePath, pattern)) return true;
+  }
+  return false;
+}
+
+function globMatch(path: string, pattern: string): boolean {
+  // Normalize separators
+  const p = path.replace(/\\/g, "/");
+  const g = pattern.replace(/\\/g, "/");
+
+  // Convert glob to regex
+  let regex = "^";
+  let i = 0;
+  while (i < g.length) {
+    if (g[i] === "*" && g[i + 1] === "*") {
+      // ** matches any number of path segments
+      regex += ".*";
+      i += 2;
+      if (g[i] === "/") i++; // skip trailing slash after **
+    } else if (g[i] === "*") {
+      // * matches anything except /
+      regex += "[^/]*";
+      i++;
+    } else if (g[i] === "?") {
+      regex += "[^/]";
+      i++;
+    } else if (".+^${}()|[]\\".includes(g[i])) {
+      regex += "\\" + g[i];
+      i++;
+    } else {
+      regex += g[i];
+      i++;
+    }
+  }
+  regex += "$";
+
+  return new RegExp(regex).test(p);
+}
+
+interface ScopeCheckResult {
+  allowed: boolean;
+  reason: string;
+}
+
+function checkAgentScope(patch: AgentPatch, globalApproval: boolean): ScopeCheckResult {
+  const hasPaths = patch.scoped_paths && patch.scoped_paths.length > 0;
+  const approved = patch.conductor_approved || globalApproval;
+
+  if (!hasPaths && !approved) {
+    return {
+      allowed: false,
+      reason: `${patch.agent_name} has no scoped paths declared and no conductor approval. Write blocked.`,
+    };
+  }
+
+  return { allowed: true, reason: "" };
 }
 
 async function ghApi(path: string, token: string, options: RequestInit = {}) {
@@ -147,12 +214,20 @@ Deno.serve(async (req: Request) => {
     const baseRef = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, ghToken);
     const baseSha = baseRef.object.sha;
 
-    const result: Record<string, unknown> = { branches: [], prs: [] };
+    const globalApproval = body.conductor_approved ?? false;
+    const result: Record<string, unknown> = { branches: [], prs: [], blocked: [] };
 
     if (mode === "per_agent") {
       const branches: Array<{ agent: string; branch: string; pr_url: string }> = [];
+      const blocked: Array<{ agent: string; reason: string }> = [];
 
       for (const patch of patches) {
+        const scopeCheck = checkAgentScope(patch, globalApproval);
+        if (!scopeCheck.allowed) {
+          blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
+          continue;
+        }
+
         const slug = patch.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const branchName = `maestro/${slug}/run-${execution_run_id.slice(0, 8)}`;
 
@@ -177,11 +252,14 @@ Deno.serve(async (req: Request) => {
 
       result.branches = branches;
       result.prs = branches.map(b => b.pr_url);
+      result.blocked = blocked;
+
+      const finalStatus = branches.length === 0 && blocked.length > 0 ? "blocked" : "complete";
 
       await supabase
         .from("execution_runs")
         .update({
-          status: "complete",
+          status: finalStatus,
           result,
           branch_name: branches.map(b => b.branch).join(", "),
           pr_url: branches.map(b => b.pr_url).join(", "),
@@ -189,38 +267,59 @@ Deno.serve(async (req: Request) => {
         .eq("id", execution_run_id);
 
     } else {
-      const branchName = `maestro/synthesis/run-${execution_run_id.slice(0, 8)}`;
+      // Synthesized mode: check all contributing patches have scope or approval
+      const blocked: Array<{ agent: string; reason: string }> = [];
+      for (const patch of patches) {
+        const scopeCheck = checkAgentScope(patch, globalApproval);
+        if (!scopeCheck.allowed) {
+          blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
+        }
+      }
 
-      await createBranch(owner, repo, branchName, baseSha, ghToken);
+      if (blocked.length > 0 && !globalApproval) {
+        result.blocked = blocked;
+        await supabase
+          .from("execution_runs")
+          .update({
+            status: "blocked",
+            result,
+          })
+          .eq("id", execution_run_id);
+      } else {
+        const branchName = `maestro/synthesis/run-${execution_run_id.slice(0, 8)}`;
 
-      const content = synthesis_content || patches.map(p => p.content).join("\n\n---\n\n");
-      const filePath = "maestro-patches/synthesis-patch.md";
+        await createBranch(owner, repo, branchName, baseSha, ghToken);
 
-      await createFileCommit(
-        owner, repo, branchName, filePath, content,
-        commit_message || "[Maestro] Synthesized patch",
-        ghToken
-      );
+        const content = synthesis_content || patches.map(p => p.content).join("\n\n---\n\n");
+        const filePath = "maestro-patches/synthesis-patch.md";
 
-      const pr = await createPR(
-        owner, repo, branchName, defaultBranch,
-        commit_message || "[Maestro] Synthesized council output",
-        `## Council Synthesis\n\n${content}\n\n---\n*Generated by Maestro orchestration*`,
-        ghToken
-      );
+        await createFileCommit(
+          owner, repo, branchName, filePath, content,
+          commit_message || "[Maestro] Synthesized patch",
+          ghToken
+        );
 
-      result.branches = [{ branch: branchName, pr_url: pr.html_url }];
-      result.prs = [pr.html_url];
+        const pr = await createPR(
+          owner, repo, branchName, defaultBranch,
+          commit_message || "[Maestro] Synthesized council output",
+          `## Council Synthesis\n\n${content}\n\n---\n*Generated by Maestro orchestration*`,
+          ghToken
+        );
 
-      await supabase
-        .from("execution_runs")
-        .update({
-          status: "complete",
-          result,
-          branch_name: branchName,
-          pr_url: pr.html_url,
-        })
-        .eq("id", execution_run_id);
+        result.branches = [{ branch: branchName, pr_url: pr.html_url }];
+        result.prs = [pr.html_url];
+        result.blocked = [];
+
+        await supabase
+          .from("execution_runs")
+          .update({
+            status: "complete",
+            result,
+            branch_name: branchName,
+            pr_url: pr.html_url,
+          })
+          .eq("id", execution_run_id);
+      }
     }
 
     return new Response(JSON.stringify({ success: true, result }), {
