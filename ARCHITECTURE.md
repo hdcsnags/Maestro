@@ -62,7 +62,7 @@ AuthProvider (context/AuthContext.tsx)
                    2. ensureAgents()       -- find or create default agent roster
                    3. loadSessions()       -- fetch all sessions
                    4. loadProviderConnections() -- fetch API key status
-                   5. loadAgentSkills()    -- fetch skills for all agents
+                   5. loadAgentSkills()    -- (legacy, table unused since 2026-04-06; still loaded into state but never written)
                    6. loadRepoConnections()-- fetch GitHub repo connections
                    7. ensureSession()      -- find or create active session
                    8. loadSessionHistory() -- fetch rounds, responses, syntheses, audit events
@@ -82,7 +82,7 @@ All application state lives in a single `useReducer` in `src/context/MaestroCont
 |-------|------|---------|
 | `workspace` | `Workspace \| null` | Current workspace |
 | `agents` | `Agent[]` | Agent roster for this workspace |
-| `agentSkills` | `AgentSkill[]` | All skills across all agents |
+| `agentSkills` | `AgentSkill[]` | Legacy. Table still exists but no UI reads or writes it as of 2026-04-06. |
 | `activeSession` | `Session \| null` | Current orchestration session |
 | `sessions` | `Session[]` | All sessions in the workspace |
 | `rounds` | `Round[]` | Rounds in the active session |
@@ -110,7 +110,7 @@ All application state lives in a single `useReducer` in `src/context/MaestroCont
 |--------|-------------|
 | `SET_AGENTS` | Replace entire agent roster |
 | `UPDATE_AGENT` | Update a single agent by ID (used for scoped_paths changes) |
-| `ADD_AGENT_SKILL` / `REMOVE_AGENT_SKILL` / `UPDATE_AGENT_SKILL` | CRUD for agent skills |
+| `ADD_AGENT_SKILL` / `REMOVE_AGENT_SKILL` / `UPDATE_AGENT_SKILL` | Legacy CRUD for agent skills (no UI invokes these post-cleanup sprint) |
 | `ADD_RESPONSE` | Append a new agent response (after broadcast) |
 | `UPDATE_RESPONSE` | Update flag/lead status on a response |
 | `ADD_SYNTHESIS` | Append a synthesis result |
@@ -148,7 +148,7 @@ The core interaction loop. User writes a prompt, selects which agents to target,
 | Carousel container | `components/reveal/FolioCarousel.tsx` |
 | Carousel navigation dots | `components/reveal/OrbitDots.tsx` |
 | Round context banner | `components/reveal/HeroContext.tsx` |
-| Empty state | `components/reveal/EmptyStage.tsx` |
+| Empty state (breathing gold Maestro orb) | `components/reveal/EmptyStage.tsx` |
 
 **Flow:** RevealComposer -> useOrchestration.broadcast() -> creates Round in DB -> calls callAgent() for each selected agent in parallel -> callAgent() calls `orchestrate` edge function -> edge function calls AI provider API -> response saved to DB -> dispatched to state -> FolioCard renders it
 
@@ -168,21 +168,30 @@ After broadcasting, the user can synthesize agent responses into a unified outpu
 
 **Flow:** User opens Synthesis drawer (S) -> clicks "Synthesize" -> useOrchestration.synthesize() -> calls `synthesize` edge function -> Claude Haiku merges agent outputs -> synthesis saved to DB -> user clicks "Verify" -> detectContradictions() scans for keyword conflicts -> if passed, "Generate patch" and "Prepare execution" buttons enable
 
-### Feature: Agent Skills
+### Feature: Agent Roster (5x3 canonical lineup)
 
-Reusable instruction fragments attached to agents that get injected into their system prompts during orchestration.
+Each workspace gets exactly 15 agents organized into 5 provider blocks of 3 slots each:
+
+| Provider group | Slot 0 (default-on, free/cheap) | Slot 1 | Slot 2 |
+|---|---|---|---|
+| `anthropic`    | Claude Haiku 4.5 | Claude Sonnet 4.6 | Claude Opus 4.6 |
+| `openai`       | GPT-4o mini      | GPT-4o            | o1              |
+| `google`       | Gemini 3 Flash   | Gemini 1.5 Pro    | Gemini 1.5 Flash|
+| `openrouter_a` | Qwen 3.6 Plus    | DeepSeek V3 (free)| Llama 4 Maverick|
+| `openrouter_b` | Sonnet 4.6 (OR)  | GPT-4o (OR)       | Kimi K2         |
+
+Only the four slot-0 entries (excluding the OpenRouter B premium row) are `is_active=true` on seed, so a brand-new user can broadcast at $0 with zero configuration.
 
 | What | Where |
 |------|-------|
-| Skills UI (add, remove, toggle) | `components/reveal/OrchestraDrawer.tsx` |
-| Skills type definition | `types/index.ts` -> `AgentSkill` |
-| Skills state management | `context/MaestroContext.tsx` -> `agentSkills` state + actions |
-| Skills loading on init | `hooks/useWorkspace.ts` -> `loadAgentSkills()` |
-| Skills injection into AI prompt | `supabase/functions/orchestrate/index.ts` -> `buildSystemPrompt()` |
-| Skills passed to edge function | `hooks/useOrchestration.ts` -> `callAgent()` body |
-| Database table | `agent_skills` (migration: `add_skills_artifacts_scoped_paths.sql`) |
+| Canonical lineup constant | `types/index.ts` -> `AGENT_DEFAULTS` |
+| Race-safe upsert on init  | `hooks/useWorkspace.ts` -> `ensureAgents()` |
+| Reseed migration          | `supabase/migrations/20260406150000_reseed_agents_5x3.sql` |
+| Unique slot constraint    | `supabase/migrations/20260406150100_unique_agent_slots.sql` -- `UNIQUE(workspace_id, provider_group, slot_index)` |
+| Slug hotfix               | `supabase/migrations/20260406160000_fix_stale_model_slugs.sql` |
+| Voice picker UI           | `components/reveal/OrchestraDrawer.tsx` -- 5 horizontal blocks, 3 buttons each |
 
-**Flow:** User opens Orchestra drawer (O) -> expands an agent -> adds a skill with name + instruction -> saved to `agent_skills` table -> on next broadcast, `callAgent()` filters skills by agent_id and sends them to orchestrate edge function -> `buildSystemPrompt()` appends skill instructions to the system prompt
+**Skills (legacy):** The `agent_skills` table and the `AgentSkill` type still exist but the cleanup sprint nuked the skills UI. The table is retained for now to avoid a destructive migration; it's structurally safe to drop in a future migration.
 
 ### Feature: Artifact Downloads
 
@@ -349,7 +358,7 @@ All edge functions live in `supabase/functions/`. Each is a standalone Deno modu
 | `provider_connections` | AI provider connection status | `user_id`, `provider`, `is_connected`, `models` |
 | `encrypted_secrets` | Stored API keys (AI providers + GitHub) | `user_id`, `provider`, `encrypted_key`, `key_hint` |
 | `agents` | AI agent roster per workspace | `workspace_id`, `name`, `role`, `provider`, `model`, `color`, `is_active`, `scoped_paths` |
-| `agent_skills` | Skill instructions per agent | `agent_id`, `user_id`, `name`, `instruction`, `is_active` |
+| `agent_skills` | (Legacy) Skill instructions per agent. UI removed in cleanup sprint; table retained but unused. | `agent_id`, `user_id`, `name`, `instruction`, `is_active` |
 | `sessions` | Orchestration sessions | `workspace_id`, `title`, `execution_mode`, `status` |
 | `rounds` | Broadcast rounds within a session | `session_id`, `round_number`, `prompt`, `target_agents`, `status` |
 | `responses` | Agent outputs per round | `round_id`, `agent_id`, `content`, `title`, `signals`, `artifacts`, `is_flagged`, `is_lead` |
@@ -363,7 +372,11 @@ All edge functions live in `supabase/functions/`. Each is a standalone Deno modu
 ### Migrations
 
 1. **`20260331044524_create_maestro_schema.sql`** -- Creates all 13 tables, RLS policies, and indexes.
-2. **`20260404144809_add_skills_artifacts_scoped_paths.sql`** -- Adds `artifacts` column to `responses`, `scoped_paths` column to `agents`, creates `agent_skills` table.
+2. **`20260404144809_add_skills_artifacts_scoped_paths.sql`** -- Adds `artifacts` column to `responses`, `scoped_paths` column to `agents`, creates `agent_skills` table (now unused).
+3. **`20260406140000_expand_approval_requests.sql`** -- P11 scope binding: adds `expires_at`, `repo_connection_id`, `branch_name`, `scope_paths`, `agent_name`, `files_affected`, `lines_added`, `lines_removed`.
+4. **`20260406150000_reseed_agents_5x3.sql`** -- Hard reset of all agents across all workspaces, then seeds the canonical 5x3 lineup (15 agents per workspace).
+5. **`20260406150100_unique_agent_slots.sql`** -- Adds `UNIQUE(workspace_id, provider_group, slot_index)` so duplicates can never come back.
+6. **`20260406160000_fix_stale_model_slugs.sql`** -- Patches the openrouter_a slot 0 (Qwen 3 235B free -> Qwen 3.6 Plus) and google slot 0 (Gemini 2.0 Flash -> Gemini 3 Flash preview) in place; preserves user `is_active` toggles.
 
 ### Adding a new table
 
@@ -399,7 +412,7 @@ WorkspacePage
   |-- RevealComposer (prompt input, fixed bottom)
   |
   |-- [Drawers] (overlays, triggered by keyboard or topbar)
-  |     |-- OrchestraDrawer (left) -- agents, skills, scoped paths
+  |     |-- OrchestraDrawer (left) -- 5x3 voice picker + scoped paths editor
   |     |-- TrustDrawer (right) -- status, audit trail
   |     |-- SynthesisDrawer (bottom) -- synthesis, verification, mode
   |     |-- VaultDrawer (right) -- API keys, GitHub connection
@@ -429,15 +442,16 @@ WorkspacePage
 | FolioCard | Response card | `responses` | `UPDATE_RESPONSE`, `OPEN_DRAWER` | `responses` (flag/lead) |
 | ArtifactDownload | File downloads | -- (props only) | -- | -- |
 | StreamingFolio | Loading placeholder | -- (props only) | -- | -- |
-| EmptyStage | Empty state | `agents` | -- | -- |
+| EmptyStage | Breathing gold Maestro orb (shown when active session has zero rounds) | `agents` | -- | -- |
 | OrbitDots | Nav dots | `folioIndex` | `SET_FOLIO_INDEX` | -- |
 | RevealComposer | Prompt input | `agents`, `isBroadcasting` | `SET_FOLIO_INDEX`, `OPEN_DRAWER` | -- |
-| OrchestraDrawer | Agent management | `agents`, `agentSkills` | `ADD/REMOVE/UPDATE_AGENT_SKILL`, `UPDATE_AGENT` | `agent_skills`, `agents` |
+| OrchestraDrawer | 5x3 voice picker, scoped paths editor | `agents`, `providerConnections` | `UPDATE_AGENT` | `agents` |
 | TrustDrawer | Status overview | `providerConnections`, `executionMode`, `auditEvents`, `executionRuns`, `activeRepoConnection` | -- | -- |
 | SynthesisDrawer | Synthesis + verify | `rounds`, `responses`, `syntheses`, `activeSession`, `activeRepoConnection` | `SET_EXECUTION_MODE`, `SET_PATCH_MODAL`, `SET_EXECUTION_MODAL` | `sessions` |
 | VaultDrawer | API key management | `providerConnections` | `UPSERT_PROVIDER_CONNECTION` | via `vault` edge function |
 | RepoSection | GitHub connection | `activeRepoConnection`, `repoConnections` | `UPSERT_REPO_CONNECTION` | `repo_connections`, via edge functions |
-| SessionSwitcher | Session list | `sessions`, `activeSession`, `workspace` | via useWorkspace hooks | `sessions` |
+| SessionSwitcher | Session list (create, switch, rename, delete with confirm + last-session guard) | `sessions`, `activeSession`, `workspace` | via useWorkspace hooks | `sessions` |
+| RepoSection | GitHub OAuth + scrollable repo picker + Create-new-repo (Build mode only) | `activeRepoConnection`, `repoConnections`, `orchestrationMode`, `workspace` | `UPSERT_PROVIDER_CONNECTION`, `UPSERT_REPO_CONNECTION` | `repo_connections`, via `github-create-repo` |
 | PatchModal | Patch summary | `patchModalOpen`, `syntheses`, `activeSession`, `rounds` | `SET_PATCH_MODAL` | -- |
 | ExecutionModal | Execution approval | `executionModalOpen`, `executionStrategy`, `agents`, `responses`, `syntheses`, `activeRepoConnection`, `executionMode`, `activeSession` | `SET_EXECUTION_MODAL`, `SET_EXECUTION_STRATEGY`, `ADD/UPDATE_EXECUTION_RUN` | `execution_runs`, via `github-execute` |
 | ShortcutOverlay | Shortcut legend | `shortcutOverlayOpen` | `CLOSE_TRANSIENT` | -- |
@@ -513,9 +527,10 @@ This only affects new workspaces. Existing workspaces keep their current agent r
 This controls what every agent receives as its system prompt. The function builds the prompt from:
 1. Base instructions (JSON output format, signal types)
 2. Agent name and role
-3. Active skills (appended as numbered instructions)
-4. Scoped paths (appended as file path context)
-5. Artifact generation instructions
+3. Scoped paths (appended as file path context)
+4. Artifact generation instructions
+
+(Skills used to be injected here but the cleanup sprint removed that step.)
 
 After editing, redeploy the function.
 
@@ -633,7 +648,6 @@ useOrchestration.broadcast()
   |     |
   |     v
   |   callAgent(agent, prompt, roundId)
-  |     |-- filters agentSkills for this agent
   |     |-- calls orchestrate edge function
   |     |-- edge function calls AI provider API
   |     |-- extracts artifacts from response
@@ -691,9 +705,9 @@ handleExecute()
 
 | Variable | Purpose | Used by |
 |----------|---------|---------|
-| `SUPABASE_URL` | Supabase project URL | vault, github-auth, github-repos, github-execute |
+| `SUPABASE_URL` | Supabase project URL | vault, github-auth, github-repos, github-execute, github-create-repo |
 | `SUPABASE_ANON_KEY` | Anonymous key | vault |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) | vault, github-auth, github-repos, github-execute |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) | vault, github-auth, github-repos, github-execute, github-create-repo |
 | `ANTHROPIC_API_KEY` | Anthropic API key | orchestrate, synthesize |
 | `OPENAI_API_KEY` | OpenAI API key | orchestrate |
 | `GEMINI_API_KEY` | Google Gemini API key | orchestrate |
@@ -710,14 +724,14 @@ handleExecute()
 - **No real-time streaming:** Agent responses arrive all at once after the API call completes. The streaming placeholder is visual only.
 - **Verification is keyword-based:** The contradiction detection in SynthesisDrawer uses simple keyword matching, not semantic analysis.
 - **Single workspace:** The UI currently shows one workspace. The data model supports multiple, but the workspace switcher isn't built.
-- **No approval workflow:** The `approval_requests` table exists but isn't wired into the UI yet. The EXECUTE confirmation is a client-side gate only.
+- ~~**No approval workflow:** The `approval_requests` table exists but isn't wired into the UI yet.~~ Approval workflow shipped in P11 (2026-04-06): the `ApprovalModal` enforces scope binding (repo + branch + paths + agent) and supports a 10-minute "approve again" window via `expires_at`.
 - **Patch files are markdown summaries:** The GitHub execution writes agent responses as markdown files to `maestro-patches/`, not actual code diffs. Applying real code changes would require a diff/patch system.
 - **GitHub token storage:** Tokens are stored in `encrypted_secrets` but the "encryption" is at the database level, not application-level encryption.
 - **No pagination:** Session history, audit events, and repo lists load with fixed limits.
 
 ### Features referenced in the schema but not yet built
 
-- **Approval requests UI** -- table exists, no frontend
+- ~~**Approval requests UI** -- table exists, no frontend~~ Shipped in P11.
 - **Flags table** -- exists as standalone table, but flagging is done via `is_flagged` column on responses directly
 - **Multiple workspaces** -- data model supports it, no UI switcher
 

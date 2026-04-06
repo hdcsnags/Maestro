@@ -12,7 +12,7 @@ Maestro is a "society of mind" tool. You write a single prompt, broadcast it to 
   - *Per-agent branches*: each agent gets its own branch and PR
   - *Synthesized PR*: one combined branch with the merged output
 - **Download artifacts** -- agents can generate MD/HTML files you download directly, useful for planning and UX design stages
-- **Specialize agents with skills** -- attach reusable instruction fragments to agents (e.g., "Code Generation", "UX Wireframing") that get injected into their system prompts
+- **Scope agents to paths** -- restrict each agent to specific directories (e.g. frontend agent only touches `src/**`); the server blocks writes outside declared scopes
 
 ## Tech Stack
 
@@ -37,7 +37,7 @@ Maestro is a "society of mind" tool. You write a single prompt, broadcast it to 
 
 | Key | Action |
 |-----|--------|
-| `O` | Open the Orchestra drawer (manage agents, skills, scoped paths) |
+| `O` | Open the Orchestra drawer (toggle voices, manage scoped paths) |
 | `T` | Open the Trust Rail (execution status, audit timeline) |
 | `S` | Open the Synthesis drawer (synthesize, verify, execute) |
 | `V` | Open the Provider Vault (API keys, GitHub connection) |
@@ -80,10 +80,10 @@ src/
       FolioCarousel.tsx       # 3D card carousel for agent responses
       FolioCard.tsx           # Individual response card with collapsible signals
       StreamingFolio.tsx      # Loading placeholder while agent is generating
-      EmptyStage.tsx          # Placeholder when no rounds exist
+      EmptyStage.tsx          # Breathing gold Maestro orb shown when session has zero rounds
       OrbitDots.tsx           # Carousel navigation dots
       RevealComposer.tsx      # Prompt input + agent selector + broadcast button
-      OrchestraDrawer.tsx     # Agent management (skills, scoped paths)
+      OrchestraDrawer.tsx     # 5x3 voice picker (toggle agents, edit scoped paths)
       TrustDrawer.tsx         # Execution status, audit timeline, permissions
       SynthesisDrawer.tsx     # Synthesis, verification, execution mode
       VaultDrawer.tsx         # API key management
@@ -98,14 +98,18 @@ src/
 
 supabase/
   migrations/
-    20260331..._create_maestro_schema.sql   # Full initial schema (13 tables)
-    20260404..._add_skills_artifacts_scoped_paths.sql  # Skills + artifacts + scoped paths
+    20260331..._create_maestro_schema.sql           # Full initial schema (13 tables)
+    20260404..._add_skills_artifacts_scoped_paths.sql # Adds scoped_paths + artifacts (skills table now unused)
+    20260406150000_reseed_agents_5x3.sql             # Canonical 5x3 = 15 agents per workspace
+    20260406150100_unique_agent_slots.sql            # UNIQUE(workspace_id, provider_group, slot_index)
+    20260406160000_fix_stale_model_slugs.sql         # Qwen + Gemini slug refresh
 
   functions/
-    orchestrate/index.ts      # Core AI agent execution (multi-provider)
-    synthesize/index.ts       # Response synthesis via Claude Haiku
-    vault/index.ts            # API key management (save/remove/list)
-    github-auth/index.ts      # GitHub OAuth flow
-    github-repos/index.ts     # List user's GitHub repos
-    github-execute/index.ts   # Create branches, commits, PRs on GitHub
+    orchestrate/index.ts          # Core AI agent execution (multi-provider)
+    synthesize/index.ts           # Response synthesis via Claude Haiku
+    vault/index.ts                # API key management (save/remove/list)
+    github-auth/index.ts          # GitHub OAuth flow
+    github-repos/index.ts         # List user's GitHub repos
+    github-execute/index.ts       # Create branches, commits, PRs on GitHub
+    github-create-repo/index.ts   # Create a new repo on the user's account (Build mode)
 ```
