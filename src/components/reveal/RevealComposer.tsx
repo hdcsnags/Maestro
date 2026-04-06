@@ -1,7 +1,9 @@
-import { useState, useRef, KeyboardEvent } from 'react';
+import { useState, useRef, useMemo, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
-import { Send, Music } from 'lucide-react';
+import { useOrchestration } from '../../hooks/useOrchestration';
+import { Send, Music, AlertTriangle } from 'lucide-react';
 import { OrchestrationMode } from '../../types';
+import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
 
 interface Props {
   onBroadcast: (prompt: string, selectedAgentIds: string[]) => Promise<void>;
@@ -9,14 +11,37 @@ interface Props {
 
 export default function RevealComposer({ onBroadcast }: Props) {
   const { state, dispatch } = useMaestro();
+  const { buildTieredContext } = useOrchestration();
   const [prompt, setPrompt] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>(
     state.agents.filter(a => a.is_active).map(a => a.id)
   );
+  const [elevatedCapAck, setElevatedCapAck] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeAgents = state.agents.filter(a => a.is_active);
-  const canSend = prompt.trim() && !state.isBroadcasting;
+
+  // P10 — cost estimate (local only, never calls an API)
+  const selectedAgents = useMemo(
+    () => state.agents.filter(a => selectedIds.includes(a.id)),
+    [state.agents, selectedIds]
+  );
+
+  const { costEstimate, premiumSelected } = useMemo(() => {
+    const models = selectedAgents.map(a => a.model);
+    const tiered = buildTieredContext(prompt);
+    const estimate = estimateBroadcastCost(models, prompt.length, tiered.contextText.length);
+    const premium = models.filter(m => !isFreeModel(m)).length;
+    return { costEstimate: estimate, premiumSelected: premium };
+  }, [selectedAgents, prompt, buildTieredContext]);
+
+  // P12 — premium slot cap
+  const exceedsCap = premiumSelected > PREMIUM_SLOT_CAP;
+  const isElevated = state.executionMode === 'elevated';
+  const capBlocks = exceedsCap && !isElevated;
+  const capNeedsAck = exceedsCap && isElevated && !elevatedCapAck;
+
+  const canSend = prompt.trim() && !state.isBroadcasting && !capBlocks && !capNeedsAck;
 
   const totalChars = state.responses.reduce((acc, r) => acc + r.content.length, 0);
   const estimatedTokens = Math.round(totalChars / 4);
@@ -60,6 +85,40 @@ export default function RevealComposer({ onBroadcast }: Props) {
         width: 'min(980px, calc(100vw - 44px))',
       }}
     >
+      {exceedsCap && (
+        <div
+          className="flex items-center gap-2 mb-2"
+          style={{
+            padding: '10px 14px',
+            borderRadius: '16px',
+            background: capBlocks ? 'rgba(224,90,90,0.08)' : 'rgba(224,169,74,0.08)',
+            border: `1px solid ${capBlocks ? 'rgba(224,90,90,0.22)' : 'rgba(224,169,74,0.22)'}`,
+            color: capBlocks ? 'var(--risk)' : 'var(--warn)',
+            fontSize: '12px',
+          }}
+        >
+          <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>
+            {premiumSelected} premium slots active — {capBlocks
+              ? `switch to Elevated mode or reduce to ${PREMIUM_SLOT_CAP}`
+              : 'Elevated mode still requires explicit confirmation'}
+          </span>
+          {isElevated && (
+            <label className="flex items-center gap-1.5 cursor-pointer" style={{ flexShrink: 0 }}>
+              <input
+                type="checkbox"
+                checked={elevatedCapAck}
+                onChange={e => setElevatedCapAck(e.target.checked)}
+                style={{ accentColor: 'var(--gold)', width: '13px', height: '13px' }}
+              />
+              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
+                Confirm
+              </span>
+            </label>
+          )}
+        </div>
+      )}
+
       <div
         className="grid items-center gap-3"
         style={{
@@ -131,6 +190,26 @@ export default function RevealComposer({ onBroadcast }: Props) {
             <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', marginLeft: '2px' }}>
               {selectedIds.length}/{activeAgents.length}
             </span>
+
+            {selectedIds.length > 0 && (
+              <>
+                <div style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
+                <span
+                  className="font-mono-dm"
+                  title="Estimated Input Cost (local calculation, not billed)"
+                  style={{
+                    fontSize: '9px',
+                    color: costEstimate.premiumCount > 0 ? 'var(--gold)' : 'var(--text-dim)',
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  {formatCostRange(costEstimate)} across {costEstimate.total} {costEstimate.total === 1 ? 'agent' : 'agents'}
+                  {costEstimate.freeCount > 0 && costEstimate.premiumCount > 0 && (
+                    <span style={{ color: 'var(--ok)', marginLeft: '4px' }}>· {costEstimate.freeCount} free</span>
+                  )}
+                </span>
+              </>
+            )}
 
             {estimatedTokens > 0 && (
               <>
