@@ -74,13 +74,23 @@ export default function HeroContext() {
 
       <h1
         className="font-syne"
+        title={hasContent ? latestRound.prompt : undefined}
         style={{
           margin: 0,
-          fontSize: 'clamp(24px, 3.5vw, 48px)',
+          fontSize: hasContent
+            ? 'clamp(18px, 2.2vw, 28px)'
+            : 'clamp(24px, 3.5vw, 48px)',
           fontWeight: 400,
           letterSpacing: '-0.04em',
-          lineHeight: 1.0,
+          lineHeight: 1.2,
           color: 'var(--text)',
+          // Clamp long prompts to two lines so they can never eat the stage.
+          // Hover the heading to see the full prompt via the title attribute.
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical' as const,
+          overflow: 'hidden',
+          wordBreak: 'break-word' as const,
         }}
       >
         {hasContent ? latestRound.prompt : 'The council awaits your direction.'}
