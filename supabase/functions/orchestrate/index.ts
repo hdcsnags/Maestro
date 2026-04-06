@@ -20,6 +20,13 @@ interface OrchestrationRequest {
   agentRole: string;
   agentSkills?: AgentSkillPayload[];
   scopedPaths?: string[];
+  context_files?: ContextFile[];
+  repo_connection_id?: string;
+}
+
+interface ContextFile {
+  path: string;
+  content?: string; // pre-resolved or fetched at runtime
 }
 
 interface ArtifactResult {
@@ -48,8 +55,68 @@ const PROVIDER_MAP: Record<string, string> = {
   openrouter: "openrouter",
 };
 
-function buildSystemPrompt(agentName: string, agentRole: string, skills?: AgentSkillPayload[], scopedPaths?: string[]): string {
-  let prompt = `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.
+async function fetchFileContent(
+  userId: string,
+  repoConnectionId: string,
+  filePath: string,
+): Promise<string | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const adminClient = createClient(supabaseUrl, serviceKey);
+
+  const { data: repoConn } = await adminClient
+    .from("repo_connections")
+    .select("*")
+    .eq("id", repoConnectionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!repoConn) return null;
+
+  const { data: secret } = await adminClient
+    .from("encrypted_secrets")
+    .select("encrypted_key")
+    .eq("user_id", userId)
+    .eq("provider", "github")
+    .maybeSingle();
+
+  if (!secret) return null;
+
+  const ghToken = secret.encrypted_key;
+  const owner = repoConn.owner;
+  const repo = repoConn.repo;
+  const branch = repoConn.default_branch || "main";
+
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}?ref=${branch}`,
+      {
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          "User-Agent": "Maestro",
+          Accept: "application/vnd.github+json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.encoding === "base64" && data.content) {
+      return atob(data.content.replace(/\n/g, ""));
+    }
+    return data.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function buildSystemPrompt(agentName: string, agentRole: string, skills?: AgentSkillPayload[], scopedPaths?: string[], codebaseContext?: string): string {
+  let prompt = "";
+
+  if (codebaseContext) {
+    prompt += `Current codebase context:\n${codebaseContext}\n\n`;
+  }
+
+  prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.
 
 When responding:
 1. Lead with a bold, memorable title (one sentence, no colon, under 12 words)
@@ -150,9 +217,28 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: OrchestrationRequest = await req.json();
-    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths } = body;
+    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id } = body;
 
-    const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths);
+    // Resolve context files if provided
+    let codebaseContext = "";
+    if (context_files && context_files.length > 0 && repo_connection_id && user.id) {
+      const resolved: string[] = [];
+      for (const cf of context_files) {
+        if (cf.content) {
+          resolved.push(`[${cf.path}]:\n${cf.content}`);
+        } else {
+          const content = await fetchFileContent(user.id, repo_connection_id, cf.path);
+          if (content) {
+            resolved.push(`[${cf.path}]:\n${content}`);
+          }
+        }
+      }
+      if (resolved.length > 0) {
+        codebaseContext = resolved.join("\n\n");
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext);
 
     const lookupProvider = PROVIDER_MAP[provider] ?? provider;
     const apiKey = await getUserApiKey(user.id, lookupProvider);
