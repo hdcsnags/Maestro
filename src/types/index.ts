@@ -101,6 +101,7 @@ export interface Response {
   artifacts: ResponseArtifact[];
   is_flagged: boolean;
   is_lead: boolean;
+  is_pinned?: boolean;
   tokens_used: number;
   created_at: string;
 }

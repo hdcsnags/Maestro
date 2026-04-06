@@ -32,6 +32,71 @@ export function useOrchestration() {
     }
   }, [user, state.activeSession, state.executionMode, dispatch]);
 
+  const buildTieredContext = useCallback((prompt: string) => {
+    const sessionId = state.activeSession?.id;
+    if (!sessionId) return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
+
+    const sessionRounds = state.rounds
+      .filter(r => r.session_id === sessionId)
+      .sort((a, b) => a.round_number - b.round_number);
+    const roundIds = new Set(sessionRounds.map(r => r.id));
+
+    const parts: string[] = [];
+    const indicator: string[] = [];
+
+    // Tier 1 — latest synthesis in this session
+    const sessionSyntheses = state.syntheses.filter(s => roundIds.has(s.round_id));
+    if (sessionSyntheses.length > 0) {
+      const latest = sessionSyntheses[sessionSyntheses.length - 1];
+      const roundForSynth = sessionRounds.find(r => r.id === latest.round_id);
+      parts.push(`[Latest Synthesis — Round ${roundForSynth?.round_number ?? '?'}]:\n${latest.content}`);
+      indicator.push(`Synthesis R${roundForSynth?.round_number ?? '?'}`);
+    }
+
+    // Tier 2 — previous 2 round summaries if session has fewer than 10 rounds
+    if (sessionRounds.length < 10 && sessionRounds.length > 0) {
+      const recent = sessionRounds.slice(-2);
+      for (const rnd of recent) {
+        const rndResponses = state.responses.filter(r => r.round_id === rnd.id);
+        if (rndResponses.length === 0) continue;
+        const summary = rndResponses
+          .map(r => `${r.agent_name}: ${r.title || r.content.slice(0, 140)}`)
+          .join('\n');
+        parts.push(`[Round ${rnd.round_number} — "${rnd.prompt.slice(0, 80)}"]:\n${summary}`);
+        indicator.push(`Round ${rnd.round_number}`);
+      }
+    }
+
+    // Tier 3 — pinned responses across the session
+    const pinned = state.responses.filter(r => r.is_pinned && roundIds.has(r.round_id));
+    if (pinned.length > 0) {
+      const pinnedText = pinned
+        .map(r => `[Pinned — ${r.agent_name}]:\n${r.title ? r.title + '\n' : ''}${r.content}`)
+        .join('\n\n');
+      parts.push(pinnedText);
+      indicator.push(`${pinned.length} pinned`);
+    }
+
+    // Tier 4 — detect filename references in prompt, queue as context_files
+    const contextFiles: { path: string }[] = [];
+    const filePattern = /(?:^|\s|[`'"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[\w.-]+\.\w{1,8})(?:[`'"\s.,;!?]|$)/g;
+    const seen = new Set<string>();
+    let m;
+    while ((m = filePattern.exec(prompt)) !== null) {
+      const path = m[1];
+      if (path.length < 3 || seen.has(path)) continue;
+      if (!/[./]/.test(path)) continue;
+      seen.add(path);
+      contextFiles.push({ path });
+    }
+    if (contextFiles.length > 0) {
+      indicator.push(contextFiles.map(f => f.path).slice(0, 2).join(' · '));
+    }
+
+    const contextText = parts.length > 0 ? parts.join('\n\n---\n\n') : '';
+    return { contextText, indicator, contextFiles };
+  }, [state.activeSession, state.rounds, state.syntheses, state.responses]);
+
   const broadcast = useCallback(async (
     prompt: string,
     selectedAgentIds: string[]
@@ -87,8 +152,10 @@ export function useOrchestration() {
       const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
       const roundId = roundData.id as string;
 
+      const tiered = buildTieredContext(prompt);
+
       await Promise.all(
-        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode))
+        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode, tiered.contextText, tiered.contextFiles))
       );
 
       await supabase
@@ -100,9 +167,16 @@ export function useOrchestration() {
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
     }
-  }, [user, state, dispatch, logAudit]);
+  }, [user, state, dispatch, logAudit, buildTieredContext]);
 
-  const callAgent = useCallback(async (agent: Agent, prompt: string, roundId: string, mode: OrchestrationMode = 'analysis') => {
+  const callAgent = useCallback(async (
+    agent: Agent,
+    prompt: string,
+    roundId: string,
+    mode: OrchestrationMode = 'analysis',
+    tieredContext: string = '',
+    contextFiles: { path: string }[] = [],
+  ) => {
     if (!user) return;
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -114,6 +188,12 @@ export function useOrchestration() {
       .filter(s => s.agent_id === agent.id && s.is_active)
       .map(s => ({ name: s.name, instruction: s.instruction }));
 
+    // Tiered context (T1-T3) is prepended to the user prompt.
+    // Tier 4 context_files are resolved server-side via github-read.
+    const augmentedPrompt = tieredContext
+      ? `Prior session context (for reference only):\n\n${tieredContext}\n\n---\n\nCurrent request:\n${prompt}`
+      : prompt;
+
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/orchestrate`, {
         method: 'POST',
@@ -122,7 +202,7 @@ export function useOrchestration() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          prompt,
+          prompt: augmentedPrompt,
           provider: agent.provider,
           model: agent.model,
           agentName: agent.name,
@@ -131,6 +211,7 @@ export function useOrchestration() {
           scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
           mode,
           repo_connection_id: state.activeRepoConnection?.id,
+          context_files: contextFiles.length > 0 ? contextFiles : undefined,
         }),
       });
 
@@ -276,5 +357,5 @@ export function useOrchestration() {
     await logAudit('new_round', 'Conductor', { sessionId: state.activeSession.id });
   }, [user, state.activeSession, dispatch, logAudit]);
 
-  return { broadcast, synthesize, logAudit, newRound };
+  return { broadcast, synthesize, logAudit, newRound, buildTieredContext };
 }

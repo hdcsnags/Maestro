@@ -1,8 +1,10 @@
 import { useMaestro } from '../../context/MaestroContext';
-import { Github } from 'lucide-react';
+import { useOrchestration } from '../../hooks/useOrchestration';
+import { Github, Layers } from 'lucide-react';
 
 export default function HeroContext() {
   const { state } = useMaestro();
+  const { buildTieredContext } = useOrchestration();
 
   const currentRound = state.rounds.length;
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
@@ -11,6 +13,10 @@ export default function HeroContext() {
   const hasContent = latestRound !== null;
   const boundRepo = state.activeSession?.github_repo
     || (state.activeRepoConnection ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}` : '');
+
+  // Preview what context would be injected on next broadcast (empty prompt for Tier 4)
+  const contextPreview = buildTieredContext('');
+  const contextParts = contextPreview.indicator;
 
   return (
     <section
@@ -48,6 +54,21 @@ export default function HeroContext() {
         >
           <Github size={10} />
           <span>{boundRepo}</span>
+        </div>
+      )}
+
+      {contextParts.length > 0 && (
+        <div
+          className="font-mono-dm flex items-center justify-center gap-1.5"
+          style={{
+            color: 'rgba(138,168,224,0.7)',
+            fontSize: '10px',
+            letterSpacing: '0.1em',
+            marginBottom: '10px',
+          }}
+        >
+          <Layers size={10} />
+          <span>Context: {contextParts.join(' · ')}</span>
         </div>
       )}
 

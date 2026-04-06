@@ -2,7 +2,7 @@ import { Response as MaestroResponse } from '../../types';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect } from 'react';
-import { Flag, Star, ChevronDown, ChevronUp } from 'lucide-react';
+import { Flag, Star, ChevronDown, ChevronUp, Pin } from 'lucide-react';
 import ArtifactDownload from './ArtifactDownload';
 
 const STORAGE_KEY = 'maestro:signals-expanded';
@@ -41,6 +41,15 @@ export default function FolioCard({ response, roundNumber }: Props) {
       .update({ is_lead: newLead } as never)
       .eq('id', response.id);
     dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_lead: newLead } });
+  };
+
+  const handlePin = async () => {
+    const newPinned = !response.is_pinned;
+    await supabase
+      .from('responses')
+      .update({ is_pinned: newPinned } as never)
+      .eq('id', response.id);
+    dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: newPinned } });
   };
 
   const signals = response.signals || {};
@@ -113,6 +122,20 @@ export default function FolioCard({ response, roundNumber }: Props) {
           >
             <Star size={11} />
             {response.is_lead ? 'Lead' : 'Set lead'}
+          </button>
+          <button
+            onClick={handlePin}
+            className="reveal-chip"
+            title={response.is_pinned ? 'Unpin from session context' : 'Pin to session context (persists across rounds)'}
+            style={response.is_pinned ? {
+              color: '#8aa8e0',
+              borderColor: 'rgba(138,168,224,0.3)',
+              background: 'rgba(138,168,224,0.08)',
+              cursor: 'pointer',
+            } : { cursor: 'pointer' }}
+          >
+            <Pin size={11} />
+            {response.is_pinned ? 'Pinned' : 'Pin'}
           </button>
         </div>
       </div>
