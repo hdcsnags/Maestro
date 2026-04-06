@@ -2,11 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { Session } from '../../types';
-import { Plus, ChevronDown, Check, Pencil } from 'lucide-react';
+import { Plus, ChevronDown, Check, Pencil, Trash2 } from 'lucide-react';
 
 export default function SessionSwitcher() {
   const { state } = useMaestro();
-  const { createSession, switchSession, renameSession } = useWorkspace();
+  const { createSession, switchSession, renameSession, deleteSession } = useWorkspace();
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,6 +60,15 @@ export default function SessionSwitcher() {
   };
 
   const activeSessions = state.sessions.filter(s => s.status === 'active');
+
+  const handleDelete = async (session: Session) => {
+    if (activeSessions.length <= 1) return;
+    const ok = window.confirm(
+      `Delete "${session.title}"?\n\nThis permanently removes all rounds, responses, and syntheses in this session. This cannot be undone.`
+    );
+    if (!ok) return;
+    await deleteSession(session.id);
+  };
 
   return (
     <div ref={panelRef} style={{ position: 'relative' }}>
@@ -233,6 +242,31 @@ export default function SessionSwitcher() {
                     >
                       <Pencil size={11} />
                     </button>
+                    {activeSessions.length > 1 && (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          handleDelete(session);
+                        }}
+                        title="Delete session"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--text-dim)',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          flexShrink: 0,
+                          transition: 'color 0.15s ease',
+                        }}
+                        onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#e07b5a')}
+                        onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = 'var(--text-dim)')}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
                   </>
                 )}
               </div>

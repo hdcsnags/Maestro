@@ -281,6 +281,35 @@ export function useWorkspace() {
     await loadSessionHistory(session.id);
   }, [dispatch, loadSessionHistory]);
 
+  const deleteSession = useCallback(async (sessionId: string) => {
+    if (!user) return;
+    // Guard: never delete the last remaining session. UI should also block
+    // this, but defend in depth — a stuck UI shouldn't be able to wipe the
+    // workspace's only session.
+    if (state.sessions.length <= 1) return;
+
+    await supabase.from('sessions').delete().eq('id', sessionId);
+
+    const remaining = state.sessions.filter(s => s.id !== sessionId);
+    dispatch({ type: 'SET_SESSIONS', payload: remaining });
+
+    // If we just deleted the active session, fall back to the most recent
+    // remaining one and load its history.
+    if (state.activeSession?.id === sessionId) {
+      const next = remaining[0];
+      if (next) {
+        dispatch({ type: 'SET_ACTIVE_SESSION', payload: next });
+        dispatch({ type: 'SET_EXECUTION_MODE', payload: next.execution_mode as ExecutionMode });
+        dispatch({ type: 'SET_ROUNDS', payload: [] });
+        dispatch({ type: 'SET_RESPONSES', payload: [] });
+        dispatch({ type: 'SET_SYNTHESES', payload: [] });
+        dispatch({ type: 'SET_AUDIT_EVENTS', payload: [] });
+        dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
+        await loadSessionHistory(next.id);
+      }
+    }
+  }, [user, state.sessions, state.activeSession, dispatch, loadSessionHistory]);
+
   const renameSession = useCallback(async (sessionId: string, title: string) => {
     if (!user) return;
     await supabase
@@ -330,5 +359,6 @@ export function useWorkspace() {
     createSession,
     switchSession,
     renameSession,
+    deleteSession,
   };
 }
