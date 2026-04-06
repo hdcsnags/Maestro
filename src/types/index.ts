@@ -228,7 +228,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   // ─── OpenRouter A — Free row ────────────────────────────────────
   { name: 'Qwen 3.6 Plus',      display_name: 'Qwen 3.6 Plus',      role: 'Free · General purpose flagship', provider: 'openrouter', model: 'qwen/qwen3.6-plus:free',           color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a' },
   { name: 'DeepSeek V3 (free)', display_name: 'DeepSeek V3 (free)', role: 'Free · Coding heavyweight',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_a' },
-  { name: 'Llama 4 Maverick',   display_name: 'Llama 4 Maverick',   role: 'Free · Meta frontier',            provider: 'openrouter', model: 'meta-llama/llama-4-maverick:free',  color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_a' },
+  { name: 'Llama 4 Maverick',   display_name: 'Llama 4 Maverick',   role: 'Meta frontier',                   provider: 'openrouter', model: 'meta-llama/llama-4-maverick',       color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_a' },
 
   // ─── OpenRouter B — Premium row (all OFF by default) ────────────
   { name: 'Sonnet 4.6 (OR)', display_name: 'Sonnet 4.6 (OR)', role: 'Premium · Build lead',              provider: 'openrouter', model: 'anthropic/claude-sonnet-4-6',     color: '#8a8ae0', is_active: false, slot_index: 0, provider_group: 'openrouter_b' },
@@ -241,16 +241,16 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
   { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
   { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
-  { id: 'meta-llama/llama-4-maverick:free', label: 'Llama 4 Maverick', tier: 'free' },
+  { id: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', tier: 'paid' },
   { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
-  { id: 'nvidia/nemotron-3-super:free', label: 'Nemotron 3 Super', tier: 'free' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super', tier: 'free' },
 ];
 
 export const CO_LEAD_MODELS: OpenRouterModel[] = [
   { id: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6', tier: 'paid' },
   { id: 'openai/gpt-4o', label: 'GPT-4o', tier: 'paid' },
   { id: 'openai/o1', label: 'o1', tier: 'paid' },
-  { id: 'google/gemini-ultra', label: 'Gemini Ultra', tier: 'paid' },
+  { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', tier: 'paid' },
   { id: 'mistralai/mistral-large', label: 'Mistral Large', tier: 'paid' },
 ];
 
@@ -270,12 +270,11 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
   { id: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash', tier: 'paid' },
   { id: 'google/gemini-1.5-pro', label: 'Gemini 1.5 Pro', tier: 'paid' },
   { id: 'deepseek/deepseek-chat-v3-0324', label: 'DeepSeek V3', tier: 'paid' },
-  { id: 'z-ai/glm-5v-turbo', label: 'Z.AI GLM-5V Turbo', tier: 'paid' },
+  { id: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', tier: 'paid' },
   { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
   { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
-  { id: 'meta-llama/llama-4-maverick:free', label: 'Llama 4 Maverick', tier: 'free' },
   { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
-  { id: 'nvidia/nemotron-3-super:free', label: 'Nemotron 3 Super', tier: 'free' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super', tier: 'free' },
 ];
 
 export const PROVIDER_REGISTRY = [

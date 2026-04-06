@@ -91,8 +91,8 @@ CROSS JOIN (VALUES
    'openrouter','qwen/qwen3.6-plus:free','#8a8ae0',true ,0,'openrouter_a'),
   ('DeepSeek V3 (free)','DeepSeek V3 (free)','Free · Coding heavyweight',
    'openrouter','deepseek/deepseek-chat-v3-0324:free','#8a8ae0',false,1,'openrouter_a'),
-  ('Llama 4 Maverick','Llama 4 Maverick','Free · Meta frontier',
-   'openrouter','meta-llama/llama-4-maverick:free','#8a8ae0',false,2,'openrouter_a'),
+  ('Llama 4 Maverick','Llama 4 Maverick','Meta frontier',
+   'openrouter','meta-llama/llama-4-maverick','#8a8ae0',false,2,'openrouter_a'),
 
   -- ─── OpenRouter B — Premium row (all OFF by default) ─────
   ('Sonnet 4.6 (OR)','Sonnet 4.6 (OR)','Premium · Build lead',
