@@ -130,6 +130,7 @@ export default function ExecutionModal() {
         repo_connection_id: activeRepo!.id,
         execution_run_id: runId,
         approval_request_id: approvalRequestId,
+        session_id: state.activeSession?.id,
         patches,
         conductor_approved: conductorOverride,
         synthesis_content: latestSynthesis?.content,

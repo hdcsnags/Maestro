@@ -89,10 +89,44 @@ interface ExecuteRequest {
   repo_connection_id: string;
   execution_run_id: string;
   approval_request_id?: string | null;
+  session_id?: string | null;
   patches: AgentPatch[];
   synthesis_content?: string;
   commit_message?: string;
   conductor_approved?: boolean;
+}
+
+interface PathCollision {
+  path: string;
+  agents: string[];
+}
+
+// Sprint A · B4 — collision detection. If two agents claim the same file path,
+// we block ONLY the colliding entries; non-colliding files in the same patches
+// continue. Result includes the collisions array so the UI can surface them.
+function detectCollisions(patches: AgentPatch[]): {
+  collisions: PathCollision[];
+  collidingPaths: Set<string>;
+} {
+  const pathMap = new Map<string, Set<string>>();
+  for (const patch of patches) {
+    if (!patch.file_manifest) continue;
+    for (const entry of patch.file_manifest) {
+      if (!entry?.path) continue;
+      const set = pathMap.get(entry.path) ?? new Set<string>();
+      set.add(patch.agent_name);
+      pathMap.set(entry.path, set);
+    }
+  }
+  const collisions: PathCollision[] = [];
+  const collidingPaths = new Set<string>();
+  for (const [path, agents] of pathMap) {
+    if (agents.size > 1) {
+      collisions.push({ path, agents: [...agents].sort() });
+      collidingPaths.add(path);
+    }
+  }
+  return { collisions, collidingPaths };
 }
 
 function scopePathsEqual(a: string[], b: string[]): boolean {
@@ -361,7 +395,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ExecuteRequest = await req.json();
-    const { mode, repo_connection_id, execution_run_id, patches, synthesis_content, commit_message } = body;
+    const { mode, repo_connection_id, execution_run_id, session_id, patches, synthesis_content, commit_message } = body;
 
     const { data: repoConn } = await supabase
       .from("repo_connections")
@@ -403,6 +437,36 @@ Deno.serve(async (req: Request) => {
       .eq("id", execution_run_id)
       .eq("user_id", user.id)
       .maybeSingle();
+
+    // Sprint A · B4 — build spec freeze gate. Any non-analyze run requires the
+    // session to have completed pre-build and locked its build_spec. Analyze
+    // mode bypasses this. Hard gate, no override.
+    if (runRow?.execution_mode && runRow.execution_mode !== "analyze") {
+      if (!session_id) {
+        return new Response(
+          JSON.stringify({
+            error: "BUILD_SPEC_NOT_LOCKED",
+            message: "Execution run is missing session_id. Cannot verify build spec lock.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const { data: sessionRow } = await supabase
+        .from("sessions")
+        .select("build_spec_locked, current_phase")
+        .eq("id", session_id)
+        .maybeSingle();
+
+      if (!sessionRow?.build_spec_locked) {
+        return new Response(
+          JSON.stringify({
+            error: "BUILD_SPEC_NOT_LOCKED",
+            message: "Complete pre-build phase and lock build spec before executing.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     if (runRow?.execution_mode === "elevated") {
       if (!body.approval_request_id) {
@@ -478,6 +542,7 @@ Deno.serve(async (req: Request) => {
       branches: Array<{ agent?: string; branch: string; pr_url: string }>;
       prs: string[];
       blocked: Array<{ agent: string; reason: string }>;
+      collisions: PathCollision[];
     } = {
       written_files: [],
       deleted_files: [],
@@ -486,7 +551,39 @@ Deno.serve(async (req: Request) => {
       branches: [],
       prs: [],
       blocked: [],
+      collisions: [],
     };
+
+    // Sprint A · B4 — collision detection. Compute once for the whole run.
+    // Colliding paths are filtered out of each manifest before applyManifest.
+    // Non-colliding files in the same patches still execute normally.
+    const { collisions, collidingPaths } = detectCollisions(patches);
+    aggregate.collisions = collisions;
+    for (const c of collisions) {
+      for (const agent of c.agents) {
+        aggregate.skipped_files.push({
+          path: c.path,
+          reason: `collision: also claimed by ${c.agents.filter(a => a !== agent).join(", ")}`,
+        });
+      }
+    }
+    if (collisions.length > 0) {
+      await supabase.from("audit_events").insert({
+        user_id: user.id,
+        session_id: session_id ?? null,
+        event_type: "collision_detected",
+        actor: "github-execute",
+        provider: "github",
+        model: "",
+        execution_mode: runRow?.execution_mode ?? "",
+        requires_approval: false,
+        succeeded: false,
+      });
+    }
+
+    // Filter colliding entries out of each patch's manifest before execution.
+    const filterManifest = (entries: FileManifestEntry[] | undefined) =>
+      (entries ?? []).filter(e => !collidingPaths.has(e.path));
 
     if (mode === "per_agent") {
       for (const patch of patches) {
@@ -509,6 +606,15 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
+        const filteredManifest = filterManifest(patch.file_manifest);
+        if (filteredManifest.length === 0) {
+          aggregate.blocked.push({
+            agent: patch.agent_name,
+            reason: "all manifest entries removed by collision detection",
+          });
+          continue;
+        }
+
         const slug = patch.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const branchName = `maestro/${slug}/run-${execution_run_id.slice(0, 8)}`;
 
@@ -522,7 +628,7 @@ Deno.serve(async (req: Request) => {
 
         const baseMsg = patch.commit_message || `[Maestro] ${patch.agent_name} contribution`;
         const manifestResult = await applyManifest(
-          patch.file_manifest,
+          filteredManifest,
           owner, repo, branchName,
           patch.scoped_paths ?? [],
           globalApproval || (patch.conductor_approved ?? false),
@@ -582,7 +688,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const allManifests = patches.flatMap(p => (p.file_manifest ?? []).map(e => ({
+      const allManifests = patches.flatMap(p => filterManifest(p.file_manifest).map(e => ({
         entry: e,
         scoped_paths: p.scoped_paths ?? [],
         conductor_approved: p.conductor_approved ?? false,
