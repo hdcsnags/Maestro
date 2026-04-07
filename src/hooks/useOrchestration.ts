@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +7,9 @@ import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, Orches
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
   const { user } = useAuth();
+
+  // Ref so broadcast() can call synthesize() without circular useCallback deps
+  const synthesizeRef = useRef<(roundId: string) => Promise<void>>();
 
   const logAudit = useCallback(async (
     eventType: string,
@@ -163,7 +166,18 @@ export function useOrchestration() {
         .update({ status: 'complete' } as never)
         .eq('id', roundId);
 
-    } finally {
+      // Auto-synthesize after all agents respond, then concierge fires after synthesis
+      dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
+      dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+      dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
+      try {
+        await synthesizeRef.current?.(roundId);
+      } finally {
+        dispatch({ type: 'SET_IS_SYNTHESIZING', payload: false });
+      }
+
+    } catch (err) {
+      console.error('Broadcast error:', err);
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
     }
@@ -451,6 +465,9 @@ export function useOrchestration() {
       console.error('Synthesis error:', err);
     }
   }, [user, state.responses, state.rounds, state.activeSession, dispatch, logAudit, triggerConcierge]);
+
+  // Keep ref current so broadcast() can call synthesize without circular deps
+  synthesizeRef.current = synthesize;
 
   const newRound = useCallback(async () => {
     if (!user || !state.activeSession) return;

@@ -19,6 +19,7 @@ import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
 import ConciergePanel from '../components/reveal/ConciergePanel';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
+import Toast from '../components/ui/Toast';
 
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
@@ -228,6 +229,7 @@ export default function WorkspacePage() {
       <ExecutionModal />
       <PreBuildPanel />
       {state.conciergeVisible && <ConciergePanel />}
+      <Toast />
     </div>
   );
 }

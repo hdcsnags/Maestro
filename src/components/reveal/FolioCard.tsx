@@ -17,38 +17,53 @@ const unescape = (s: string) =>
 function getDisplayContent(raw: string): string {
   const trimmed = raw.trim();
 
-  // Strip code-fenced JSON blocks and try to extract .content
-  if (trimmed.includes('```')) {
-    const stripped = trimmed.replace(/```(?:json|JSON)?\s*([\s\S]*?)```/g, (_m, inner) => {
-      try {
-        const parsed = JSON.parse(inner.trim());
-        if (typeof parsed.content === 'string') return parsed.content;
-        if (typeof parsed.response === 'string') return parsed.response;
-      } catch { /* not parseable, drop the fence */ }
-      return '';
-    }).trim();
-    if (stripped) return unescape(stripped);
-  }
+  // Try to extract content from any JSON structure first (fenced or raw)
+  const extracted = tryExtractFromJson(trimmed);
+  if (extracted) return unescape(extracted);
 
-  // Detect raw JSON object that starts with { and has known keys
-  if (/^\s*\{/.test(trimmed) && (trimmed.includes('"content"') || trimmed.includes('"file_manifest"') || trimmed.includes('"response"'))) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (typeof parsed.content === 'string') return unescape(parsed.content);
-      if (typeof parsed.response === 'string') return unescape(parsed.response);
-    } catch { /* fall through */ }
-    // Try extracting JSON substring
-    const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (typeof parsed.content === 'string') return unescape(parsed.content);
-        if (typeof parsed.response === 'string') return unescape(parsed.response);
-      } catch { /* fall through */ }
+  // Strip code fences entirely even if JSON inside is unparseable
+  if (trimmed.includes('```')) {
+    const withoutFences = trimmed
+      .replace(/```(?:json|JSON|javascript|typescript|ts|js)?\s*/g, '')
+      .replace(/```/g, '')
+      .trim();
+    if (withoutFences) {
+      const innerExtracted = tryExtractFromJson(withoutFences);
+      if (innerExtracted) return unescape(innerExtracted);
+      return unescape(withoutFences);
     }
   }
 
   return unescape(trimmed);
+}
+
+function tryExtractFromJson(text: string): string | null {
+  // Try full text as JSON
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed.content === 'string') return parsed.content;
+    if (typeof parsed.response === 'string') return parsed.response;
+  } catch { /* not valid JSON */ }
+
+  // Try to find a JSON object substring
+  const braceStart = text.indexOf('{');
+  if (braceStart >= 0) {
+    const sub = text.slice(braceStart);
+    const braceEnd = sub.lastIndexOf('}');
+    if (braceEnd > 0) {
+      try {
+        const parsed = JSON.parse(sub.slice(0, braceEnd + 1));
+        if (typeof parsed.content === 'string') return parsed.content;
+        if (typeof parsed.response === 'string') return parsed.response;
+      } catch { /* fall through */ }
+    }
+  }
+
+  // Regex fallback: extract "content": "..." or "title": "..." values
+  const contentMatch = text.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (contentMatch) return contentMatch[1];
+
+  return null;
 }
 
 export default function FolioCard({ response, roundNumber }: Props) {

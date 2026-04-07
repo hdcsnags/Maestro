@@ -33,6 +33,7 @@ interface MaestroState {
   conciergeVisible: boolean;
   carouselVisible: boolean;
   autoShowCarousel: boolean;
+  toastMessage: string | null;
   viewMode: ViewMode;
   activeDrawer: DrawerTarget;
   shortcutOverlayOpen: boolean;
@@ -79,6 +80,8 @@ type Action =
   | { type: 'SET_CONCIERGE_DECISION'; payload: ConciergeDecision | null }
   | { type: 'SET_CAROUSEL_VISIBLE'; payload: boolean }
   | { type: 'SET_AUTO_SHOW_CAROUSEL'; payload: boolean }
+  | { type: 'SHOW_TOAST'; payload: string }
+  | { type: 'CLEAR_TOAST' }
   | { type: 'CLEAR_STAGE' }
   | { type: 'SET_VIEW_MODE'; payload: ViewMode }
   | { type: 'OPEN_DRAWER'; payload: DrawerTarget }
@@ -115,6 +118,7 @@ const initial: MaestroState = {
   conciergeVisible: false,
   carouselVisible: false,
   autoShowCarousel: false,
+  toastMessage: null,
   viewMode: 'carousel',
   activeDrawer: null,
   shortcutOverlayOpen: false,
@@ -225,6 +229,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload, conciergeVisible: action.payload !== null };
     case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };
     case 'SET_AUTO_SHOW_CAROUSEL': return { ...state, autoShowCarousel: action.payload };
+    case 'SHOW_TOAST': return { ...state, toastMessage: action.payload };
+    case 'CLEAR_TOAST': return { ...state, toastMessage: null };
     case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
     case 'OPEN_DRAWER': {
