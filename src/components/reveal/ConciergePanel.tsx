@@ -1,49 +1,67 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
+import { useOrchestration } from '../../hooks/useOrchestration';
 import { X, ArrowRight, RotateCcw, Pencil } from 'lucide-react';
 
 /**
- * ConciergePanel — centered overlay showing synthesis decision.
+ * ConciergePanel — centered overlay showing the concierge's synthesis decision.
  *
- * SHELL ONLY — uses static placeholder content until CLI signals B3,
- * at which point we wire conciergeDecision from MaestroContext.
+ * Wired to state.conciergeDecision (set by triggerConcierge after synthesis).
+ * Auto-shown via SET_CONCIERGE_DECISION reducer which sets conciergeVisible.
  *
- * Layout: alignment summary, tension points, recommended direction,
- * and three action buttons: Proceed / Round 2 / Override.
+ * Actions:
+ *   Proceed  → close panel (phase transition placeholder for future wiring)
+ *   Round 2  → re-broadcast the latest round's prompt to get fresh responses
+ *   Override → close panel, return to manual mode
  */
 export default function ConciergePanel() {
-  const { dispatch } = useMaestro();
+  const { state, dispatch } = useMaestro();
+  const { broadcast } = useOrchestration();
+  const decision = state.conciergeDecision;
+
+  const handleClose = useCallback(() => {
+    dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
+  }, [dispatch]);
+
+  const handleProceed = useCallback(() => {
+    handleClose();
+    // Phase transition placeholder — wire to session phase update after B6
+  }, [handleClose]);
+
+  const handleRound2 = useCallback(() => {
+    handleClose();
+    const latestRound = state.rounds.length > 0
+      ? state.rounds[state.rounds.length - 1]
+      : null;
+    if (latestRound) {
+      const activeAgentIds = state.agents.filter(a => a.is_active).map(a => a.id);
+      broadcast(latestRound.prompt, activeAgentIds);
+    }
+  }, [handleClose, state.rounds, state.agents, broadcast]);
+
+  const handleOverride = useCallback(() => {
+    dispatch({ type: 'SET_CONCIERGE_DECISION', payload: null });
+    handleClose();
+  }, [dispatch, handleClose]);
 
   // Dismiss on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
-      }
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [dispatch]);
+  }, [handleClose]);
 
-  // Static placeholder content — replaced with real data after B3
-  const alignmentSummary =
-    'The council broadly agrees on the proposed architecture. ' +
-    'All agents recommend a modular approach with clear separation of concerns.';
-  const tensionPoints = [
-    'State management strategy: Redux vs. Context + useReducer',
-    'Whether to implement server-side rendering in the initial phase',
-    'Database schema normalization level — some agents prefer denormalized for speed',
-  ];
-  const recommendedDirection =
-    'Proceed with React Context + useReducer for state management, ' +
-    'client-side rendering first with SSR as a Phase 2 enhancement, ' +
-    'and a moderately normalized schema with strategic denormalization for read-heavy paths.';
+  if (!decision) return null;
+
+  const { alignment_summary, tension_points, recommended_direction, phase, model_used } = decision;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: 'rgba(8,8,6,0.75)', backdropFilter: 'blur(8px)' }}
-      onClick={() => dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false })}
+      onClick={handleClose}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -87,11 +105,27 @@ export default function ConciergePanel() {
             >
               Concierge
             </span>
+            {phase && (
+              <span
+                className="font-mono-dm"
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.12em',
+                  color: 'var(--text-dim)',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                {phase.replace(/_/g, ' ')}
+              </span>
+            )}
           </div>
           <button
             className="keycap"
             style={{ width: '28px', height: '28px' }}
-            onClick={() => dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false })}
+            onClick={handleClose}
             title="Close (Esc)"
           >
             <X size={12} />
@@ -99,146 +133,160 @@ export default function ConciergePanel() {
         </div>
 
         {/* Body */}
-        <div style={{ padding: '28px' }}>
+        <div style={{ padding: '28px', maxHeight: '60vh', overflowY: 'auto' }}>
           {/* Alignment summary */}
-          <section style={{ marginBottom: '28px' }}>
-            <div
-              className="font-mono-dm"
-              style={{
-                fontSize: '9px',
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase' as const,
-                color: 'var(--text-dim)',
-                marginBottom: '10px',
-              }}
-            >
-              Where the council agrees
-            </div>
-            <p
-              style={{
-                fontSize: '15px',
-                lineHeight: 1.7,
-                color: 'rgba(232,230,224,0.88)',
-                fontWeight: 300,
-                margin: 0,
-              }}
-            >
-              {alignmentSummary}
-            </p>
-          </section>
+          {alignment_summary && (
+            <section style={{ marginBottom: '28px' }}>
+              <div
+                className="font-mono-dm"
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase' as const,
+                  color: 'var(--text-dim)',
+                  marginBottom: '10px',
+                }}
+              >
+                Where the council agrees
+              </div>
+              <p
+                style={{
+                  fontSize: '15px',
+                  lineHeight: 1.7,
+                  color: 'rgba(232,230,224,0.88)',
+                  fontWeight: 300,
+                  margin: 0,
+                }}
+              >
+                {alignment_summary}
+              </p>
+            </section>
+          )}
 
           {/* Tension points */}
-          <section style={{ marginBottom: '28px' }}>
-            <div
-              className="font-mono-dm"
-              style={{
-                fontSize: '9px',
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase' as const,
-                color: 'var(--text-dim)',
-                marginBottom: '10px',
-              }}
-            >
-              Points of tension
-            </div>
-            <ul
-              style={{
-                margin: 0,
-                padding: '0 0 0 18px',
-                listStyle: 'disc',
-              }}
-            >
-              {tensionPoints.map((point, i) => (
-                <li
-                  key={i}
-                  style={{
-                    fontSize: '14px',
-                    lineHeight: 1.65,
-                    color: 'rgba(232,230,224,0.78)',
-                    fontWeight: 300,
-                    marginBottom: '6px',
-                  }}
-                >
-                  {point}
-                </li>
-              ))}
-            </ul>
-          </section>
+          {tension_points.length > 0 && (
+            <section style={{ marginBottom: '28px' }}>
+              <div
+                className="font-mono-dm"
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase' as const,
+                  color: 'var(--text-dim)',
+                  marginBottom: '10px',
+                }}
+              >
+                Points of tension
+              </div>
+              <ul
+                style={{
+                  margin: 0,
+                  padding: '0 0 0 18px',
+                  listStyle: 'disc',
+                }}
+              >
+                {tension_points.map((point, i) => (
+                  <li
+                    key={i}
+                    style={{
+                      fontSize: '14px',
+                      lineHeight: 1.65,
+                      color: 'rgba(232,230,224,0.78)',
+                      fontWeight: 300,
+                      marginBottom: '6px',
+                    }}
+                  >
+                    {point}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* Recommended direction */}
-          <section style={{ marginBottom: '28px' }}>
-            <div
-              className="font-mono-dm"
-              style={{
-                fontSize: '9px',
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase' as const,
-                color: 'var(--text-dim)',
-                marginBottom: '10px',
-              }}
-            >
-              Recommended direction
-            </div>
-            <p
-              style={{
-                fontSize: '15px',
-                lineHeight: 1.7,
-                color: 'rgba(232,230,224,0.88)',
-                fontWeight: 300,
-                margin: 0,
-              }}
-            >
-              {recommendedDirection}
-            </p>
-          </section>
+          {recommended_direction && (
+            <section>
+              <div
+                className="font-mono-dm"
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase' as const,
+                  color: 'var(--text-dim)',
+                  marginBottom: '10px',
+                }}
+              >
+                Recommended direction
+              </div>
+              <p
+                style={{
+                  fontSize: '15px',
+                  lineHeight: 1.7,
+                  color: 'rgba(232,230,224,0.88)',
+                  fontWeight: 300,
+                  margin: 0,
+                }}
+              >
+                {recommended_direction}
+              </p>
+            </section>
+          )}
         </div>
 
         {/* Action bar */}
         <div
-          className="flex items-center gap-3"
+          className="flex items-center justify-between"
           style={{
             padding: '16px 28px 24px',
             borderTop: '1px solid rgba(255,255,255,0.045)',
           }}
         >
-          <button
-            className="reveal-pill"
-            style={{
-              height: '38px',
-              fontSize: '12px',
-              padding: '0 20px',
-              background: 'var(--gold)',
-              color: 'var(--void)',
-              borderColor: 'transparent',
-              fontWeight: 500,
-            }}
-            onClick={() => {
-              dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
-            }}
-          >
-            <ArrowRight size={14} />
-            Proceed
-          </button>
-          <button
-            className="reveal-pill"
-            style={{ height: '38px', fontSize: '12px', padding: '0 16px' }}
-            onClick={() => {
-              dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
-            }}
-          >
-            <RotateCcw size={12} />
-            Round 2
-          </button>
-          <button
-            className="reveal-pill"
-            style={{ height: '38px', fontSize: '12px', padding: '0 16px' }}
-            onClick={() => {
-              dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
-            }}
-          >
-            <Pencil size={12} />
-            Override
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              className="reveal-pill"
+              style={{
+                height: '38px',
+                fontSize: '12px',
+                padding: '0 20px',
+                background: 'var(--gold)',
+                color: 'var(--void)',
+                borderColor: 'transparent',
+                fontWeight: 500,
+              }}
+              onClick={handleProceed}
+            >
+              <ArrowRight size={14} />
+              Proceed
+            </button>
+            <button
+              className="reveal-pill"
+              style={{ height: '38px', fontSize: '12px', padding: '0 16px' }}
+              onClick={handleRound2}
+            >
+              <RotateCcw size={12} />
+              Round 2
+            </button>
+            <button
+              className="reveal-pill"
+              style={{ height: '38px', fontSize: '12px', padding: '0 16px' }}
+              onClick={handleOverride}
+            >
+              <Pencil size={12} />
+              Override
+            </button>
+          </div>
+          {model_used && (
+            <span
+              className="font-mono-dm"
+              style={{
+                fontSize: '9px',
+                letterSpacing: '0.1em',
+                color: 'var(--text-dim)',
+              }}
+            >
+              via {model_used}
+            </span>
+          )}
         </div>
       </div>
     </div>
