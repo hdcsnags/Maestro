@@ -61,6 +61,11 @@ export interface Session {
   github_repo?: string;
   supabase_project_url?: string;
   created_at: string;
+  current_phase?: SessionPhase;
+  build_spec?: Record<string, unknown>;
+  build_spec_locked?: boolean;
+  project_type?: 'new' | 'existing';
+  architect_md?: string;
 }
 
 export interface Round {
@@ -115,6 +120,14 @@ export interface Response {
 
 export type SessionPhase = 'analysis' | 'design' | 'pre_build' | 'build' | 'bouncer' | 'complete';
 export type ConciergePhase = 'post_round1' | 'post_round2' | 'design' | 'pre_build' | 'post_build';
+
+export interface IntakeSummary {
+  stack: string[];
+  architecture_notes: string;
+  risk_files: string[];
+  safe_zones: string[];
+  estimated_complexity: 'low' | 'medium' | 'high';
+}
 
 export interface ConciergeDecision {
   id?: string;

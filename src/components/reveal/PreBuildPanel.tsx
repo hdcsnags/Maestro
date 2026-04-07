@@ -1,16 +1,160 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
-import { Hammer, GitBranch, Database, ScanSearch, FileCode2, ChevronDown, ChevronUp } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { IntakeSummary } from '../../types';
+import {
+  Hammer, GitBranch, Database, ScanSearch, FileCode2,
+  ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Copy,
+} from 'lucide-react';
 import RepoSection from './RepoSection';
 
 type ProjectType = 'new' | 'existing';
+
+const COMPLEXITY_COLOR: Record<string, string> = {
+  low: 'var(--ok)',
+  medium: 'var(--gold)',
+  high: 'var(--risk)',
+};
 
 export default function PreBuildPanel() {
   const { state, dispatch } = useMaestro();
   const isOpen = state.activeDrawer === 'pre-build';
 
-  const [projectType, setProjectType] = useState<ProjectType>('new');
+  const [projectType, setProjectType] = useState<ProjectType>(
+    state.activeSession?.project_type ?? 'new',
+  );
   const [supabaseExpanded, setSupabaseExpanded] = useState(false);
+
+  // B6 intake state
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<IntakeSummary | null>(
+    (state.activeSession?.build_spec?.intake_summary as IntakeSummary) ?? null,
+  );
+  const [scanError, setScanError] = useState('');
+
+  // B7 architect state
+  const [generating, setGenerating] = useState(false);
+  const [architectMd, setArchitectMd] = useState<string | null>(
+    state.activeSession?.architect_md ?? null,
+  );
+  const [architectError, setArchitectError] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  const getToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? '';
+  }, []);
+
+  const hasRepo = !!state.activeRepoConnection;
+  const hasSession = !!state.activeSession;
+  const canScan = hasSession && hasRepo && projectType === 'existing';
+  const canGenerate = hasSession;
+
+  /* ── B6: Intake scan ─────────────────────────────────────── */
+  const handleScan = useCallback(async () => {
+    if (!state.activeSession || !state.activeRepoConnection) return;
+    setScanning(true);
+    setScanError('');
+    setScanResult(null);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`${supabaseUrl}/functions/v1/intake`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: state.activeSession.id,
+          repo_connection_id: state.activeRepoConnection.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const code = data.error ?? '';
+        if (code === 'ANTHROPIC_KEY_MISSING') {
+          throw new Error('Add an Anthropic API key in the Vault first.');
+        }
+        throw new Error(data.message || `Scan failed (${res.status})`);
+      }
+
+      setScanResult(data.intake_summary as IntakeSummary);
+
+      // Refresh session in context with updated build_spec
+      if (state.activeSession) {
+        dispatch({
+          type: 'SET_ACTIVE_SESSION',
+          payload: {
+            ...state.activeSession,
+            build_spec: {
+              ...(state.activeSession.build_spec ?? {}),
+              intake_summary: data.intake_summary,
+            },
+          },
+        });
+      }
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  }, [state.activeSession, state.activeRepoConnection, getToken, supabaseUrl, dispatch]);
+
+  /* ── B7: Architect generation ────────────────────────────── */
+  const handleGenerate = useCallback(async () => {
+    if (!state.activeSession) return;
+    setGenerating(true);
+    setArchitectError('');
+    setArchitectMd(null);
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`${supabaseUrl}/functions/v1/architect`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: state.activeSession.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const code = data.error ?? '';
+        if (code === 'ANTHROPIC_KEY_MISSING') {
+          throw new Error('Add an Anthropic API key in the Vault first.');
+        }
+        throw new Error(data.message || `Generation failed (${res.status})`);
+      }
+
+      setArchitectMd(data.architect_md as string);
+
+      // Refresh session in context
+      if (state.activeSession) {
+        dispatch({
+          type: 'SET_ACTIVE_SESSION',
+          payload: { ...state.activeSession, architect_md: data.architect_md },
+        });
+      }
+    } catch (err) {
+      setArchitectError(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setGenerating(false);
+    }
+  }, [state.activeSession, getToken, supabaseUrl, dispatch]);
+
+  const handleCopyArchitect = useCallback(() => {
+    if (!architectMd) return;
+    navigator.clipboard.writeText(architectMd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [architectMd]);
 
   return (
     <aside className={`drawer-panel drawer-right ${isOpen ? 'open' : ''}`}>
@@ -133,30 +277,21 @@ export default function PreBuildPanel() {
       </button>
 
       {supabaseExpanded && (
-        <div
-          className="reveal-card"
-          style={{ marginBottom: '20px' }}
-        >
+        <div className="reveal-card" style={{ marginBottom: '20px' }}>
           <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '10px' }}>
             Per-project Supabase credentials for edge functions and database access.
           </div>
-
           <div className="flex flex-col gap-2">
             <input
               type="text"
               placeholder="Project URL (https://xxx.supabase.co)"
               disabled
               style={{
-                height: '34px',
-                padding: '0 12px',
-                borderRadius: '12px',
+                height: '34px', padding: '0 12px', borderRadius: '12px',
                 border: '1px solid rgba(255,255,255,0.08)',
                 background: 'rgba(255,255,255,0.02)',
-                color: 'var(--text-dim)',
-                fontSize: '12px',
-                outline: 'none',
-                width: '100%',
-                opacity: 0.5,
+                color: 'var(--text-dim)', fontSize: '12px', outline: 'none',
+                width: '100%', opacity: 0.5,
               }}
             />
             <input
@@ -164,35 +299,22 @@ export default function PreBuildPanel() {
               placeholder="Service Role Key"
               disabled
               style={{
-                height: '34px',
-                padding: '0 12px',
-                borderRadius: '12px',
+                height: '34px', padding: '0 12px', borderRadius: '12px',
                 border: '1px solid rgba(255,255,255,0.08)',
                 background: 'rgba(255,255,255,0.02)',
-                color: 'var(--text-dim)',
-                fontSize: '12px',
+                color: 'var(--text-dim)', fontSize: '12px',
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                outline: 'none',
-                width: '100%',
-                opacity: 0.5,
+                outline: 'none', width: '100%', opacity: 0.5,
               }}
             />
-            <div
-              className="font-mono-dm"
-              style={{
-                fontSize: '9px',
-                color: 'var(--text-dim)',
-                opacity: 0.6,
-                padding: '4px 0',
-              }}
-            >
-              Per-project credentials — wiring available after B6/B7 land.
+            <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', opacity: 0.6, padding: '4px 0' }}>
+              Per-project credentials — coming in a future sprint.
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Actions ─────────────────────────────────────────── */}
+      {/* ── Build actions ───────────────────────────────────── */}
       <div className="reveal-label mb-3" style={{ marginTop: '4px' }}>
         <div className="flex items-center gap-2">
           <Hammer size={12} />
@@ -201,63 +323,157 @@ export default function PreBuildPanel() {
       </div>
 
       <div className="flex flex-col gap-3">
-        {/* Scan repo (B6) */}
+        {/* ── B6: Scan repository ─────────────────────────── */}
         <button
-          disabled
+          disabled={!canScan || scanning}
+          onClick={handleScan}
           className="font-mono-dm flex items-center gap-3"
-          title="Available after repo scan backend (B6) lands"
+          title={
+            !hasSession ? 'No active session'
+            : !hasRepo ? 'Connect a repository first'
+            : projectType !== 'existing' ? 'Switch to "Existing app" to scan'
+            : scanning ? 'Scanning…'
+            : scanResult ? 'Re-scan repository'
+            : 'Scan repository for context'
+          }
           style={{
             width: '100%',
             height: '48px',
             borderRadius: '14px',
-            border: '1px solid var(--border)',
-            background: 'rgba(255,255,255,0.02)',
-            color: 'var(--text-dim)',
+            border: `1px solid ${scanResult ? 'rgba(78,187,127,0.25)' : 'var(--border)'}`,
+            background: scanResult ? 'rgba(78,187,127,0.04)' : 'rgba(255,255,255,0.02)',
+            color: canScan ? (scanResult ? 'var(--ok)' : 'var(--text)') : 'var(--text-dim)',
             fontSize: '11px',
             letterSpacing: '0.08em',
             textTransform: 'uppercase' as const,
-            cursor: 'not-allowed',
-            opacity: 0.4,
+            cursor: canScan && !scanning ? 'pointer' : 'not-allowed',
+            opacity: canScan ? 1 : 0.4,
             padding: '0 16px',
+            transition: 'all 0.2s ease',
           }}
         >
-          <ScanSearch size={16} />
+          {scanning ? <Loader2 size={16} className="animate-spin" /> : scanResult ? <Check size={16} /> : <ScanSearch size={16} />}
           <div className="flex flex-col items-start">
-            <span>Scan repository</span>
+            <span>{scanning ? 'Scanning…' : scanResult ? 'Scan complete' : 'Scan repository'}</span>
             <span style={{ fontSize: '8px', letterSpacing: '0.05em', opacity: 0.7, textTransform: 'none' }}>
-              Agents read the codebase for context
+              {scanning ? 'Agents reading the codebase…' : scanResult ? 'Click to re-scan' : 'Agents read the codebase for context'}
             </span>
           </div>
         </button>
 
-        {/* Generate scaffold (B7) */}
+        {scanError && (
+          <div
+            className="font-mono-dm flex items-center gap-2"
+            style={{
+              fontSize: '10px', padding: '8px 12px', borderRadius: '10px',
+              background: 'rgba(224,90,90,0.06)', border: '1px solid rgba(224,90,90,0.2)',
+              color: 'var(--risk)',
+            }}
+          >
+            <AlertTriangle size={12} />
+            {scanError}
+          </div>
+        )}
+
+        {/* Intake summary results */}
+        {scanResult && <IntakeSummaryCard summary={scanResult} />}
+
+        {/* ── B7: Generate scaffold ───────────────────────── */}
         <button
-          disabled
+          disabled={!canGenerate || generating}
+          onClick={handleGenerate}
           className="font-mono-dm flex items-center gap-3"
-          title="Available after scaffold generation backend (B7) lands"
+          title={
+            !hasSession ? 'No active session'
+            : generating ? 'Generating…'
+            : architectMd ? 'Re-generate ARCHITECT.md'
+            : 'Generate ARCHITECT.md scaffold'
+          }
           style={{
             width: '100%',
             height: '48px',
             borderRadius: '14px',
-            border: '1px solid var(--border)',
-            background: 'rgba(255,255,255,0.02)',
-            color: 'var(--text-dim)',
+            border: `1px solid ${architectMd ? 'rgba(78,187,127,0.25)' : 'var(--border)'}`,
+            background: architectMd ? 'rgba(78,187,127,0.04)' : 'rgba(255,255,255,0.02)',
+            color: canGenerate ? (architectMd ? 'var(--ok)' : 'var(--text)') : 'var(--text-dim)',
             fontSize: '11px',
             letterSpacing: '0.08em',
             textTransform: 'uppercase' as const,
-            cursor: 'not-allowed',
-            opacity: 0.4,
+            cursor: canGenerate && !generating ? 'pointer' : 'not-allowed',
+            opacity: canGenerate ? 1 : 0.4,
             padding: '0 16px',
+            transition: 'all 0.2s ease',
           }}
         >
-          <FileCode2 size={16} />
+          {generating ? <Loader2 size={16} className="animate-spin" /> : architectMd ? <Check size={16} /> : <FileCode2 size={16} />}
           <div className="flex flex-col items-start">
-            <span>Generate scaffold</span>
+            <span>{generating ? 'Generating…' : architectMd ? 'Scaffold ready' : 'Generate scaffold'}</span>
             <span style={{ fontSize: '8px', letterSpacing: '0.05em', opacity: 0.7, textTransform: 'none' }}>
-              File tree, tech stack, agent assignments
+              {generating ? 'Building ARCHITECT.md…' : architectMd ? 'Click to re-generate' : 'File tree, tech stack, agent assignments'}
             </span>
           </div>
         </button>
+
+        {architectError && (
+          <div
+            className="font-mono-dm flex items-center gap-2"
+            style={{
+              fontSize: '10px', padding: '8px 12px', borderRadius: '10px',
+              background: 'rgba(224,90,90,0.06)', border: '1px solid rgba(224,90,90,0.2)',
+              color: 'var(--risk)',
+            }}
+          >
+            <AlertTriangle size={12} />
+            {architectError}
+          </div>
+        )}
+
+        {/* Architect.md preview */}
+        {architectMd && (
+          <div
+            style={{
+              borderRadius: '12px',
+              border: '1px solid var(--border)',
+              background: 'rgba(255,255,255,0.02)',
+              overflow: 'hidden',
+            }}
+          >
+            <div className="flex items-center justify-between" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+              <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                ARCHITECT.md
+              </span>
+              <button
+                onClick={handleCopyArchitect}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: copied ? 'var(--ok)' : 'var(--text-dim)',
+                  padding: '4px', display: 'flex', alignItems: 'center', gap: '4px',
+                }}
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                <span className="font-mono-dm" style={{ fontSize: '9px' }}>
+                  {copied ? 'Copied' : 'Copy'}
+                </span>
+              </button>
+            </div>
+            <pre
+              style={{
+                padding: '12px',
+                margin: 0,
+                fontSize: '10px',
+                lineHeight: 1.5,
+                color: 'var(--text-muted)',
+                maxHeight: '200px',
+                overflow: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              }}
+            >
+              {architectMd}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* ── Phase status ────────────────────────────────────── */}
@@ -280,19 +496,122 @@ export default function PreBuildPanel() {
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              background: 'var(--gold)',
-              boxShadow: '0 0 8px rgba(201,168,76,0.4)',
+              background: scanResult && architectMd ? 'var(--ok)' : 'var(--gold)',
+              boxShadow: `0 0 8px ${scanResult && architectMd ? 'rgba(78,187,127,0.4)' : 'rgba(201,168,76,0.4)'}`,
             }}
           />
           <span style={{ letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
-            Shell mode
+            {scanResult && architectMd ? 'Ready to build' : 'Pre-build'}
           </span>
         </div>
         <span style={{ opacity: 0.7 }}>
-          Pre-build panel ready. Scan and scaffold actions unlock when
-          backend phases B6 and B7 are complete.
+          {scanResult && architectMd
+            ? 'Intake scan and ARCHITECT.md generated. Ready to transition to build phase.'
+            : 'Connect a repo, run intake scan, then generate the build scaffold.'}
         </span>
       </div>
     </aside>
+  );
+}
+
+/* ── Intake summary display card ────────────────────────────── */
+
+function IntakeSummaryCard({ summary }: { summary: IntakeSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const complexityColor = COMPLEXITY_COLOR[summary.estimated_complexity] ?? 'var(--text-dim)';
+
+  return (
+    <div
+      style={{
+        borderRadius: '12px',
+        border: '1px solid rgba(78,187,127,0.15)',
+        background: 'rgba(78,187,127,0.03)',
+        overflow: 'hidden',
+      }}
+    >
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full"
+        style={{
+          padding: '10px 12px',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--text)',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ok)' }}>
+            Intake summary
+          </span>
+          <span
+            className="font-mono-dm"
+            style={{
+              fontSize: '9px',
+              padding: '2px 8px',
+              borderRadius: '6px',
+              background: `${complexityColor}15`,
+              border: `1px solid ${complexityColor}30`,
+              color: complexityColor,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+            }}
+          >
+            {summary.estimated_complexity}
+          </span>
+        </div>
+        {expanded ? <ChevronUp size={12} style={{ color: 'var(--text-dim)' }} /> : <ChevronDown size={12} style={{ color: 'var(--text-dim)' }} />}
+      </button>
+
+      {expanded && (
+        <div className="font-mono-dm" style={{ padding: '0 12px 12px', fontSize: '10px', lineHeight: 1.6, color: 'var(--text-muted)' }}>
+          {/* Stack */}
+          <div style={{ marginBottom: '8px' }}>
+            <span style={{ color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '9px' }}>Stack</span>
+            <div className="flex flex-wrap gap-1" style={{ marginTop: '4px' }}>
+              {summary.stack.map(s => (
+                <span
+                  key={s}
+                  className="reveal-chip"
+                  style={{ fontSize: '9px', height: '20px', padding: '0 6px' }}
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Architecture notes */}
+          <div style={{ marginBottom: '8px' }}>
+            <span style={{ color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '9px' }}>Architecture</span>
+            <p style={{ margin: '4px 0 0' }}>{summary.architecture_notes}</p>
+          </div>
+
+          {/* Risk files */}
+          {summary.risk_files.length > 0 && (
+            <div style={{ marginBottom: '8px' }}>
+              <span style={{ color: 'var(--risk)', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '9px' }}>Risk files</span>
+              <div style={{ marginTop: '4px' }}>
+                {summary.risk_files.map(f => (
+                  <div key={f} style={{ color: 'var(--risk)', opacity: 0.8 }}>• {f}</div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Safe zones */}
+          {summary.safe_zones.length > 0 && (
+            <div>
+              <span style={{ color: 'var(--ok)', letterSpacing: '0.08em', textTransform: 'uppercase', fontSize: '9px' }}>Safe zones</span>
+              <div style={{ marginTop: '4px' }}>
+                {summary.safe_zones.map(z => (
+                  <div key={z} style={{ color: 'var(--ok)', opacity: 0.8 }}>• {z}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
