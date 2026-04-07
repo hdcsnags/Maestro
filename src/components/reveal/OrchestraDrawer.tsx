@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
-import { PROVIDER_COLORS, Agent } from '../../types';
+import { PROVIDER_COLORS, Agent, AGENT_DEFAULTS, StabilityTier } from '../../types';
 import { supabase } from '../../lib/supabase';
 import {
   estimateBroadcastCost,
@@ -116,6 +116,24 @@ function tierModelSummary(agents: Agent[], slots: TierSlot[]): string {
   return resolveSlotAgents(agents, slots)
     .map(a => a.display_name || a.name)
     .join(' · ');
+}
+
+/* ── Stability tier lookup ────────────────────────────────────── */
+
+const STABILITY_DOT: Record<Exclude<StabilityTier, 'stable'>, string> = {
+  preview: '#9b7de0',
+  expiring: '#d4a843',
+  deprecated: '#e05a5a',
+};
+
+function getStabilityInfo(model: string) {
+  const def = AGENT_DEFAULTS.find(d => d.model === model);
+  if (!def || def.stability_tier === 'stable') return null;
+  return {
+    tier: def.stability_tier,
+    date: def.deprecation_date,
+    replacement: def.replacement_model_id,
+  };
 }
 
 /* ── Advanced view — provider groups ─────────────────────────── */
@@ -291,17 +309,33 @@ export default function OrchestraDrawer() {
   /* ── Render: slot button (Advanced view) ── */
 
   const renderSlotButton = (agent: Agent, providerHasKey: boolean, isFreeRow: boolean) => {
-    const isLocked = !providerHasKey;
+    const stability = getStabilityInfo(agent.model);
+    const isDeprecated = stability?.tier === 'deprecated';
+    const isLocked = !providerHasKey || isDeprecated;
     const isOn = agent.is_active && !isLocked;
     const isFree = isFreeRow || agent.slot_index === 0;
     const scopedPaths = agent.scoped_paths || [];
+
+    const stabilityTitle = stability
+      ? stability.tier === 'deprecated'
+        ? `⛔ Deprecated${stability.date ? ` ${stability.date}` : ''} — migrate to ${stability.replacement ?? 'replacement'}`
+        : stability.tier === 'expiring'
+          ? `⚠ Expiring${stability.date ? ` ${stability.date}` : ''} — replacement: ${stability.replacement ?? 'TBD'}`
+          : `Preview model`
+      : undefined;
+
+    const slotTitle = isDeprecated
+      ? stabilityTitle!
+      : isLocked
+        ? 'Add a key in the Vault to use this voice'
+        : stabilityTitle ?? agent.name;
 
     return (
       <button
         key={agent.id}
         onClick={() => handleToggleAgent(agent, providerHasKey)}
         disabled={isLocked}
-        title={isLocked ? 'Add a key in the Vault to use this voice' : agent.name}
+        title={slotTitle}
         style={{
           flex: 1,
           minWidth: 0,
@@ -376,6 +410,19 @@ export default function OrchestraDrawer() {
               >
                 {scopedPaths.length} scope{scopedPaths.length !== 1 ? 's' : ''}
               </span>
+            )}
+            {stability && (
+              <div
+                title={stabilityTitle}
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: STABILITY_DOT[stability.tier],
+                  boxShadow: `0 0 6px ${STABILITY_DOT[stability.tier]}88`,
+                  flexShrink: 0,
+                }}
+              />
             )}
           </div>
 
@@ -699,6 +746,35 @@ export default function OrchestraDrawer() {
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch' }}>
                       {agents.map(agent => renderSlotButton(agent, providerHasKey, isFreeRow))}
                     </div>
+
+                    {/* Stability warnings for this group */}
+                    {agents.map(agent => {
+                      const info = getStabilityInfo(agent.model);
+                      if (!info || info.tier === 'preview') return null;
+                      const isExp = info.tier === 'expiring';
+                      const dotColor = STABILITY_DOT[info.tier];
+                      return (
+                        <div
+                          key={`stability-${agent.id}`}
+                          className="font-mono-dm"
+                          style={{
+                            marginTop: '6px',
+                            fontSize: '9px',
+                            letterSpacing: '0.06em',
+                            padding: '6px 10px',
+                            borderRadius: '8px',
+                            background: `${dotColor}0a`,
+                            border: `1px solid ${dotColor}22`,
+                            color: dotColor,
+                          }}
+                        >
+                          {isExp ? '⚠' : '⛔'} {agent.display_name || agent.name}
+                          {isExp ? ' expiring' : ' deprecated'}
+                          {info.date ? ` ${info.date}` : ''}
+                          {info.replacement ? ` — migrate to ${info.replacement}` : ''}
+                        </div>
+                      );
+                    })}
 
                     {editingAgent && renderScopeEditor(editingAgent)}
                   </div>
