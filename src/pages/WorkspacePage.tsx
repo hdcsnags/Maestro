@@ -18,6 +18,7 @@ import PatchModal from '../components/reveal/PatchModal';
 import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
 import ConciergePanel from '../components/reveal/ConciergePanel';
+import PreBuildPanel from '../components/reveal/PreBuildPanel';
 
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
@@ -89,6 +90,12 @@ export default function WorkspacePage() {
       if (ctrl && key === 'k') {
         e.preventDefault();
         dispatch({ type: 'OPEN_DRAWER', payload: 'vault' });
+        return;
+      }
+
+      if (ctrl && key === 'b') {
+        e.preventDefault();
+        dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
         return;
       }
 
@@ -206,6 +213,7 @@ export default function WorkspacePage() {
       <ShortcutOverlay />
       <PatchModal />
       <ExecutionModal />
+      <PreBuildPanel />
       {state.conciergeVisible && <ConciergePanel />}
     </div>
   );
