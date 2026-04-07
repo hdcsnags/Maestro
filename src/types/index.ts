@@ -86,6 +86,12 @@ export interface ResponseArtifact {
   content: string;
 }
 
+export interface FileManifestEntry {
+  path: string;
+  content: string | null; // null = delete
+  operation: 'upsert' | 'delete';
+}
+
 export interface Response {
   id: string;
   round_id: string;
@@ -99,6 +105,7 @@ export interface Response {
   title: string;
   signals: ResponseSignals;
   artifacts: ResponseArtifact[];
+  file_manifest?: FileManifestEntry[];
   is_flagged: boolean;
   is_lead: boolean;
   is_pinned?: boolean;

@@ -7,6 +7,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+interface FileManifestEntry {
+  path: string;
+  content: string | null;
+  operation: "upsert" | "delete";
+}
+
 interface AgentPatch {
   agent_name: string;
   agent_id: string;
@@ -14,6 +20,68 @@ interface AgentPatch {
   scoped_paths: string[];
   commit_message: string;
   conductor_approved?: boolean;
+  file_manifest?: FileManifestEntry[];
+}
+
+interface ManifestExecutionResult {
+  written_files: string[];
+  deleted_files: string[];
+  skipped_files: Array<{ path: string; reason: string }>;
+  errors: string[];
+}
+
+// UTF-8 safe base64 encoder. The classic btoa(unescape(encodeURIComponent(...)))
+// hack is deprecated and breaks on emoji/CJK. This handles all of Unicode and
+// large files via chunked spread.
+function utf8ToBase64(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+// Reject obvious model laziness. Catches "// ... existing code ...",
+// "// rest of file unchanged", "/* previous imports */", etc.
+// This is the first line of defense against an agent overwriting a real
+// file with a stub. Tuned for false-negative tolerance, not precision.
+const TRUNCATION_PATTERNS = [
+  /\/\/\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /\/\*\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /#\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /<!--\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /\/\/\s*(keep|preserve)\s+(existing|original|previous)/i,
+];
+
+function looksTruncated(content: string): boolean {
+  return TRUNCATION_PATTERNS.some(p => p.test(content));
+}
+
+function validateManifestEntry(entry: FileManifestEntry): { ok: true } | { ok: false; reason: string } {
+  if (!entry.path || typeof entry.path !== "string") {
+    return { ok: false, reason: "missing path" };
+  }
+  if (entry.path.startsWith("/") || entry.path.includes("..")) {
+    return { ok: false, reason: "invalid path (absolute or traversal)" };
+  }
+  if (entry.operation === "delete") {
+    if (entry.content !== null) {
+      return { ok: false, reason: "delete entry has non-null content" };
+    }
+    return { ok: true };
+  }
+  if (entry.operation === "upsert") {
+    if (typeof entry.content !== "string") {
+      return { ok: false, reason: "upsert entry has null/non-string content" };
+    }
+    if (looksTruncated(entry.content)) {
+      return { ok: false, reason: "content contains truncation placeholder (// ... existing code etc)" };
+    }
+    return { ok: true };
+  }
+  return { ok: false, reason: `unknown operation "${entry.operation}"` };
 }
 
 interface ExecuteRequest {
@@ -122,26 +190,140 @@ async function createBranch(owner: string, repo: string, branchName: string, bas
   });
 }
 
-async function createFileCommit(owner: string, repo: string, branch: string, path: string, content: string, message: string, token: string) {
-  const encoded = btoa(unescape(encodeURIComponent(content)));
-
-  let existingSha: string | undefined;
+async function getExistingFile(
+  owner: string,
+  repo: string,
+  branch: string,
+  path: string,
+  token: string,
+): Promise<{ sha: string; size: number } | null> {
   try {
-    const existing = await ghApi(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, token);
-    existingSha = existing.sha;
-  } catch { /* file doesn't exist */ }
+    const data = await ghApi(
+      `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${branch}`,
+      token,
+    );
+    return { sha: data.sha, size: data.size ?? 0 };
+  } catch {
+    return null;
+  }
+}
 
-  const body: Record<string, unknown> = {
-    message,
-    content: encoded,
-    branch,
-  };
-  if (existingSha) body.sha = existingSha;
+async function upsertFile(
+  owner: string,
+  repo: string,
+  branch: string,
+  path: string,
+  content: string,
+  message: string,
+  token: string,
+): Promise<void> {
+  const existing = await getExistingFile(owner, repo, branch, path, token);
 
-  return ghApi(`/repos/${owner}/${repo}/contents/${path}`, token, {
+  // Length sanity guard: if the new file is dramatically smaller than the
+  // existing one, the agent probably truncated. Skip with loud reason.
+  // Only enforced when existing file is >200 bytes (avoids tripping on stubs).
+  if (existing && existing.size > 200) {
+    const newBytes = new TextEncoder().encode(content).length;
+    if (newBytes < existing.size * 0.3) {
+      throw new Error(
+        `length sanity check failed: new content (${newBytes}b) is <30% of existing (${existing.size}b) for ${path}`,
+      );
+    }
+  }
+
+  const encoded = utf8ToBase64(content);
+  const body: Record<string, unknown> = { message, content: encoded, branch };
+  if (existing) body.sha = existing.sha;
+
+  await ghApi(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, token, {
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+async function deleteFile(
+  owner: string,
+  repo: string,
+  branch: string,
+  path: string,
+  message: string,
+  token: string,
+): Promise<void> {
+  const existing = await getExistingFile(owner, repo, branch, path, token);
+  if (!existing) {
+    // Already gone; treat as no-op rather than error.
+    return;
+  }
+  await ghApi(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, token, {
+    method: "DELETE",
+    body: JSON.stringify({ message, sha: existing.sha, branch }),
+  });
+}
+
+async function applyManifest(
+  manifest: FileManifestEntry[],
+  owner: string,
+  repo: string,
+  branch: string,
+  scopedPaths: string[],
+  globalApproval: boolean,
+  baseMessage: string,
+  token: string,
+): Promise<ManifestExecutionResult> {
+  const out: ManifestExecutionResult = {
+    written_files: [],
+    deleted_files: [],
+    skipped_files: [],
+    errors: [],
+  };
+
+  for (const entry of manifest) {
+    const v = validateManifestEntry(entry);
+    if (!v.ok) {
+      out.skipped_files.push({ path: entry.path || "<unknown>", reason: v.reason });
+      continue;
+    }
+
+    // Scope enforcement: every entry must match the patch's scoped_paths
+    // unless conductor approval is set globally. Skip the entry, do NOT
+    // abort the run — partial success beats total failure.
+    const inScope = scopedPaths.length > 0 && pathMatchesScope(entry.path, scopedPaths);
+    if (!inScope && !globalApproval) {
+      out.skipped_files.push({
+        path: entry.path,
+        reason: "outside scoped_paths and no conductor approval",
+      });
+      continue;
+    }
+
+    try {
+      if (entry.operation === "delete") {
+        await deleteFile(owner, repo, branch, entry.path, `${baseMessage} (delete ${entry.path})`, token);
+        out.deleted_files.push(entry.path);
+      } else {
+        await upsertFile(
+          owner, repo, branch, entry.path,
+          entry.content as string,
+          `${baseMessage} (${entry.path})`,
+          token,
+        );
+        out.written_files.push(entry.path);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      out.errors.push(`${entry.path}: ${msg}`);
+      out.skipped_files.push({ path: entry.path, reason: `write failed: ${msg}` });
+    }
+  }
+
+  return out;
+}
+
+function deriveStatus(r: ManifestExecutionResult): "success" | "partial" | "failed" {
+  const wrote = r.written_files.length + r.deleted_files.length;
+  if (wrote === 0) return "failed";
+  if (r.skipped_files.length > 0 || r.errors.length > 0) return "partial";
+  return "success";
 }
 
 async function createPR(owner: string, repo: string, head: string, base: string, title: string, body: string, token: string) {
@@ -290,114 +472,203 @@ Deno.serve(async (req: Request) => {
     const baseSha = baseRef.object.sha;
 
     const globalApproval = body.conductor_approved ?? false;
-    const result: Record<string, unknown> = { branches: [], prs: [], blocked: [] };
+
+    // Aggregated structured result for the whole run.
+    const aggregate: ManifestExecutionResult & {
+      branches: Array<{ agent?: string; branch: string; pr_url: string }>;
+      prs: string[];
+      blocked: Array<{ agent: string; reason: string }>;
+    } = {
+      written_files: [],
+      deleted_files: [],
+      skipped_files: [],
+      errors: [],
+      branches: [],
+      prs: [],
+      blocked: [],
+    };
 
     if (mode === "per_agent") {
-      const branches: Array<{ agent: string; branch: string; pr_url: string }> = [];
-      const blocked: Array<{ agent: string; reason: string }> = [];
-
       for (const patch of patches) {
         const scopeCheck = checkAgentScope(patch, globalApproval);
         if (!scopeCheck.allowed) {
-          blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
+          aggregate.blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
+          continue;
+        }
+
+        // Loud failure: no fallback to maestro-patches/. If the agent didn't
+        // emit a manifest, the run for this patch fails visibly.
+        if (!patch.file_manifest || patch.file_manifest.length === 0) {
+          aggregate.errors.push(
+            `${patch.agent_name}: no file_manifest in response. Re-broadcast in Build mode.`,
+          );
+          aggregate.blocked.push({
+            agent: patch.agent_name,
+            reason: "no file_manifest emitted (agent must return real file changes, not prose)",
+          });
           continue;
         }
 
         const slug = patch.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const branchName = `maestro/${slug}/run-${execution_run_id.slice(0, 8)}`;
 
-        await createBranch(owner, repo, branchName, baseSha, ghToken);
+        try {
+          await createBranch(owner, repo, branchName, baseSha, ghToken);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          aggregate.errors.push(`${patch.agent_name}: branch create failed: ${msg}`);
+          continue;
+        }
 
-        const filePath = `maestro-patches/${slug}-patch.md`;
-        await createFileCommit(
-          owner, repo, branchName, filePath, patch.content,
-          patch.commit_message || `[Maestro] ${patch.agent_name} contribution`,
-          ghToken
+        const baseMsg = patch.commit_message || `[Maestro] ${patch.agent_name} contribution`;
+        const manifestResult = await applyManifest(
+          patch.file_manifest,
+          owner, repo, branchName,
+          patch.scoped_paths ?? [],
+          globalApproval || (patch.conductor_approved ?? false),
+          baseMsg,
+          ghToken,
         );
+
+        aggregate.written_files.push(...manifestResult.written_files);
+        aggregate.deleted_files.push(...manifestResult.deleted_files);
+        aggregate.skipped_files.push(...manifestResult.skipped_files);
+        aggregate.errors.push(...manifestResult.errors);
+
+        // Only open a PR if at least one file actually changed on this branch.
+        const wrote = manifestResult.written_files.length + manifestResult.deleted_files.length;
+        if (wrote === 0) {
+          aggregate.blocked.push({
+            agent: patch.agent_name,
+            reason: "manifest produced zero writes (all entries skipped)",
+          });
+          continue;
+        }
+
+        const prBodyLines = [
+          `## ${patch.agent_name}`,
+          "",
+          patch.content,
+          "",
+          "### Files changed",
+          ...manifestResult.written_files.map(f => `- \`${f}\` (upsert)`),
+          ...manifestResult.deleted_files.map(f => `- \`${f}\` (delete)`),
+        ];
+        if (manifestResult.skipped_files.length > 0) {
+          prBodyLines.push("", "### Skipped");
+          for (const s of manifestResult.skipped_files) {
+            prBodyLines.push(`- \`${s.path}\` — ${s.reason}`);
+          }
+        }
+        prBodyLines.push("", "---", "*Generated by Maestro orchestration*");
 
         const pr = await createPR(
           owner, repo, branchName, defaultBranch,
           `[Maestro] ${patch.agent_name}: ${patch.commit_message || "Agent contribution"}`,
-          `## ${patch.agent_name} -- Society of Mind\n\n${patch.content}\n\n---\n*Generated by Maestro orchestration*`,
-          ghToken
+          prBodyLines.join("\n"),
+          ghToken,
         );
 
-        branches.push({ agent: patch.agent_name, branch: branchName, pr_url: pr.html_url });
+        aggregate.branches.push({ agent: patch.agent_name, branch: branchName, pr_url: pr.html_url });
+        aggregate.prs.push(pr.html_url);
       }
 
-      result.branches = branches;
-      result.prs = branches.map(b => b.pr_url);
-      result.blocked = blocked;
-
-      const finalStatus = branches.length === 0 && blocked.length > 0 ? "blocked" : "complete";
-
-      await supabase
-        .from("execution_runs")
-        .update({
-          status: finalStatus,
-          result,
-          branch_name: branches.map(b => b.branch).join(", "),
-          pr_url: branches.map(b => b.pr_url).join(", "),
-        })
-        .eq("id", execution_run_id);
-
     } else {
-      // Synthesized mode: check all contributing patches have scope or approval
-      const blocked: Array<{ agent: string; reason: string }> = [];
+      // Synthesized mode: union of all patch manifests on a single branch.
       for (const patch of patches) {
         const scopeCheck = checkAgentScope(patch, globalApproval);
         if (!scopeCheck.allowed) {
-          blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
+          aggregate.blocked.push({ agent: patch.agent_name, reason: scopeCheck.reason });
         }
       }
 
-      if (blocked.length > 0 && !globalApproval) {
-        result.blocked = blocked;
-        await supabase
-          .from("execution_runs")
-          .update({
-            status: "blocked",
-            result,
-          })
-          .eq("id", execution_run_id);
-      } else {
+      const allManifests = patches.flatMap(p => (p.file_manifest ?? []).map(e => ({
+        entry: e,
+        scoped_paths: p.scoped_paths ?? [],
+        conductor_approved: p.conductor_approved ?? false,
+      })));
+
+      if (allManifests.length === 0) {
+        aggregate.errors.push("synthesized run: no file_manifest entries across any patch");
+      } else if (aggregate.blocked.length === 0 || globalApproval) {
         const branchName = `maestro/synthesis/run-${execution_run_id.slice(0, 8)}`;
+        try {
+          await createBranch(owner, repo, branchName, baseSha, ghToken);
 
-        await createBranch(owner, repo, branchName, baseSha, ghToken);
+          // Apply each manifest entry under its originating patch's scope.
+          // Last write wins on path collisions (synthesis-time conflict).
+          const baseMsg = commit_message || "[Maestro] Synthesized patch";
+          for (const { entry, scoped_paths, conductor_approved } of allManifests) {
+            const single = await applyManifest(
+              [entry], owner, repo, branchName, scoped_paths,
+              globalApproval || conductor_approved, baseMsg, ghToken,
+            );
+            aggregate.written_files.push(...single.written_files);
+            aggregate.deleted_files.push(...single.deleted_files);
+            aggregate.skipped_files.push(...single.skipped_files);
+            aggregate.errors.push(...single.errors);
+          }
 
-        const content = synthesis_content || patches.map(p => p.content).join("\n\n---\n\n");
-        const filePath = "maestro-patches/synthesis-patch.md";
+          const wrote = aggregate.written_files.length + aggregate.deleted_files.length;
+          if (wrote > 0) {
+            const prBody = [
+              "## Council Synthesis",
+              "",
+              synthesis_content || "",
+              "",
+              "### Files changed",
+              ...aggregate.written_files.map(f => `- \`${f}\` (upsert)`),
+              ...aggregate.deleted_files.map(f => `- \`${f}\` (delete)`),
+              "",
+              "---",
+              "*Generated by Maestro orchestration*",
+            ].join("\n");
 
-        await createFileCommit(
-          owner, repo, branchName, filePath, content,
-          commit_message || "[Maestro] Synthesized patch",
-          ghToken
-        );
-
-        const pr = await createPR(
-          owner, repo, branchName, defaultBranch,
-          commit_message || "[Maestro] Synthesized council output",
-          `## Council Synthesis\n\n${content}\n\n---\n*Generated by Maestro orchestration*`,
-          ghToken
-        );
-
-        result.branches = [{ branch: branchName, pr_url: pr.html_url }];
-        result.prs = [pr.html_url];
-        result.blocked = [];
-
-        await supabase
-          .from("execution_runs")
-          .update({
-            status: "complete",
-            result,
-            branch_name: branchName,
-            pr_url: pr.html_url,
-          })
-          .eq("id", execution_run_id);
+            const pr = await createPR(
+              owner, repo, branchName, defaultBranch,
+              commit_message || "[Maestro] Synthesized council output",
+              prBody, ghToken,
+            );
+            aggregate.branches.push({ branch: branchName, pr_url: pr.html_url });
+            aggregate.prs.push(pr.html_url);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          aggregate.errors.push(`synthesis branch failed: ${msg}`);
+        }
       }
     }
 
-    return new Response(JSON.stringify({ success: true, result }), {
+    const totalWrote = aggregate.written_files.length + aggregate.deleted_files.length;
+    const status: "success" | "partial" | "failed" =
+      totalWrote === 0
+        ? "failed"
+        : (aggregate.skipped_files.length > 0 || aggregate.errors.length > 0 || aggregate.blocked.length > 0)
+          ? "partial"
+          : "success";
+
+    const result: Record<string, unknown> = {
+      status,
+      written_files: aggregate.written_files,
+      deleted_files: aggregate.deleted_files,
+      skipped_files: aggregate.skipped_files,
+      errors: aggregate.errors,
+      branches: aggregate.branches,
+      prs: aggregate.prs,
+      blocked: aggregate.blocked,
+    };
+
+    await supabase
+      .from("execution_runs")
+      .update({
+        status: status === "failed" ? "failed" : "complete",
+        result,
+        branch_name: aggregate.branches.map(b => b.branch).join(", "),
+        pr_url: aggregate.branches.map(b => b.pr_url).join(", "),
+      })
+      .eq("id", execution_run_id);
+
+    return new Response(JSON.stringify({ success: status !== "failed", result }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 

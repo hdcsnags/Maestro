@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode } from '../types';
+import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry } from '../types';
 
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
@@ -189,10 +189,26 @@ export function useOrchestration() {
       .map(s => ({ name: s.name, instruction: s.instruction }));
 
     // Tiered context (T1-T3) is prepended to the user prompt.
-    // Tier 4 context_files are resolved server-side via github-read.
+    // Tier 4 context_files are resolved server-side via fetchFileContent.
     const augmentedPrompt = tieredContext
       ? `Prior session context (for reference only):\n\n${tieredContext}\n\n---\n\nCurrent request:\n${prompt}`
       : prompt;
+
+    // Task 4 — Build mode auto-inject literal scoped paths as context_files.
+    // Globs (*, **) are NOT expanded here; they remain hint text in the system
+    // prompt. Hard limits: max 5 files, 50KB each. Oversize files become path
+    // hints only. The actual fetch happens server-side in orchestrate.
+    let mergedContextFiles = [...contextFiles];
+    if (mode === 'build' && agent.scoped_paths && state.activeRepoConnection) {
+      const isLiteral = (p: string) => !p.includes('*') && !p.endsWith('/');
+      const literals = agent.scoped_paths.filter(isLiteral).slice(0, 5);
+      const seen = new Set(mergedContextFiles.map(f => f.path));
+      for (const path of literals) {
+        if (seen.has(path)) continue;
+        mergedContextFiles.push({ path });
+        seen.add(path);
+      }
+    }
 
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/orchestrate`, {
@@ -211,7 +227,7 @@ export function useOrchestration() {
           scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
           mode,
           repo_connection_id: state.activeRepoConnection?.id,
-          context_files: contextFiles.length > 0 ? contextFiles : undefined,
+          context_files: mergedContextFiles.length > 0 ? mergedContextFiles : undefined,
         }),
       });
 
@@ -221,6 +237,7 @@ export function useOrchestration() {
 
       const result = await response.json();
       const artifacts: ResponseArtifact[] = Array.isArray(result.artifacts) ? result.artifacts : [];
+      const fileManifest: FileManifestEntry[] = Array.isArray(result.file_manifest) ? result.file_manifest : [];
 
       const { data: rawResponse } = await supabase
         .from('responses')
@@ -237,6 +254,7 @@ export function useOrchestration() {
           title: result.title ?? '',
           signals: result.signals ?? {},
           artifacts: artifacts as unknown as never,
+          file_manifest: fileManifest as unknown as never,
           is_flagged: false,
           is_lead: false,
           tokens_used: result.usage?.total_tokens ?? 0,
@@ -252,6 +270,7 @@ export function useOrchestration() {
             ...responseData,
             signals: responseData.signals as Response['signals'],
             artifacts: (responseData.artifacts ?? []) as ResponseArtifact[],
+            file_manifest: ((responseData as Response).file_manifest ?? []) as FileManifestEntry[],
           },
         });
       }
