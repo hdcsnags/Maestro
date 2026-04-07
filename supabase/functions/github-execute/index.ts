@@ -224,6 +224,25 @@ async function createBranch(owner: string, repo: string, branchName: string, bas
   });
 }
 
+// Sprint A · B5 — automatic backup branch. Snapshots default branch HEAD
+// before any write to an existing repo. Once per execution run, never
+// skippable, no override flag. Returns the branch name.
+async function createBackupBranch(
+  owner: string,
+  repo: string,
+  defaultBranch: string,
+  token: string,
+): Promise<string> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const backupBranch = `maestro-backup/${timestamp}`;
+  const ref = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, token);
+  await ghApi(`/repos/${owner}/${repo}/git/refs`, token, {
+    method: "POST",
+    body: JSON.stringify({ ref: `refs/heads/${backupBranch}`, sha: ref.object.sha }),
+  });
+  return backupBranch;
+}
+
 async function getExistingFile(
   owner: string,
   repo: string,
@@ -543,6 +562,7 @@ Deno.serve(async (req: Request) => {
       prs: string[];
       blocked: Array<{ agent: string; reason: string }>;
       collisions: PathCollision[];
+      backup_branch: string | null;
     } = {
       written_files: [],
       deleted_files: [],
@@ -552,7 +572,51 @@ Deno.serve(async (req: Request) => {
       prs: [],
       blocked: [],
       collisions: [],
+      backup_branch: null,
     };
+
+    // Sprint A · B5 — automatic backup branch. Once per run, before any write,
+    // for any existing repo. Skipped only when sessions.project_type='new'.
+    // Never skippable by flag.
+    let projectType: string | null = null;
+    if (session_id) {
+      const { data: ptRow } = await supabase
+        .from("sessions")
+        .select("project_type")
+        .eq("id", session_id)
+        .maybeSingle();
+      projectType = (ptRow?.project_type as string | null) ?? null;
+    }
+    if (projectType !== "new") {
+      try {
+        aggregate.backup_branch = await createBackupBranch(owner, repo, defaultBranch, ghToken);
+        await supabase.from("audit_events").insert({
+          user_id: user.id,
+          session_id: session_id ?? null,
+          event_type: "backup_branch_created",
+          actor: "github-execute",
+          provider: "github",
+          model: aggregate.backup_branch,
+          execution_mode: runRow?.execution_mode ?? "",
+          requires_approval: false,
+          succeeded: true,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Backup is never skippable. If we can't snapshot, refuse to write.
+        await supabase
+          .from("execution_runs")
+          .update({ status: "failed", result: { error: "BACKUP_FAILED", message: msg } })
+          .eq("id", execution_run_id);
+        return new Response(
+          JSON.stringify({
+            error: "BACKUP_FAILED",
+            message: `Could not create backup branch: ${msg}`,
+          }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     // Sprint A · B4 — collision detection. Compute once for the whole run.
     // Colliding paths are filtered out of each manifest before applyManifest.
