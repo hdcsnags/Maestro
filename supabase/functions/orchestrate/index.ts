@@ -24,6 +24,7 @@ interface OrchestrationRequest {
   scopedPaths?: string[];
   context_files?: ContextFile[];
   repo_connection_id?: string;
+  session_id?: string;
   mode?: OrchestrationMode;
 }
 
@@ -327,7 +328,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: OrchestrationRequest = await req.json();
-    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, mode } = body;
+    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode } = body;
     const orchestrationMode: OrchestrationMode = mode ?? "analysis";
 
     // Resolve context files if provided
@@ -349,7 +350,20 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode);
+    let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode);
+
+    // Sprint A · B7.2 — inject ARCHITECT.md into build-mode system prompt.
+    if (orchestrationMode === "build" && session_id) {
+      const { data: sessRow } = await supabase
+        .from("sessions")
+        .select("architect_md")
+        .eq("id", session_id)
+        .maybeSingle();
+      const architectMd = (sessRow?.architect_md as string | null) ?? "";
+      if (architectMd && architectMd.trim().length > 0) {
+        systemPrompt += `\n\n---\nARCHITECT REFERENCE:\n${architectMd}\n---`;
+      }
+    }
 
     const lookupProvider = PROVIDER_MAP[provider] ?? provider;
     const apiKey = await getUserApiKey(user.id, lookupProvider);

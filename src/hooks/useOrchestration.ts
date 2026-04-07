@@ -227,6 +227,7 @@ export function useOrchestration() {
           scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
           mode,
           repo_connection_id: state.activeRepoConnection?.id,
+          session_id: state.activeSession?.id,
           context_files: mergedContextFiles.length > 0 ? mergedContextFiles : undefined,
         }),
       });
