@@ -113,6 +113,21 @@ export interface Response {
   created_at: string;
 }
 
+export type SessionPhase = 'analysis' | 'design' | 'pre_build' | 'build' | 'bouncer' | 'complete';
+export type ConciergePhase = 'post_round1' | 'post_round2' | 'design' | 'pre_build' | 'post_build';
+
+export interface ConciergeDecision {
+  id?: string;
+  session_id: string;
+  phase: ConciergePhase;
+  alignment_summary: string;
+  tension_points: string[];
+  recommended_direction: string;
+  conductor_choice?: string | null;
+  model_used?: string | null;
+  created_at?: string;
+}
+
 export interface Synthesis {
   id: string;
   round_id: string;

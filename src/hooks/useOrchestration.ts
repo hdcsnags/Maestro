@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry } from '../types';
+import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry, ConciergeDecision, ConciergePhase } from '../types';
 
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
@@ -318,6 +318,80 @@ export function useOrchestration() {
     }
   }, [user, state.agentSkills, state.activeRepoConnection, dispatch, logAudit]);
 
+  const triggerConcierge = useCallback(async (
+    phase: ConciergePhase,
+    roundId?: string,
+    synthesisContent?: string,
+  ) => {
+    if (!user || !state.activeSession) return;
+
+    const targetRoundId = roundId
+      ?? [...state.rounds].filter(r => r.session_id === state.activeSession?.id).sort((a, b) => b.round_number - a.round_number)[0]?.id;
+    if (!targetRoundId) return;
+
+    const responses = state.responses
+      .filter(r => r.round_id === targetRoundId)
+      .map(r => ({ agent_name: r.agent_name, content: r.content, signals: r.signals }));
+    if (responses.length === 0) return;
+
+    let synthesis = synthesisContent ?? null;
+    if (!synthesis) {
+      const synth = state.syntheses.find(s => s.round_id === targetRoundId);
+      synthesis = synth?.content ?? null;
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const { data: { session } } = await supabase.auth.getSession();
+    const accessToken = session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/concierge`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: state.activeSession.id,
+          phase,
+          responses,
+          synthesis,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Concierge error:', result);
+        const errDecision: ConciergeDecision = {
+          session_id: state.activeSession.id,
+          phase,
+          alignment_summary: result.message ?? 'Concierge unavailable.',
+          tension_points: [],
+          recommended_direction: result.error === 'ANTHROPIC_KEY_MISSING'
+            ? 'Add an Anthropic API key in the Provider Vault to enable Concierge guidance.'
+            : 'Concierge could not produce guidance for this round.',
+          model_used: null,
+        };
+        dispatch({ type: 'SET_CONCIERGE_DECISION', payload: errDecision });
+        return;
+      }
+
+      const decision: ConciergeDecision = {
+        session_id: state.activeSession.id,
+        phase,
+        alignment_summary: result.alignment_summary ?? '',
+        tension_points: Array.isArray(result.tension_points) ? result.tension_points : [],
+        recommended_direction: result.recommended_direction ?? '',
+        model_used: result.model_used ?? null,
+      };
+      dispatch({ type: 'SET_CONCIERGE_DECISION', payload: decision });
+      await logAudit('concierge', 'Concierge', { mode: phase });
+    } catch (err) {
+      console.error('Concierge call failed:', err);
+    }
+  }, [user, state.activeSession, state.rounds, state.responses, state.syntheses, dispatch, logAudit]);
+
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;
 
@@ -364,10 +438,15 @@ export function useOrchestration() {
       }
 
       await logAudit('synthesis', 'Conductor');
+
+      // B3 — auto-trigger concierge after synthesis lands
+      const sessionRoundCount = state.rounds.filter(r => r.session_id === state.activeSession?.id).length;
+      const phase: ConciergePhase = sessionRoundCount <= 1 ? 'post_round1' : 'post_round2';
+      void triggerConcierge(phase, roundId, content);
     } catch (err) {
       console.error('Synthesis error:', err);
     }
-  }, [user, state.responses, dispatch, logAudit]);
+  }, [user, state.responses, state.rounds, state.activeSession, dispatch, logAudit, triggerConcierge]);
 
   const newRound = useCallback(async () => {
     if (!user || !state.activeSession) return;
@@ -376,5 +455,5 @@ export function useOrchestration() {
     await logAudit('new_round', 'Conductor', { sessionId: state.activeSession.id });
   }, [user, state.activeSession, dispatch, logAudit]);
 
-  return { broadcast, synthesize, logAudit, newRound, buildTieredContext };
+  return { broadcast, synthesize, logAudit, newRound, buildTieredContext, triggerConcierge };
 }

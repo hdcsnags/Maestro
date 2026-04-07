@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
-  ExecutionRun, ExecutionStrategy, OrchestrationMode,
+  ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -29,6 +29,7 @@ interface MaestroState {
   broadcastingAgents: string[];
   isBroadcasting: boolean;
   isSynthesizing: boolean;
+  conciergeDecision: ConciergeDecision | null;
   conciergeVisible: boolean;
   carouselVisible: boolean;
   viewMode: ViewMode;
@@ -74,6 +75,7 @@ type Action =
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
   | { type: 'SET_CONCIERGE_VISIBLE'; payload: boolean }
+  | { type: 'SET_CONCIERGE_DECISION'; payload: ConciergeDecision | null }
   | { type: 'SET_CAROUSEL_VISIBLE'; payload: boolean }
   | { type: 'CLEAR_STAGE' }
   | { type: 'SET_VIEW_MODE'; payload: ViewMode }
@@ -107,6 +109,7 @@ const initial: MaestroState = {
   broadcastingAgents: [],
   isBroadcasting: false,
   isSynthesizing: false,
+  conciergeDecision: null,
   conciergeVisible: false,
   carouselVisible: false,
   viewMode: 'carousel',
@@ -194,6 +197,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
     case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
+    case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload, conciergeVisible: action.payload !== null };
     case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };
     case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
