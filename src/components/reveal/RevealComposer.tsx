@@ -53,9 +53,12 @@ export default function RevealComposer({ onBroadcast }: Props) {
     if (!canSend) return;
     const ids = selectedIds.length > 0 ? selectedIds : activeAgents.map(a => a.id);
     dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
-    await onBroadcast(prompt.trim(), ids);
-    setPrompt('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    try {
+      await onBroadcast(prompt.trim(), ids);
+    } finally {
+      setPrompt('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

@@ -1,0 +1,66 @@
+All deployed and migrated.
+
+● All four tasks shipped in one release. Summary:
+
+  Task 1 ✅ — OpenRouter response_format dropped, free-tier 500s unblocked. Deployed.
+
+  Task 1b ✅ — HeroContext no longer echoes the prompt. Round/voices/repo/context indicator preserved.
+
+  Task 2 ✅ — Real file writes via file_manifest:
+  - Migration 20260406180000 added file_manifest jsonb to responses
+  - FileManifestEntry type added
+  - Build prompt rewritten to demand complete file contents in a manifest, with explicit "no // ... existing
+  code ... placeholders" rule
+  - parseResult extracts file_manifest defensively
+  - github-execute got utf8ToBase64 (handles emoji/CJK), getExistingFile, upsertFile, deleteFile, applyManifest
+  - Truncation guard: regex catches // ... existing, /* ... unchanged */, etc → entry skipped with reason
+  - Length sanity guard: if existing file >200B and new content <30% of existing size → skipped with loud reason
+  - Loud failure: no maestro-patches/ fallback. If a patch has no manifest, the agent is blocked with reason "no
+   file_manifest emitted (must return real file changes, not prose)"
+  - Structured result contract: { status, written_files, deleted_files, skipped_files, errors, branches, prs,
+  blocked }
+  - Scope enforcement per manifest entry: out-of-scope entries are skipped, never silently written. Run
+  continues partial.
+  - Synthesized mode applies the union of all manifests on a single branch
+  - PR body lists files changed and skipped reasons inline
+
+  Task 3 ✅ — Diff preview in approval modal (shipped same release as Task 2):
+  - ExecutionModal includes file_manifest in the patches payload
+  - New "Files to write" panel renders manifest entries directly: [~] path (N lines) — agent / [×] path
+  (deleted)
+  - files_affected on approval_requests derived from manifest, not signals.files_modified
+  - Loud red warning if any selected response returned no manifest (prompts re-broadcast in Build mode)
+
+  Task 4 ✅ — Literal-path auto-inject in useOrchestration.callAgent:
+  - Build mode only
+  - Literal paths only (no */**)
+  - Max 5 files (frontend cap)
+  - Max 50KB per file (server-side cap in fetchFileContent — both data.size and decoded length checked)
+  - Oversize/glob paths fall back to system-prompt hint text
+  - Dedupes against existing context_files
+
+  Acceptance criteria from the spec
+
+  - Task 1: ✅ deployed — broadcast to a free OpenRouter agent should now complete without 500
+  - Task 2: ✅ ready — first Build broadcast on a real repo should produce a PR with files at real paths, not
+  maestro-patches/
+  - Task 3: ✅ ready — approval modal shows file list before user clicks Approve
+  - Task 4: ✅ ready — Build broadcast with a literal scoped path auto-injects that file's content (subject to
+  50KB)
+
+  What's still risky to know about
+
+  1. First real Build broadcast is the moment of truth. The truncation guard is regex-based and will catch the
+  obvious laziness, but a sufficiently terse model could still produce a stub that passes both guards. Watch the
+   first PR carefully.
+  2. Synthesized mode "last write wins" on path collisions is intentional but may surprise. If two patches both
+  touch src/App.tsx, the second one overwrites the first. Could add explicit collision detection later if it
+  becomes a problem.
+  3. looksTruncated is best-effort — if it fires false positive on a legit file containing // ... existing
+  literals in a string, that file gets skipped. Tradeoff favors safety over precision; tune patterns if you hit
+  it.
+  4. Migration applied to remote — local devs will need to pull and re-run if anyone is on a separate Supabase
+  instance.
+
+  Ready for you to test on a real repo. Recommend the first run be on a throwaway repo with one tiny scoped path
+   so any issues surface cheap.

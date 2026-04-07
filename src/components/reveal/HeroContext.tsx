@@ -73,34 +73,14 @@ export default function HeroContext() {
       )}
 
       {!hasContent && (
-        <h1
-          className="font-syne"
-          style={{
-            margin: 0,
-            fontSize: 'clamp(24px, 3.5vw, 48px)',
-            fontWeight: 400,
-            letterSpacing: '-0.04em',
-            lineHeight: 1.2,
-            color: 'var(--text)',
-          }}
-        >
-          The council awaits your direction.
-        </h1>
-      )}
-
-      {!hasContent && (
         <p
           style={{
-            margin: '14px auto 0',
-            maxWidth: '680px',
-            fontSize: 'clamp(13px, 1.1vw, 17px)',
-            color: 'var(--text-muted)',
-            lineHeight: 1.6,
+            margin: '8px auto 0',
+            fontSize: '12px',
+            color: 'var(--text-dim)',
+            opacity: 0.5,
           }}
-        >
-          Broadcast a prompt to the orchestra. Each agent responds from its role.
-          The strongest signals rise, contradictions surface, and synthesis follows.
-        </p>
+        />
       )}
     </section>
   );

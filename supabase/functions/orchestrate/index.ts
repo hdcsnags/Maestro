@@ -385,7 +385,7 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: model || 'gpt-4o',
+          model: model || 'gpt-5.4-mini',
           max_tokens: 4096,
           response_format: { type: 'json_object' },
           messages: [
@@ -402,7 +402,7 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else if (provider === 'google') {
-      const geminiModel = model || 'gemini-1.5-flash';
+      const geminiModel = model || 'gemini-2.5-flash';
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
         {
