@@ -28,6 +28,9 @@ interface MaestroState {
   orchestrationMode: OrchestrationMode;
   broadcastingAgents: string[];
   isBroadcasting: boolean;
+  isSynthesizing: boolean;
+  conciergeVisible: boolean;
+  carouselVisible: boolean;
   viewMode: ViewMode;
   activeDrawer: DrawerTarget;
   shortcutOverlayOpen: boolean;
@@ -69,6 +72,9 @@ type Action =
   | { type: 'UPDATE_EXECUTION_RUN'; payload: Partial<ExecutionRun> & { id: string } }
   | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
+  | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
+  | { type: 'SET_CONCIERGE_VISIBLE'; payload: boolean }
+  | { type: 'SET_CAROUSEL_VISIBLE'; payload: boolean }
   | { type: 'CLEAR_STAGE' }
   | { type: 'SET_VIEW_MODE'; payload: ViewMode }
   | { type: 'OPEN_DRAWER'; payload: DrawerTarget }
@@ -100,6 +106,9 @@ const initial: MaestroState = {
   orchestrationMode: 'analysis',
   broadcastingAgents: [],
   isBroadcasting: false,
+  isSynthesizing: false,
+  conciergeVisible: false,
+  carouselVisible: false,
   viewMode: 'carousel',
   activeDrawer: null,
   shortcutOverlayOpen: false,
@@ -183,6 +192,9 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       };
     case 'SET_BROADCASTING_AGENTS': return { ...state, broadcastingAgents: action.payload };
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
+    case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
+    case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
+    case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };
     case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
     case 'OPEN_DRAWER': {

@@ -1,6 +1,6 @@
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
-import { LogOut } from 'lucide-react';
+import { LogOut, Eye, EyeOff, Sparkles } from 'lucide-react';
 import SessionSwitcher from './SessionSwitcher';
 
 export default function RevealTopbar() {

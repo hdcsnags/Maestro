@@ -267,7 +267,20 @@ function parseResult(rawText: string, agentName: string): OrchestrateResult {
       };
     }
   } catch { /* fall through */ }
-  return { title: `${agentName}'s Analysis`, content: rawText, signals: {}, artifacts: [], file_manifest: [] };
+  // Fallback: well-formed text but no parseable JSON. Never return empty
+  // signals — frontend treats {} as "No structured signals returned".
+  const firstLine = rawText.split('\n').find((l) => l.trim()) || `${agentName}'s Response`;
+  return {
+    title: firstLine.slice(0, 120),
+    content: rawText,
+    signals: {
+      risk: 'Unstructured response — review manually',
+      confidence: 'Unknown',
+      synthesis_fit: 'Manual review required',
+    },
+    artifacts: [],
+    file_manifest: [],
+  };
 }
 
 async function getUserApiKey(userId: string, provider: string): Promise<string | null> {
