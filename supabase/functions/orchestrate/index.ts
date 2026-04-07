@@ -44,11 +44,18 @@ interface SignalMap {
   confidence?: string;
 }
 
+interface FileManifestEntry {
+  path: string;
+  content: string | null;
+  operation: "upsert" | "delete";
+}
+
 interface OrchestrateResult {
   title: string;
   content: string;
   signals: SignalMap;
   artifacts?: ArtifactResult[];
+  file_manifest?: FileManifestEntry[];
 }
 
 const PROVIDER_MAP: Record<string, string> = {
@@ -103,8 +110,16 @@ async function fetchFileContent(
     );
     if (!res.ok) return null;
     const data = await res.json();
+    // Task 4 size guard: skip files >50KB. Caller will fall back to listing
+    // the path as a hint. Avoids stuffing package-lock.json into the prompt.
+    const MAX_BYTES = 50 * 1024;
+    if (typeof data.size === "number" && data.size > MAX_BYTES) {
+      return null;
+    }
     if (data.encoding === "base64" && data.content) {
-      return atob(data.content.replace(/\n/g, ""));
+      const decoded = atob(data.content.replace(/\n/g, ""));
+      if (decoded.length > MAX_BYTES) return null;
+      return decoded;
     }
     return data.content ?? null;
   } catch {
@@ -129,25 +144,33 @@ function buildSystemPrompt(
   prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.\n\n`;
 
   if (mode === "build") {
-    prompt += `You are in BUILD mode. Output concrete code changes as a unified diff patch.
+    prompt += `You are in BUILD mode. Output concrete file changes as a file_manifest. Maestro will write these files directly to the user's repository at the exact paths you specify.
 
-When responding:
-1. Lead with a short title describing the change (under 12 words)
-2. Give 1-2 paragraphs of rationale for the change
-3. Output actual code changes as a unified diff in the "content" field, using standard diff format with file headers (--- a/path, +++ b/path) and hunks (@@ -X,Y +X,Y @@)
-4. Be precise. Only change what is necessary.
-
-Return your response as JSON with this structure:
+Return your response as JSON with this EXACT structure:
 {
-  "title": "Your change title here",
-  "content": "Rationale paragraph(s), then the unified diff",
+  "title": "short title under 12 words",
+  "content": "1-2 paragraphs of rationale only — NO code in this field",
   "signals": {
     "files_modified": "comma-separated list of file paths",
-    "lines_added": "integer count",
-    "lines_removed": "integer count"
+    "lines_added": <integer>,
+    "lines_removed": <integer>
   },
-  "artifacts": []
-}`;
+  "artifacts": [],
+  "file_manifest": [
+    { "path": "src/components/Foo.tsx", "content": "<COMPLETE new file content as a string>", "operation": "upsert" },
+    { "path": "src/old/Dead.tsx", "content": null, "operation": "delete" }
+  ]
+}
+
+NON-NEGOTIABLE RULES:
+- file_manifest must contain every file you are creating, modifying, or deleting
+- For "upsert" entries, content MUST be the COMPLETE new file content. Not a diff. Not a snippet. Not "// ... existing code ...". The full file, top to bottom, as it should exist after your change.
+- NEVER use placeholders like "// ... rest of file", "// existing imports", "// unchanged", "...", or "// previous code". These will be REJECTED and the entry will be skipped.
+- If you cannot output the full file, do not include that file in the manifest.
+- For "delete" entries, content must be null.
+- path must be the exact repo-relative path (no leading slash)
+- Never put code in the "content" rationale field — code goes in file_manifest entries only
+- file_manifest may be empty [] if no file changes are needed`;
   } else if (mode === "artifact") {
     prompt += `You are in ARTIFACT mode. Produce a single downloadable file that fulfills the request.
 
@@ -218,18 +241,33 @@ Only include artifacts when file generation is clearly requested or would be gen
 
 function parseResult(rawText: string, agentName: string): OrchestrateResult {
   try {
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    // Strip code fences (```json ... ``` or ``` ... ```) before extracting JSON.
+    // Many models wrap their JSON response in a fenced block.
+    const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const searchText = fencedMatch ? fencedMatch[1].trim() : rawText;
+
+    const jsonMatch = searchText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
+      const manifestRaw = Array.isArray(parsed.file_manifest) ? parsed.file_manifest : [];
+      const file_manifest: FileManifestEntry[] = manifestRaw
+        .filter((e: unknown): e is Record<string, unknown> => typeof e === "object" && e !== null)
+        .map((e: Record<string, unknown>) => ({
+          path: String(e.path ?? ""),
+          content: e.content === null ? null : (typeof e.content === "string" ? e.content : null),
+          operation: e.operation === "delete" ? "delete" as const : "upsert" as const,
+        }))
+        .filter((e: FileManifestEntry) => e.path.length > 0);
       return {
         title: parsed.title || `${agentName}'s Analysis`,
         content: parsed.content || rawText,
         signals: parsed.signals || {},
         artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
+        file_manifest,
       };
     }
   } catch { /* fall through */ }
-  return { title: `${agentName}'s Analysis`, content: rawText, signals: {}, artifacts: [] };
+  return { title: `${agentName}'s Analysis`, content: rawText, signals: {}, artifacts: [], file_manifest: [] };
 }
 
 async function getUserApiKey(userId: string, provider: string): Promise<string | null> {
@@ -396,7 +434,8 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({
           model: model || 'auto',
           max_tokens: 4096,
-          response_format: { type: 'json_object' },
+          // No response_format: not all OpenRouter models (esp. :free) honor JSON mode.
+          // parseResult() handles non-JSON via regex fallback.
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },

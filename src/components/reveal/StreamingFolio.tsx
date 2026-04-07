@@ -6,7 +6,7 @@ interface Props {
   agentModel?: string;
 }
 
-export default function StreamingFolio({ agentName, agentRole, agentColor, agentProvider, agentModel }: Props) {
+export default function StreamingFolio({ agentName, agentRole, agentColor }: Props) {
   return (
     <div className="h-full flex flex-col items-center justify-center" style={{ position: 'relative', zIndex: 2 }}>
       <div

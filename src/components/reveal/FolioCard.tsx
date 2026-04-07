@@ -12,6 +12,9 @@ interface Props {
   roundNumber: number;
 }
 
+const unescape = (s: string) =>
+  s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+
 export default function FolioCard({ response, roundNumber }: Props) {
   const { dispatch } = useMaestro();
   const [flagging, setFlagging] = useState(false);
@@ -235,9 +238,10 @@ export default function FolioCard({ response, roundNumber }: Props) {
                 color: 'rgba(232,230,224,0.88)',
                 fontWeight: 300,
                 maxWidth: signalsExpanded ? '36ch' : '60ch',
+                whiteSpace: 'pre-wrap',
               }}
             >
-              {response.content}
+              {unescape(response.content)}
             </div>
 
             <ArtifactDownload artifacts={artifacts} agentColor={response.agent_color} />

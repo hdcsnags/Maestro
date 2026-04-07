@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { ExecutionRun, ApprovalRequest, ApprovalFileEntry } from '../../types';
+import { ExecutionRun, ApprovalRequest, ApprovalFileEntry, FileManifestEntry } from '../../types';
 import { X, GitBranch, GitMerge, Loader2, ExternalLink, AlertTriangle, Check } from 'lucide-react';
 import ApprovalModal from './ApprovalModal';
 
@@ -67,11 +67,22 @@ export default function ExecutionModal() {
   const effectiveScopePaths = conductorOverride ? [] : unionScopePaths(agentScopes);
   const scopeBranch = activeRepo?.default_branch ?? '';
 
-  const filesAffected: ApprovalFileEntry[] = latestResponses.flatMap(r => {
-    const mods = (r.signals as Record<string, unknown> | undefined)?.files_modified;
-    if (Array.isArray(mods)) return mods.map(p => ({ path: String(p) }));
-    return [];
+  // Files affected come directly from the agent's file_manifest, never from
+  // signals.files_modified (which agents almost never populate reliably).
+  // This is the safety signal the user sees before clicking Approve.
+  const manifestEntries: Array<{ agent: string; entry: FileManifestEntry }> = latestResponses.flatMap(r =>
+    (r.file_manifest ?? []).map(entry => ({ agent: r.agent_name, entry }))
+  );
+
+  const filesAffected: ApprovalFileEntry[] = manifestEntries.map(({ entry }) => {
+    const lines = entry.content ? entry.content.split('\n').length : 0;
+    return entry.operation === 'delete'
+      ? { path: entry.path, lines_removed: lines }
+      : { path: entry.path, lines_added: lines };
   });
+
+  const totalManifestEntries = manifestEntries.length;
+  const responsesWithoutManifest = latestResponses.filter(r => !r.file_manifest || r.file_manifest.length === 0);
 
   const createRun = async (status: 'approved' | 'pending') => {
     if (!user || !activeRepo || !state.activeSession) throw new Error('Missing context');
@@ -104,6 +115,7 @@ export default function ExecutionModal() {
       scoped_paths: state.agents.find(a => a.id === r.agent_id)?.scoped_paths ?? [],
       commit_message: r.title || `${r.agent_name} contribution`,
       conductor_approved: conductorOverride,
+      file_manifest: r.file_manifest ?? [],
     }));
 
     const { data: sessionData } = await supabase.auth.getSession();
@@ -134,7 +146,7 @@ export default function ExecutionModal() {
       result: result.result,
       pr_url: result.result?.prs?.[0] ?? '',
     };
-    dispatch({ type: 'UPDATE_EXECUTION_RUN', payload: { id: runId, ...updatedRun } });
+    dispatch({ type: 'UPDATE_EXECUTION_RUN', payload: { ...updatedRun, id: runId } });
     setCompletedRun(updatedRun);
   };
 
@@ -440,6 +452,73 @@ export default function ExecutionModal() {
                 style={{ maxHeight: '200px', overflow: 'auto', fontSize: '12px' }}
               >
                 {latestSynthesis.content}
+              </div>
+            )}
+
+            {/* Manifest preview — drives directly from file_manifest entries.
+                This is the only place the user sees what will actually be written. */}
+            {totalManifestEntries > 0 && (
+              <div className="flex flex-col gap-2">
+                <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>
+                  Files to write ({totalManifestEntries})
+                </div>
+                <div
+                  className="flex flex-col"
+                  style={{
+                    maxHeight: '180px',
+                    overflow: 'auto',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    background: 'rgba(255,255,255,0.02)',
+                  }}
+                >
+                  {manifestEntries.map(({ agent, entry }, i) => {
+                    const isDelete = entry.operation === 'delete';
+                    const lines = entry.content ? entry.content.split('\n').length : 0;
+                    const marker = isDelete ? '×' : '~';
+                    const markerColor = isDelete ? 'var(--risk)' : 'var(--ok)';
+                    return (
+                      <div
+                        key={`${agent}-${entry.path}-${i}`}
+                        className="flex items-center gap-2"
+                        style={{
+                          padding: '8px 12px',
+                          borderBottom: i < manifestEntries.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <span style={{ color: markerColor, width: '12px', textAlign: 'center' as const }}>
+                          [{marker}]
+                        </span>
+                        <span style={{ flex: 1, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {entry.path}
+                        </span>
+                        <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>
+                          {isDelete ? 'deleted' : `${lines} lines`}
+                        </span>
+                        <span style={{ color: 'var(--text-dim)', fontSize: '9px', opacity: 0.7 }}>
+                          {agent}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {responsesWithoutManifest.length > 0 && (
+              <div
+                className="rounded-xl p-3"
+                style={{ background: 'rgba(224,90,90,0.06)', border: '1px solid rgba(224,90,90,0.18)' }}
+              >
+                <div className="flex items-center gap-2 mb-1" style={{ color: 'var(--risk)', fontSize: '13px' }}>
+                  <AlertTriangle size={13} />
+                  {responsesWithoutManifest.length} agent{responsesWithoutManifest.length !== 1 ? 's' : ''} returned no file_manifest
+                </div>
+                <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', paddingLeft: '21px', letterSpacing: '0.06em' }}>
+                  Re-broadcast in Build mode. These agents will be skipped and their PRs not opened.
+                </div>
               </div>
             )}
 
