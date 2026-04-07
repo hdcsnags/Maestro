@@ -2,7 +2,29 @@
 
 ## What This App Does
 
-Maestro is an AI orchestration console — a "council of AI agents" interface where users broadcast prompts to multiple AI models simultaneously (Claude, GPT, Gemini, Kimi, Qwen, OpenRouter), review responses in a 3D card carousel, synthesize outputs, and execute resulting code changes to GitHub as branches/PRs.
+Maestro is an AI orchestration console. It automates the manual process of consulting multiple AI models (Claude, GPT, Gemini, Qwen, DeepSeek, Kimi, OpenRouter) simultaneously, synthesizing their outputs, and executing resulting code changes to GitHub. The target workflow replaces manually copy-pasting between Claude Pro, ChatGPT, Gemini, Bolt, etc.
+
+### The Intended Product Flow (phases — partially built)
+
+```
+1. Ideation        → User broadcasts initial prompt. Orb pulses with status text.
+                     Council responds. Toggle reveals carousel of all responses.
+2. Synthesis       → Responses synthesized. Lead agent (Sonnet + best OpenAI) does
+                     final review to prevent circular reasoning. User gets clear path.
+3. Design          → Agents produce HTML mockups, downloadable from carousel cards.
+                     User reviews, picks features/colors/layout, locks design.
+4. Pre-Build       → New repo OR existing repo? Tech stack confirmed. Supabase wired
+                     (per-project). Agents produce full build spec: folder tree, file
+                     list, role assignments. Each agent scoped to non-overlapping files.
+5. Build           → Code written to GitHub. Agents read from GitHub for full context.
+                     No two agents ever touch the same file simultaneously.
+                     Human approves all role transfers.
+6. Security Review → OpenAI + Claude review full codebase. Report surfaced. Human
+                     decides on revamp sprint.
+```
+
+**What's built today:** phases 1–2 partially, execution flow, GitHub PR creation.
+**What's not built yet:** Design phase, Pre-Build phase, project type detection (new vs existing repo), per-project Supabase config, lead agent single-chat mode, MODEL_REGISTRY, agent capability weighting.
 
 ## Commands
 
@@ -181,6 +203,45 @@ Tailwind CSS with a custom design system. Key custom color tokens (from `tailwin
 - `signal.ok`, `signal.warn`, `signal.risk` — status colors
 
 Custom CSS classes for the 3D carousel (`.folio-active`, `.folio-left`, `.folio-right`, etc.) are defined in `src/index.css` — do not replicate with Tailwind utilities.
+
+## Planned Architecture Changes (not yet built)
+
+### MODEL_REGISTRY
+Replace the hardcoded 5×3 DB-seeded agent roster with a `MODEL_REGISTRY` constant in `src/types/index.ts` that maps capability tags to recommended models. Orchestra drawer reads from the registry. Adding/updating a model = one file change, no DB migration required.
+
+### Lead Agent Mode
+After synthesis, the Lead agent receives all council outputs and the carousel collapses to a single-chat view with that agent. User can confirm or return to the full council. Lead agent for coding = Claude Sonnet 4.6 + best available OpenAI (OpenAI is strong on defensive/compliance thinking).
+
+### Pre-Build Phase
+A structured setup phase before any code is written:
+- **Project type gate:** New repo (create fresh) vs existing repo (scan in for context)
+- **Per-project Supabase config** — currently global in Vault, needs to be per-session/project
+- **Tech stack confirmation** — council weighs in before scaffold
+- **Build spec generation** — full folder/file tree, agent role assignments
+- **Scope assignment** — each agent gets non-overlapping file groups (e.g., Gemini/Qwen → UI files only if strongest for UI; Sonnet + OpenAI → logic/backend)
+
+### Design Phase
+Between Synthesis and Pre-Build. Agents produce downloadable HTML mockups directly from their carousel cards. User reviews, selects features/colors/layout from each, synthesizes on design, locks it before proceeding.
+
+### Agent Weighting
+Agents accumulate a contribution weight per project. Redundant or low-signal agents identified and deprioritized. Scoped roles per project.
+
+## Known UX Debt (audit findings, not yet fixed)
+
+- **Topbar clutter:** Model name (e.g., "DEEPSEEK V3 (FREE)") aligns to its indicator dot, not screen-centered. Bleeds into the sessions tab. Round indicator + "Context: Round1" is redundant with HeroContext. Two lines used where one would do.
+- **Carousel space:** Above clutter eats vertical space from the carousel, which is the primary content.
+- **Composer too small:** "Direct the orchestra..." textarea doesn't visually invite long-form input.
+- **Mode toggle (analysis/build/artifact):** Three small pills at composer bottom — most important workflow fork in the app but has almost no visual weight.
+- **Orb is static:** No color change or state-aware text during broadcast. "Brewing / Thinking / Synthesizing" status copy is not built. The orb is visual-only right now.
+- **No carousel reveal toggle:** Vision is orb-first with a toggle to reveal the carousel. Currently carousel is always the primary view once responses arrive.
+- **Artifact tab UX:** Clicking artifact buttons has no visible effect to new users. Artifact download/preview works but isn't discoverable.
+- **Synthesis verification is cosmetic:** 1.4s mock delay before a regex scan that already ran. Feels fake.
+- **No markdown rendering in FolioCard:** Agent responses with headers/bullets/code blocks render as raw text with asterisks/hashes.
+
+  **Bug fixes (2026-04-07)** ✅
+  - Bug 1: `parseResult()` now strips ` ```json ``` ` code fences before JSON extraction
+  - Bug 4: `FolioCard` unescapes `\n`/`\t`/`\"` and uses `white-space: pre-wrap`
+  - Pre-existing: `ExecutionModal` duplicate id key in dispatch; `StreamingFolio` unused params
 
 ## Last Shipped State
 
