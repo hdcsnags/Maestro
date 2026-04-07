@@ -15,19 +15,40 @@ const unescape = (s: string) =>
 
 // If parseResult failed upstream and raw JSON leaked into content, extract just the prose.
 function getDisplayContent(raw: string): string {
-  if (raw.includes('"file_manifest"') || raw.includes('```json')) {
+  const trimmed = raw.trim();
+
+  // Strip code-fenced JSON blocks and try to extract .content
+  if (trimmed.includes('```')) {
+    const stripped = trimmed.replace(/```(?:json|JSON)?\s*([\s\S]*?)```/g, (_m, inner) => {
+      try {
+        const parsed = JSON.parse(inner.trim());
+        if (typeof parsed.content === 'string') return parsed.content;
+        if (typeof parsed.response === 'string') return parsed.response;
+      } catch { /* not parseable, drop the fence */ }
+      return '';
+    }).trim();
+    if (stripped) return unescape(stripped);
+  }
+
+  // Detect raw JSON object that starts with { and has known keys
+  if (/^\s*\{/.test(trimmed) && (trimmed.includes('"content"') || trimmed.includes('"file_manifest"') || trimmed.includes('"response"'))) {
     try {
-      const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      const jsonStr = fencedMatch ? fencedMatch[1].trim() : raw;
-      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed.content === 'string') return unescape(parsed.content);
+      if (typeof parsed.response === 'string') return unescape(parsed.response);
+    } catch { /* fall through */ }
+    // Try extracting JSON substring
+    const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
         const parsed = JSON.parse(jsonMatch[0]);
         if (typeof parsed.content === 'string') return unescape(parsed.content);
-      }
-    } catch { /* fall through */ }
-    return raw.replace(/```(?:json)?\s*[\s\S]*?```/g, '').trim();
+        if (typeof parsed.response === 'string') return unescape(parsed.response);
+      } catch { /* fall through */ }
+    }
   }
-  return unescape(raw);
+
+  return unescape(trimmed);
 }
 
 export default function FolioCard({ response, roundNumber }: Props) {

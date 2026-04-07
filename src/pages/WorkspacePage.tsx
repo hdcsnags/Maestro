@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useMaestro } from '../context/MaestroContext';
 import { useWorkspace } from '../hooks/useWorkspace';
@@ -37,6 +37,19 @@ export default function WorkspacePage() {
     : [];
   const totalFolioItems = latestResponses.length + streamingAgents.length;
   const hasContent = totalFolioItems > 0 || state.isBroadcasting;
+
+  // Auto-show carousel when broadcast finishes and responses exist
+  const wasBroadcasting = useRef(false);
+  useEffect(() => {
+    if (state.isBroadcasting) {
+      wasBroadcasting.current = true;
+    } else if (wasBroadcasting.current && latestResponses.length > 0 && state.autoShowCarousel) {
+      dispatch({ type: 'SET_CAROUSEL_VISIBLE', payload: true });
+      wasBroadcasting.current = false;
+    } else {
+      wasBroadcasting.current = false;
+    }
+  }, [state.isBroadcasting, latestResponses.length, state.autoShowCarousel, dispatch]);
 
   const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[]) => {
     await broadcast(prompt, selectedAgentIds);

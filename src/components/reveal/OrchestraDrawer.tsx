@@ -634,6 +634,31 @@ export default function OrchestraDrawer() {
         </button>
       </div>
 
+      {/* Auto-show carousel toggle */}
+      <label
+        className="flex items-center justify-between gap-3 mb-5"
+        style={{
+          padding: '8px 12px',
+          borderRadius: '12px',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid var(--border)',
+          cursor: 'pointer',
+        }}
+      >
+        <span
+          className="font-mono-dm"
+          style={{ fontSize: '10px', letterSpacing: '0.08em', color: 'var(--text-dim)' }}
+        >
+          Auto-show council when responses arrive
+        </span>
+        <input
+          type="checkbox"
+          checked={state.autoShowCarousel}
+          onChange={e => dispatch({ type: 'SET_AUTO_SHOW_CAROUSEL', payload: e.target.checked })}
+          style={{ accentColor: 'var(--gold)', width: '14px', height: '14px', cursor: 'pointer' }}
+        />
+      </label>
+
       {/* Tier cards */}
       <div className="flex flex-col gap-3 mb-6">
         {TIER_ORDER.map(renderTierCard)}

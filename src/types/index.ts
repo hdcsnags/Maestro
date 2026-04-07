@@ -264,8 +264,8 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 
   // ─── OpenAI ─────────────────────────────────────────────────────
   { name: 'GPT-5.4 Mini', display_name: 'GPT-5.4 Mini', role: 'Fast drafting · Summarization',     provider: 'openai', model: 'gpt-5.4-mini', color: '#5ab88e', is_active: true,  slot_index: 0, provider_group: 'openai', stability_tier: 'stable' },
-  { name: 'GPT-5.4',      display_name: 'GPT-5.4',      role: 'PM · Policy · Scope enforcement',   provider: 'openai', model: 'gpt-5.4',      color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai', stability_tier: 'stable' },
-  { name: 'GPT-5.4',      display_name: 'GPT-5.4',      role: 'Reasoning · Complex analysis',      provider: 'openai', model: 'gpt-5.4',      color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai', stability_tier: 'stable' },
+  { name: 'GPT-5.4 (PM)',         display_name: 'GPT-5.4 (PM)',         role: 'PM · Policy · Scope enforcement', provider: 'openai', model: 'gpt-5.4', color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai', stability_tier: 'stable' },
+  { name: 'GPT-5.4 (Reasoning)',  display_name: 'GPT-5.4 (Reasoning)',  role: 'Reasoning · Complex analysis',    provider: 'openai', model: 'gpt-5.4', color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai', stability_tier: 'stable' },
 
   // ─── Google Gemini ──────────────────────────────────────────────
   { name: 'Gemini 2.5 Flash', display_name: 'Gemini 2.5 Flash', role: 'Speed · Design · Spatial UI', provider: 'google', model: 'gemini-2.5-flash', color: '#5a8fe0', is_active: true,  slot_index: 0, provider_group: 'google', stability_tier: 'stable' },

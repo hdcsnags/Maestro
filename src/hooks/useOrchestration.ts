@@ -375,6 +375,7 @@ export function useOrchestration() {
           model_used: null,
         };
         dispatch({ type: 'SET_CONCIERGE_DECISION', payload: errDecision });
+        dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: true });
         return;
       }
 
@@ -387,6 +388,8 @@ export function useOrchestration() {
         model_used: result.model_used ?? null,
       };
       dispatch({ type: 'SET_CONCIERGE_DECISION', payload: decision });
+      dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: true });
+      console.log('[Concierge] decision received', { phase, model: decision.model_used });
       await logAudit('concierge', 'Concierge', { mode: phase });
     } catch (err) {
       console.error('Concierge call failed:', err);

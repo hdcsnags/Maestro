@@ -53,7 +53,52 @@ export default function ConciergePanel() {
     return () => window.removeEventListener('keydown', handler);
   }, [handleClose]);
 
-  if (!decision) return null;
+  if (!decision) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: 'rgba(8,8,6,0.75)', backdropFilter: 'blur(8px)' }}
+        onClick={handleClose}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            width: '100%',
+            maxWidth: '420px',
+            margin: '0 24px',
+            padding: '40px 32px',
+            borderRadius: '24px',
+            border: '1px solid rgba(201,168,76,0.12)',
+            background: 'linear-gradient(180deg, rgba(18,17,14,0.98), rgba(12,11,9,0.98))',
+            boxShadow: '0 0 80px rgba(201,168,76,0.06), 0 24px 48px rgba(0,0,0,0.4)',
+            textAlign: 'center' as const,
+          }}
+        >
+          <div
+            style={{
+              width: '10px', height: '10px', borderRadius: '50%',
+              background: 'var(--gold)', boxShadow: '0 0 16px rgba(201,168,76,0.4)',
+              margin: '0 auto 16px',
+            }}
+          />
+          <div className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--gold)', marginBottom: '12px' }}>
+            Concierge
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.6, margin: '0 0 20px' }}>
+            No synthesis decision yet. Broadcast a prompt and let the council respond — the concierge
+            will appear automatically after synthesis completes.
+          </p>
+          <button
+            onClick={handleClose}
+            className="reveal-pill"
+            style={{ height: '36px', fontSize: '12px' }}
+          >
+            <X size={14} /> Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const { alignment_summary, tension_points, recommended_direction, phase, model_used } = decision;
 

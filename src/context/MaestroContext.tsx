@@ -32,6 +32,7 @@ interface MaestroState {
   conciergeDecision: ConciergeDecision | null;
   conciergeVisible: boolean;
   carouselVisible: boolean;
+  autoShowCarousel: boolean;
   viewMode: ViewMode;
   activeDrawer: DrawerTarget;
   shortcutOverlayOpen: boolean;
@@ -77,6 +78,7 @@ type Action =
   | { type: 'SET_CONCIERGE_VISIBLE'; payload: boolean }
   | { type: 'SET_CONCIERGE_DECISION'; payload: ConciergeDecision | null }
   | { type: 'SET_CAROUSEL_VISIBLE'; payload: boolean }
+  | { type: 'SET_AUTO_SHOW_CAROUSEL'; payload: boolean }
   | { type: 'CLEAR_STAGE' }
   | { type: 'SET_VIEW_MODE'; payload: ViewMode }
   | { type: 'OPEN_DRAWER'; payload: DrawerTarget }
@@ -112,6 +114,7 @@ const initial: MaestroState = {
   conciergeDecision: null,
   conciergeVisible: false,
   carouselVisible: false,
+  autoShowCarousel: false,
   viewMode: 'carousel',
   activeDrawer: null,
   shortcutOverlayOpen: false,
@@ -142,7 +145,29 @@ function reducer(state: MaestroState, action: Action): MaestroState {
           a.id === action.payload.id ? { ...a, ...action.payload } : a
         ),
       };
-    case 'SET_ACTIVE_SESSION': return { ...state, activeSession: action.payload };
+    case 'SET_ACTIVE_SESSION': {
+      // Hard isolation: when the active session changes, drop all rounds /
+      // responses / syntheses / concierge state from the previous session.
+      // The new session's data will be reloaded fresh by the loader. This
+      // prevents any cross-session context bleed in tiered context, synthesis,
+      // or concierge calls.
+      const prevId = state.activeSession?.id ?? null;
+      const nextId = action.payload?.id ?? null;
+      if (prevId === nextId) {
+        return { ...state, activeSession: action.payload };
+      }
+      return {
+        ...state,
+        activeSession: action.payload,
+        rounds: [],
+        responses: [],
+        syntheses: [],
+        conciergeDecision: null,
+        conciergeVisible: false,
+        broadcastingAgents: [],
+        folioIndex: 0,
+      };
+    }
     case 'SET_SESSIONS': return { ...state, sessions: action.payload };
     case 'SET_ROUNDS': return { ...state, rounds: action.payload };
     case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload] };
@@ -199,6 +224,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
     case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload, conciergeVisible: action.payload !== null };
     case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };
+    case 'SET_AUTO_SHOW_CAROUSEL': return { ...state, autoShowCarousel: action.payload };
     case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
     case 'OPEN_DRAWER': {
