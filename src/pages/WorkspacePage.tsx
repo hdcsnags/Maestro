@@ -17,6 +17,7 @@ import ShortcutOverlay from '../components/reveal/ShortcutOverlay';
 import PatchModal from '../components/reveal/PatchModal';
 import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
+import ConciergePanel from '../components/reveal/ConciergePanel';
 
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
@@ -189,7 +190,7 @@ export default function WorkspacePage() {
         {!state.focusMode && <RevealTopbar />}
         {!state.focusMode && <HeroContext />}
 
-        {hasContent ? (
+        {hasContent && state.carouselVisible ? (
           <FolioCarousel />
         ) : (
           <EmptyStage />
@@ -205,6 +206,7 @@ export default function WorkspacePage() {
       <ShortcutOverlay />
       <PatchModal />
       <ExecutionModal />
+      {state.conciergeVisible && <ConciergePanel />}
     </div>
   );
 }

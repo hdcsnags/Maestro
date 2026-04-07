@@ -47,6 +47,31 @@ export default function RevealTopbar() {
         <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'synthesis' })} title="Synthesis (Ctrl+E)">S</button>
         <button className="keycap" onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })} title="Vault (Ctrl+K)">V</button>
         <button className="keycap" onClick={() => dispatch({ type: 'TOGGLE_SHORTCUTS' })} title="Shortcuts (Ctrl+/)">?</button>
+        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.08)', margin: '0 2px' }} />
+        <button
+          className="keycap"
+          onClick={() => dispatch({ type: 'SET_CAROUSEL_VISIBLE', payload: !state.carouselVisible })}
+          title={state.carouselVisible ? 'Hide carousel (show orb)' : 'Show carousel'}
+          style={{
+            color: state.carouselVisible ? 'var(--gold)' : undefined,
+            borderColor: state.carouselVisible ? 'rgba(201,168,76,0.3)' : undefined,
+            background: state.carouselVisible ? 'rgba(201,168,76,0.08)' : undefined,
+          }}
+        >
+          {state.carouselVisible ? <Eye size={12} /> : <EyeOff size={12} />}
+        </button>
+        <button
+          className="keycap"
+          onClick={() => dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: !state.conciergeVisible })}
+          title="Concierge"
+          style={{
+            color: state.conciergeVisible ? 'var(--gold)' : undefined,
+            borderColor: state.conciergeVisible ? 'rgba(201,168,76,0.3)' : undefined,
+            background: state.conciergeVisible ? 'rgba(201,168,76,0.08)' : undefined,
+          }}
+        >
+          <Sparkles size={12} />
+        </button>
         <button
           className="keycap"
           onClick={signOut}
