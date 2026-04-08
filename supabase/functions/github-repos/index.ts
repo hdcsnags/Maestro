@@ -68,7 +68,21 @@ Deno.serve(async (req: Request) => {
 
       if (!ghResponse.ok) {
         const errData = await ghResponse.json();
-        return new Response(JSON.stringify({ error: errData.message || "GitHub API error", repos: [] }), {
+        // If GitHub rejects the stored token, the row in encrypted_secrets is
+        // dead. Flip the connection row so the UI surfaces a Reconnect button
+        // instead of leaving the Vault green and the user stuck.
+        if (ghResponse.status === 401) {
+          await supabase
+            .from("provider_connections")
+            .update({ is_connected: false })
+            .eq("user_id", user.id)
+            .eq("provider", "github");
+        }
+        return new Response(JSON.stringify({
+          error: errData.message || "GitHub API error",
+          code: ghResponse.status === 401 ? "GITHUB_TOKEN_INVALID" : undefined,
+          repos: [],
+        }), {
           status: ghResponse.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });

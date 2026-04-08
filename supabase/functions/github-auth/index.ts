@@ -176,15 +176,68 @@ Deno.serve(async (req: Request) => {
     if (action === "check_status") {
       const { data: secret } = await supabase
         .from("encrypted_secrets")
-        .select("key_hint")
+        .select("id, encrypted_key, key_hint")
         .eq("user_id", user.id)
         .eq("provider", "github")
         .maybeSingle();
 
+      if (!secret) {
+        return new Response(JSON.stringify({ connected: false, hint: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Live-validate the token against GitHub. A row in encrypted_secrets is
+      // not proof the token still works — it can be revoked, expired, or
+      // rotated server-side. If GitHub rejects it, mark the connection
+      // disconnected so the UI surfaces a Reconnect button.
+      let live = false;
+      try {
+        const probe = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${secret.encrypted_key}`,
+            "User-Agent": "Maestro",
+            Accept: "application/vnd.github+json",
+          },
+        });
+        live = probe.ok;
+      } catch { live = false; }
+
+      if (!live) {
+        await supabase
+          .from("provider_connections")
+          .update({ is_connected: false })
+          .eq("user_id", user.id)
+          .eq("provider", "github");
+        return new Response(JSON.stringify({
+          connected: false,
+          hint: secret.key_hint ?? null,
+          reason: "token_invalid",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       return new Response(JSON.stringify({
-        connected: !!secret,
-        hint: secret?.key_hint ?? null,
+        connected: true,
+        hint: secret.key_hint ?? null,
       }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "disconnect") {
+      // Manual recovery / clean reconnect path. Drops the stored token and
+      // flips the connection row so the UI returns to the Connect state.
+      await supabase
+        .from("encrypted_secrets")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("provider", "github");
+      await supabase
+        .from("provider_connections")
+        .update({ is_connected: false })
+        .eq("user_id", user.id)
+        .eq("provider", "github");
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
