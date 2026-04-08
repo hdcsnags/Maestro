@@ -27,6 +27,7 @@ interface ManifestExecutionResult {
   written_files: string[];
   deleted_files: string[];
   skipped_files: Array<{ path: string; reason: string }>;
+  out_of_scope: Array<{ path: string; content: string | null; operation: "upsert" | "delete" }>;
   errors: string[];
 }
 
@@ -334,6 +335,7 @@ async function applyManifest(
     written_files: [],
     deleted_files: [],
     skipped_files: [],
+    out_of_scope: [],
     errors: [],
   };
 
@@ -349,9 +351,16 @@ async function applyManifest(
     // abort the run — partial success beats total failure.
     const inScope = scopedPaths.length > 0 && pathMatchesScope(entry.path, scopedPaths);
     if (!inScope && !globalApproval) {
+      // Sprint B · B4 — out-of-scope entries become handoff requests rather
+      // than silent skips. Caller persists to handoff_requests.
+      out.out_of_scope.push({
+        path: entry.path,
+        content: entry.content,
+        operation: entry.operation,
+      });
       out.skipped_files.push({
         path: entry.path,
-        reason: "outside scoped_paths and no conductor approval",
+        reason: "out of scope — handoff requested",
       });
       continue;
     }
@@ -570,16 +579,19 @@ Deno.serve(async (req: Request) => {
       blocked: Array<{ agent: string; reason: string }>;
       collisions: PathCollision[];
       backup_branch: string | null;
+      handoffs_requested: Array<{ from_agent: string; to_lane: string; path: string; reason: "out_of_scope" }>;
     } = {
       written_files: [],
       deleted_files: [],
       skipped_files: [],
+      out_of_scope: [],
       errors: [],
       branches: [],
       prs: [],
       blocked: [],
       collisions: [],
       backup_branch: null,
+      handoffs_requested: [],
     };
 
     // Sprint A · B5 — automatic backup branch. Once per run, before any write,
@@ -712,6 +724,28 @@ Deno.serve(async (req: Request) => {
         aggregate.skipped_files.push(...manifestResult.skipped_files);
         aggregate.errors.push(...manifestResult.errors);
 
+        // Sprint B · B4 — out-of-scope entries → handoff_requests
+        if (manifestResult.out_of_scope.length > 0 && session_id) {
+          const handoffRows = manifestResult.out_of_scope.map((e) => ({
+            session_id,
+            from_agent_id: patch.agent_id || null,
+            from_agent_name: patch.agent_name,
+            to_lane: e.path,
+            request_type: "other" as const,
+            description: `Agent ${patch.agent_name} attempted to write ${e.path} outside its declared scope`,
+            payload: { path: e.path, content: e.content, operation: e.operation },
+          }));
+          await supabase.from("handoff_requests").insert(handoffRows);
+          for (const e of manifestResult.out_of_scope) {
+            aggregate.handoffs_requested.push({
+              from_agent: patch.agent_name,
+              to_lane: e.path,
+              path: e.path,
+              reason: "out_of_scope",
+            });
+          }
+        }
+
         // Only open a PR if at least one file actually changed on this branch.
         const wrote = manifestResult.written_files.length + manifestResult.deleted_files.length;
         if (wrote === 0) {
@@ -763,6 +797,8 @@ Deno.serve(async (req: Request) => {
         entry: e,
         scoped_paths: p.scoped_paths ?? [],
         conductor_approved: p.conductor_approved ?? false,
+        agent_name: p.agent_name,
+        agent_id: p.agent_id,
       })));
 
       if (allManifests.length === 0) {
