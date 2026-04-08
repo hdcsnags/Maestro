@@ -21,6 +21,7 @@ import ConciergePanel from '../components/reveal/ConciergePanel';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
+import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
 
 export default function WorkspacePage() {
@@ -232,6 +233,7 @@ export default function WorkspacePage() {
       <PreBuildPanel />
       <DesignPhase />
       <BuildWorkspace />
+      <BuildReport />
       {state.conciergeVisible && <ConciergePanel />}
       <Toast />
     </div>
