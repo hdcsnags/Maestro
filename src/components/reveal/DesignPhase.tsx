@@ -26,24 +26,49 @@ type ArtifactStatus = 'idle' | 'loading' | 'done' | 'error';
 /* ── Helpers ────────────────────────────────────────────────── */
 
 /** Safely extract clean HTML from an artifact's html_content field.
- *  Handles: JSON-wrapped strings, escaped newlines, backtick fences. */
+ *  The design edge function often returns AI-generated responses where
+ *  html_content is double-wrapped: ```json fence around {"html_content": "<!DOCTYPE..."}
+ *  with escaped newlines that break JSON.parse. This handles all cases. */
 function extractHtml(raw: string): string {
   if (!raw) return '';
   let html = raw;
 
-  // If wrapped in JSON, try to extract html_content
+  // Strip markdown code fences first (```html, ```json, ```)
+  html = html.replace(/^```(?:html|json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+
+  // Try JSON parse (works if the inner JSON is well-formed)
   if (html.trimStart().startsWith('{')) {
     try {
       const parsed = JSON.parse(html);
       if (parsed.html_content) html = parsed.html_content;
-    } catch { /* not JSON, use as-is */ }
+    } catch {
+      // JSON.parse failed (likely raw newlines inside string values).
+      // Use regex to extract the html_content value.
+      const match = html.match(/"html_content"\s*:\s*"(<!DOCTYPE[\s\S]*)/i);
+      if (match) {
+        // Grab everything after "html_content": " up to the last closing structure
+        let extracted = match[1];
+        // Remove trailing ",\n  "rationale"..." or "}\n}" junk after the HTML
+        // Find the last </html> and cut there
+        const htmlEnd = extracted.lastIndexOf('</html>');
+        if (htmlEnd !== -1) {
+          extracted = extracted.substring(0, htmlEnd + 7);
+        } else {
+          // No </html> found — trim trailing JSON structure
+          extracted = extracted.replace(/"\s*,\s*"rationale"[\s\S]*$/, '');
+          extracted = extracted.replace(/"\s*\}\s*$/, '');
+        }
+        html = extracted;
+      }
+    }
   }
 
-  // Strip markdown code fences (```html ... ``` or ```json ... ```)
-  html = html.replace(/^```(?:html|json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
-
-  // Replace literal \n with actual newlines
+  // Replace escaped newlines with real newlines
   html = html.replace(/\\n/g, '\n');
+  // Replace escaped quotes
+  html = html.replace(/\\"/g, '"');
+  // Replace escaped backslashes
+  html = html.replace(/\\\\/g, '\\');
 
   return html;
 }

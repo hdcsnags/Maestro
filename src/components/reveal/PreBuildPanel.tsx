@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
 import {
   Hammer, GitBranch, Database, ScanSearch, FileCode2,
-  ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Copy,
+  ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Copy, Download,
   Users, Lock, Sparkles, Pencil, Trash2,
 } from 'lucide-react';
 import RepoSection from './RepoSection';
@@ -309,6 +309,17 @@ export default function PreBuildPanel() {
     setTimeout(() => setCopied(false), 2000);
   }, [architectMd]);
 
+  const handleDownloadArchitect = useCallback(() => {
+    if (!architectMd) return;
+    const blob = new Blob([architectMd], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ARCHITECT.md';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [architectMd]);
+
   return (
     <aside className={`drawer-panel drawer-right ${isOpen ? 'open' : ''}`}>
       {/* Header */}
@@ -595,19 +606,34 @@ export default function PreBuildPanel() {
               <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
                 ARCHITECT.md
               </span>
-              <button
-                onClick={handleCopyArchitect}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: copied ? 'var(--ok)' : 'var(--text-dim)',
-                  padding: '4px', display: 'flex', alignItems: 'center', gap: '4px',
-                }}
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-                <span className="font-mono-dm" style={{ fontSize: '9px' }}>
-                  {copied ? 'Copied' : 'Copy'}
-                </span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadArchitect}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-dim)',
+                    padding: '4px', display: 'flex', alignItems: 'center', gap: '4px',
+                  }}
+                >
+                  <Download size={12} />
+                  <span className="font-mono-dm" style={{ fontSize: '9px' }}>
+                    Download
+                  </span>
+                </button>
+                <button
+                  onClick={handleCopyArchitect}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: copied ? 'var(--ok)' : 'var(--text-dim)',
+                    padding: '4px', display: 'flex', alignItems: 'center', gap: '4px',
+                  }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  <span className="font-mono-dm" style={{ fontSize: '9px' }}>
+                    {copied ? 'Copied' : 'Copy'}
+                  </span>
+                </button>
+              </div>
             </div>
             <pre
               style={{
