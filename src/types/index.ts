@@ -247,7 +247,6 @@ export interface AgentDefault {
 // Free-tier fallback chain — when one free model 404s or rate-limits,
 // orchestrate falls forward through this map.
 export const FREE_TIER_FALLBACKS: Record<string, string> = {
-  'qwen/qwen3.6-plus:free': 'openai/gpt-oss-20b:free',
   'openai/gpt-oss-20b:free': 'google/gemma-4-31b-it:free',
 };
 
@@ -273,8 +272,8 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   { name: 'Gemini 2.5 Flash', display_name: 'Gemini 2.5 Flash', role: 'Long context · Flash',        provider: 'google', model: 'gemini-2.5-flash', color: '#5a8fe0', is_active: false, slot_index: 2, provider_group: 'google', stability_tier: 'stable' },
 
   // ─── OpenRouter A — Free row ────────────────────────────────────
-  { name: 'Qwen 3.6 Plus',      display_name: 'Qwen 3.6 Plus',      role: 'Free · General purpose flagship', provider: 'openrouter', model: 'qwen/qwen3.6-plus:free',           color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a', stability_tier: 'stable' },
-  { name: 'DeepSeek V3 (free)', display_name: 'DeepSeek V3 (free)', role: 'Free · Coding heavyweight',       provider: 'openrouter', model: 'deepseek/deepseek-chat-v3-0324:free', color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_a', stability_tier: 'stable' },
+  { name: 'GPT-OSS 20B (free)', display_name: 'GPT-OSS 20B (free)', role: 'Free · General purpose default',  provider: 'openrouter', model: 'openai/gpt-oss-20b:free',          color: '#8a8ae0', is_active: true,  slot_index: 0, provider_group: 'openrouter_a', stability_tier: 'stable' },
+  { name: 'Gemma 4 31B (free)', display_name: 'Gemma 4 31B (free)', role: 'Free · Fallback general purpose', provider: 'openrouter', model: 'google/gemma-4-31b-it:free',       color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_a', stability_tier: 'stable' },
   { name: 'Llama 4 Maverick',   display_name: 'Llama 4 Maverick',   role: 'Meta frontier',                   provider: 'openrouter', model: 'meta-llama/llama-4-maverick',       color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_a', stability_tier: 'stable' },
 
   // ─── OpenRouter B — Premium row (all OFF by default) ────────────
@@ -286,10 +285,10 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
-  { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
+  { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B (free)', tier: 'free' },
+  { id: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B (free)', tier: 'free' },
   { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
   { id: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', tier: 'paid' },
-  { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
   { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super', tier: 'free' },
 ];
 
@@ -317,11 +316,10 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
   { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'paid' },
   { id: 'google/gemini-3.1-flash-lite-preview-20260303', label: 'Gemini 3.1 Flash Lite (preview)', tier: 'paid' },
   { id: 'x-ai/grok-4.20', label: 'Grok 4.20', tier: 'paid' },
-  { id: 'deepseek/deepseek-chat-v3-0324', label: 'DeepSeek V3', tier: 'paid' },
   { id: 'meta-llama/llama-4-maverick', label: 'Llama 4 Maverick', tier: 'paid' },
-  { id: 'qwen/qwen3.6-plus:free', label: 'Qwen 3.6 Plus', tier: 'free' },
+  { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B (free)', tier: 'free' },
   { id: 'openai/gpt-oss-120b:free', label: 'GPT-OSS 120B', tier: 'free' },
-  { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3 (free)', tier: 'free' },
+  { id: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B (free)', tier: 'free' },
   { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super', tier: 'free' },
 ];
 

@@ -31,7 +31,6 @@ export const MODEL_PRICING_MAP: Record<string, ModelPrice> = {
   'x-ai/grok-4.20':              { inputPer1M: 2.00,  outputPer1M: 6.00, context: 2000000 },
   'openai/gpt-oss-120b':         { inputPer1M: 0.039, outputPer1M: 0.19, context: 131072  },
   'openai/gpt-oss-20b:free':     { inputPer1M: 0,     outputPer1M: 0,    context: 131072  },
-  'qwen/qwen3.6-plus:free':      { inputPer1M: 0,     outputPer1M: 0,    context: 1000000 },
   'google/gemma-4-31b-it:free':  { inputPer1M: 0,     outputPer1M: 0,    context: 131072  },
 };
 
