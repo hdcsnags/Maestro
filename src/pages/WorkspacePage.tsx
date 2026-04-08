@@ -20,6 +20,7 @@ import ExecutionModal from '../components/reveal/ExecutionModal';
 import ConciergePanel from '../components/reveal/ConciergePanel';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
+import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import Toast from '../components/ui/Toast';
 
 export default function WorkspacePage() {
@@ -230,6 +231,7 @@ export default function WorkspacePage() {
       <ExecutionModal />
       <PreBuildPanel />
       <DesignPhase />
+      <BuildWorkspace />
       {state.conciergeVisible && <ConciergePanel />}
       <Toast />
     </div>

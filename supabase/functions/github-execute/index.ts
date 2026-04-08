@@ -940,7 +940,52 @@ Deno.serve(async (req: Request) => {
       branches: aggregate.branches,
       prs: aggregate.prs,
       blocked: aggregate.blocked,
+      collisions: aggregate.collisions,
+      backup_branch: aggregate.backup_branch,
+      handoffs_requested: aggregate.handoffs_requested,
     };
+
+    // Sprint B · B7 — auto-generate build report, advance phase, fire bouncer
+    let buildReportId: string | null = null;
+    if (session_id && totalWrote > 0 && runRow?.execution_mode !== "analyze") {
+      const { data: reportRow } = await supabase
+        .from("build_reports")
+        .insert({
+          session_id,
+          files_written: aggregate.written_files,
+          files_skipped: aggregate.skipped_files,
+          collisions: aggregate.collisions,
+          handoffs_pending: aggregate.handoffs_requested,
+          pr_links: aggregate.prs,
+          backup_branch: aggregate.backup_branch,
+        })
+        .select("id")
+        .single();
+      buildReportId = (reportRow?.id as string | undefined) ?? null;
+
+      await supabase
+        .from("sessions")
+        .update({ current_phase: "bouncer" })
+        .eq("id", session_id);
+
+      // Fire-and-forget bouncer call. Frontend refetches bouncer_events
+      // separately after build completes — do not block the response.
+      const bouncerUrl = `${supabaseUrl}/functions/v1/bouncer`;
+      fetch(bouncerUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          session_id,
+          trigger: "end_of_build",
+          files: aggregate.written_files,
+        }),
+      }).catch(() => { /* fire-and-forget */ });
+
+      result.build_report_id = buildReportId;
+    }
 
     await supabase
       .from("execution_runs")

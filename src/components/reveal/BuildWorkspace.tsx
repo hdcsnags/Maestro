@@ -1,0 +1,720 @@
+import { useState, useCallback, useEffect } from 'react';
+import { useMaestro } from '../../context/MaestroContext';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
+import type { BuildLaneRole, SessionPhase } from '../../types';
+import {
+  Hammer, Play, Shield, CheckCircle2, AlertTriangle,
+  ExternalLink, Loader2, ChevronDown, ChevronUp,
+  Pause, XCircle, ThumbsUp, GitBranch,
+} from 'lucide-react';
+
+/* ── Types ─────────────────────────────────────────────────── */
+
+interface LaneRow {
+  id: string;
+  agent_name: string;
+  lane_paths: string[];
+  role: BuildLaneRole;
+}
+
+interface Finding {
+  file: string;
+  issue: string;
+  severity: 'minor' | 'critical_pause' | 'critical_approved';
+  suggestion: string;
+}
+
+interface BouncerResult {
+  findings: Finding[];
+  overall_severity: string;
+  summary: string;
+  model_used: string;
+}
+
+type BuildStage = 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
+
+/* ── Constants ─────────────────────────────────────────────── */
+
+const SEVERITY_STYLE: Record<string, { color: string; bg: string; label: string }> = {
+  minor: { color: '#d4a843', bg: 'rgba(212,168,67,0.08)', label: 'Minor' },
+  critical_pause: { color: '#e05a5a', bg: 'rgba(224,90,90,0.08)', label: 'Critical' },
+  critical_approved: { color: '#e0925a', bg: 'rgba(224,146,90,0.08)', label: 'Approved' },
+};
+
+const ROLE_BADGE: Record<BuildLaneRole, { color: string; label: string }> = {
+  builder: { color: '#5ab88e', label: 'Builder' },
+  reviewer: { color: '#5a8fe0', label: 'Reviewer' },
+  read_only: { color: '#8a8ae0', label: 'Read Only' },
+  security_audit: { color: '#e07b5a', label: 'Security' },
+};
+
+const PHASES: { key: SessionPhase; label: string }[] = [
+  { key: 'analysis', label: 'Analysis' },
+  { key: 'design', label: 'Design' },
+  { key: 'pre_build', label: 'Pre-Build' },
+  { key: 'build', label: 'Build' },
+  { key: 'bouncer', label: 'Bouncer' },
+  { key: 'complete', label: 'Complete' },
+];
+
+/* ── Component ─────────────────────────────────────────────── */
+
+export default function BuildWorkspace() {
+  const { state, dispatch } = useMaestro();
+  const { user } = useAuth();
+  const session = state.activeSession;
+
+  const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
+
+  const [lanes, setLanes] = useState<LaneRow[]>([]);
+  const [stage, setStage] = useState<BuildStage>('ready');
+  const [error, setError] = useState('');
+
+  // Execution state
+  const [writtenFiles, setWrittenFiles] = useState<string[]>([]);
+  const [skippedFiles, setSkippedFiles] = useState<{ path: string; reason: string }[]>([]);
+  const [prUrls, setPrUrls] = useState<string[]>([]);
+  const [collisionCount, setCollisionCount] = useState(0);
+  const [handoffs, setHandoffs] = useState<{ from_agent: string; path: string }[]>([]);
+  const [backupBranch, setBackupBranch] = useState('');
+
+  // Bouncer state
+  const [bouncerLoading, setBouncerLoading] = useState(false);
+  const [bouncerResult, setBouncerResult] = useState<BouncerResult | null>(null);
+  const [bouncerError, setBouncerError] = useState('');
+  const [findingsExpanded, setFindingsExpanded] = useState(true);
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+  const getToken = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? '';
+  }, []);
+
+  // Load lanes on mount
+  useEffect(() => {
+    if (!session || !isVisible) return;
+    supabase
+      .from('build_lanes')
+      .select('id, agent_name, lane_paths, role')
+      .eq('session_id', session.id)
+      .then(({ data }) => {
+        if (data) setLanes(data as LaneRow[]);
+      });
+  }, [session, isVisible]);
+
+  // Check for existing execution runs
+  useEffect(() => {
+    if (!session || !isVisible) return;
+    const latestRun = state.executionRuns
+      .filter(r => r.session_id === session.id)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+    if (latestRun?.status === 'complete' && latestRun.result) {
+      const r = latestRun.result as Record<string, unknown>;
+      setWrittenFiles((r.written_files as string[]) ?? []);
+      setSkippedFiles((r.skipped_files as { path: string; reason: string }[]) ?? []);
+      setPrUrls((r.prs as string[]) ?? []);
+      setCollisionCount(((r.collisions as unknown[]) ?? []).length);
+      setHandoffs((r.handoffs_requested as { from_agent: string; path: string }[]) ?? []);
+      setBackupBranch((r.backup_branch as string) ?? '');
+      setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
+    }
+  }, [session, isVisible, state.executionRuns]);
+
+  /* ── Execute build ───────────────────────────────────────── */
+  const handleExecute = useCallback(async () => {
+    if (!session || !user) return;
+    setStage('executing');
+    setError('');
+
+    try {
+      const token = await getToken();
+
+      // Create execution run
+      const { data: runData, error: runErr } = await supabase
+        .from('execution_runs')
+        .insert({
+          session_id: session.id,
+          user_id: user.id,
+          execution_mode: state.executionMode,
+          strategy: state.executionStrategy,
+          status: 'approved',
+          requires_approval: state.executionMode === 'elevated',
+          patch_content: '',
+          branch_name: '',
+          pr_url: '',
+          result: {},
+        } as never)
+        .select()
+        .single();
+
+      if (runErr || !runData) throw new Error(runErr?.message ?? 'Failed to create run');
+
+      const run = runData as Record<string, unknown>;
+      dispatch({ type: 'ADD_EXECUTION_RUN', payload: run as never });
+
+      // Call github-execute
+      const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          execution_run_id: run.id,
+          session_id: session.id,
+          execution_mode: state.executionMode,
+          strategy: state.executionStrategy,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const code = data.error ?? '';
+        if (code === 'BUILD_SPEC_NOT_LOCKED') throw new Error('Build spec must be locked first. Go back to Pre-Build.');
+        if (code === 'LANES_NOT_ASSIGNED') throw new Error(data.message || 'Lane assignments required before build.');
+        throw new Error(data.message || data.error || `Execute failed (${res.status})`);
+      }
+
+      const result = data.result ?? data;
+      setWrittenFiles((result.written_files as string[]) ?? []);
+      setSkippedFiles((result.skipped_files as { path: string; reason: string }[]) ?? []);
+      setPrUrls((result.prs as string[]) ?? []);
+      setCollisionCount(((result.collisions as unknown[]) ?? []).length);
+      setHandoffs((result.handoffs_requested as { from_agent: string; path: string }[]) ?? []);
+      setBackupBranch((result.backup_branch as string) ?? '');
+      setStage('complete');
+
+      dispatch({
+        type: 'UPDATE_EXECUTION_RUN',
+        payload: { id: run.id as string, status: 'complete', result },
+      });
+
+      dispatch({ type: 'SHOW_TOAST', payload: `Build complete — ${(result.written_files as string[])?.length ?? 0} files written` });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('ready');
+    }
+  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch]);
+
+  /* ── Trigger bouncer ─────────────────────────────────────── */
+  const handleBouncer = useCallback(async () => {
+    if (!session) return;
+    setBouncerLoading(true);
+    setBouncerError('');
+    setBouncerResult(null);
+
+    // Advance session phase to bouncer
+    await supabase
+      .from('sessions')
+      .update({ current_phase: 'bouncer' } as never)
+      .eq('id', session.id);
+    dispatch({
+      type: 'SET_ACTIVE_SESSION',
+      payload: { ...session, current_phase: 'bouncer' },
+    });
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`${supabaseUrl}/functions/v1/bouncer`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: session.id,
+          trigger: 'end_of_build',
+          files: writtenFiles,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'ANTHROPIC_KEY_MISSING') throw new Error('Add an Anthropic API key in the Vault to run bouncer review.');
+        throw new Error(data.message || data.error || 'Bouncer review failed');
+      }
+
+      setBouncerResult(data as BouncerResult);
+      setStage('bouncer');
+    } catch (err) {
+      setBouncerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBouncerLoading(false);
+    }
+  }, [session, writtenFiles, supabaseUrl, getToken, dispatch]);
+
+  /* ── Conductor decisions ─────────────────────────────────── */
+  const handleConductorDecision = useCallback(async (decision: string) => {
+    if (!session || !bouncerResult) return;
+
+    // Record decision in bouncer_events
+    const { data: events } = await supabase
+      .from('bouncer_events')
+      .select('id')
+      .eq('session_id', session.id)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (events?.[0]) {
+      const eventId = (events[0] as { id: string }).id;
+      await supabase
+        .from('bouncer_events')
+        .update({ conductor_decision: decision } as never)
+        .eq('id', eventId);
+    }
+
+    if (decision === 'pause') {
+      dispatch({ type: 'SHOW_TOAST', payload: 'Build paused — fix critical findings first' });
+      return;
+    }
+
+    if (decision === 'abort') {
+      await supabase
+        .from('sessions')
+        .update({ current_phase: 'pre_build' } as never)
+        .eq('id', session.id);
+      dispatch({
+        type: 'SET_ACTIVE_SESSION',
+        payload: { ...session, current_phase: 'pre_build' },
+      });
+      dispatch({ type: 'SHOW_TOAST', payload: 'Build aborted — returning to Pre-Build' });
+      return;
+    }
+
+    // approve_continue or acknowledge
+    await supabase
+      .from('sessions')
+      .update({ current_phase: 'complete' } as never)
+      .eq('id', session.id);
+    dispatch({
+      type: 'SET_ACTIVE_SESSION',
+      payload: { ...session, current_phase: 'complete' },
+    });
+    setStage('done');
+    dispatch({ type: 'SHOW_TOAST', payload: 'Build approved — session complete ✓' });
+  }, [session, bouncerResult, dispatch]);
+
+  /* ── Render gate ─────────────────────────────────────────── */
+  if (!isVisible || !session) return null;
+
+  const builders = lanes.filter(l => l.role === 'builder');
+  const reviewers = lanes.filter(l => l.role !== 'builder');
+  const hasCritical = bouncerResult?.findings.some(f => f.severity === 'critical_pause') ?? false;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: 'rgba(8,8,6,0.92)', backdropFilter: 'blur(8px)' }}>
+      {/* ── Phase rail ─────────────────────────────────────── */}
+      <PhaseRail currentPhase={session.current_phase ?? 'build'} />
+
+      {/* ── Main content ───────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto" style={{ padding: '0 32px 32px' }}>
+        <div style={{ maxWidth: '880px', margin: '0 auto' }}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between" style={{ marginBottom: '28px' }}>
+            <div className="flex items-center gap-3">
+              <Hammer size={18} style={{ color: 'var(--gold)' }} />
+              <span className="font-mono-dm" style={{ fontSize: '13px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--gold)' }}>
+                {stage === 'bouncer' ? 'Bouncer Review' : stage === 'done' ? 'Build Complete' : 'Build in Progress'}
+              </span>
+            </div>
+            {stage === 'ready' && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'var(--gold)', color: 'var(--void)',
+                  borderColor: 'transparent', fontWeight: 500,
+                }}
+                onClick={handleExecute}
+              >
+                <Play size={14} />
+                Execute Build
+              </button>
+            )}
+          </div>
+
+          {/* Error banner */}
+          {error && (
+            <div className="flex items-center gap-2" style={{
+              padding: '12px 16px', marginBottom: '20px', borderRadius: '12px',
+              background: 'rgba(224,90,90,0.06)', border: '1px solid rgba(224,90,90,0.15)',
+            }}>
+              <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
+              <span style={{ fontSize: '13px', color: 'var(--risk)' }}>{error}</span>
+            </div>
+          )}
+
+          {/* ── Lane assignments ────────────────────────────── */}
+          <section style={{ marginBottom: '28px' }}>
+            <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '12px' }}>
+              Lane Assignments
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {builders.map(lane => (
+                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} />
+              ))}
+              {reviewers.map(lane => (
+                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} />
+              ))}
+              {lanes.length === 0 && (
+                <p style={{ fontSize: '12px', color: 'var(--text-dim)', fontStyle: 'italic' }}>No lanes assigned</p>
+              )}
+            </div>
+          </section>
+
+          {/* ── Executing indicator ────────────────────────── */}
+          {stage === 'executing' && (
+            <div className="flex flex-col items-center" style={{ padding: '48px 0' }}>
+              <Loader2 size={32} className="animate-spin" style={{ color: 'var(--gold)', marginBottom: '16px' }} />
+              <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.15em', color: 'var(--text-dim)' }}>
+                Writing files to GitHub…
+              </span>
+            </div>
+          )}
+
+          {/* ── Build results ──────────────────────────────── */}
+          {(stage === 'complete' || stage === 'bouncer' || stage === 'done') && (
+            <section style={{ marginBottom: '28px' }}>
+              <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '12px' }}>
+                Build Results
+              </div>
+
+              {/* Stats row */}
+              <div className="flex flex-wrap gap-4" style={{ marginBottom: '16px' }}>
+                <StatChip label="Files written" value={writtenFiles.length} color="var(--ok)" />
+                <StatChip label="Skipped" value={skippedFiles.length} color="var(--gold)" />
+                <StatChip label="Collisions" value={collisionCount} color={collisionCount > 0 ? 'var(--risk)' : 'var(--text-dim)'} />
+                <StatChip label="Handoffs" value={handoffs.length} color={handoffs.length > 0 ? 'var(--gold)' : 'var(--text-dim)'} />
+              </div>
+
+              {/* PR links */}
+              {prUrls.length > 0 && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                    Pull Requests
+                  </div>
+                  {prUrls.map((url, i) => (
+                    <a
+                      key={i}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2"
+                      style={{
+                        fontSize: '12px', color: 'var(--gold)', textDecoration: 'none',
+                        padding: '6px 12px', borderRadius: '8px',
+                        background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)',
+                        marginBottom: '6px', display: 'inline-flex',
+                      }}
+                    >
+                      <GitBranch size={12} />
+                      {url.split('/').slice(-2).join(' #')}
+                      <ExternalLink size={10} />
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {/* Backup branch */}
+              {backupBranch && (
+                <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '16px' }}>
+                  Backup: <span style={{ color: 'var(--text-muted)' }}>{backupBranch}</span>
+                </div>
+              )}
+
+              {/* Handoffs */}
+              {handoffs.length > 0 && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '8px' }}>
+                    Handoffs Pending
+                  </div>
+                  {handoffs.map((h, i) => (
+                    <div key={i} className="flex items-center gap-2" style={{
+                      fontSize: '11px', color: 'var(--text-muted)',
+                      padding: '6px 12px', borderRadius: '8px',
+                      background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.08)',
+                      marginBottom: '4px',
+                    }}>
+                      <span style={{ color: 'var(--text)' }}>{h.from_agent}</span>
+                      <span style={{ opacity: 0.4 }}>→</span>
+                      <span>{h.path}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Bouncer trigger */}
+              {stage === 'complete' && (
+                <button
+                  className="reveal-pill"
+                  style={{
+                    height: '36px', fontSize: '12px', padding: '0 20px',
+                    background: bouncerLoading ? 'transparent' : 'rgba(224,123,90,0.12)',
+                    borderColor: 'rgba(224,123,90,0.25)',
+                    color: 'var(--text)',
+                  }}
+                  onClick={handleBouncer}
+                  disabled={bouncerLoading}
+                >
+                  {bouncerLoading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                  {bouncerLoading ? 'Reviewing…' : 'Run Bouncer Review'}
+                </button>
+              )}
+
+              {bouncerError && (
+                <div className="flex items-center gap-2" style={{ marginTop: '8px' }}>
+                  <AlertTriangle size={12} style={{ color: 'var(--risk)' }} />
+                  <span style={{ fontSize: '11px', color: 'var(--risk)' }}>{bouncerError}</span>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ── Bouncer findings ───────────────────────────── */}
+          {bouncerResult && (stage === 'bouncer' || stage === 'done') && (
+            <section style={{ marginBottom: '28px' }}>
+              <button
+                className="flex items-center gap-2 w-full"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', marginBottom: '12px', padding: 0 }}
+                onClick={() => setFindingsExpanded(!findingsExpanded)}
+              >
+                <Shield size={14} style={{ color: hasCritical ? 'var(--risk)' : 'var(--gold)' }} />
+                <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: hasCritical ? 'var(--risk)' : 'var(--gold)' }}>
+                  Bouncer Findings
+                </span>
+                <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginLeft: '8px' }}>
+                  {bouncerResult.findings.length} finding{bouncerResult.findings.length !== 1 ? 's' : ''}
+                </span>
+                {findingsExpanded ? <ChevronUp size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} /> : <ChevronDown size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} />}
+              </button>
+
+              {findingsExpanded && (
+                <>
+                  {/* Summary */}
+                  <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'rgba(232,230,224,0.8)', marginBottom: '16px', fontWeight: 300 }}>
+                    {bouncerResult.summary}
+                  </p>
+
+                  {/* Finding cards */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                    {bouncerResult.findings.map((f, i) => {
+                      const sev = SEVERITY_STYLE[f.severity] ?? SEVERITY_STYLE.minor;
+                      return (
+                        <div key={i} style={{
+                          borderRadius: '12px', padding: '12px 16px',
+                          border: `1px solid ${sev.color}25`,
+                          background: sev.bg,
+                        }}>
+                          <div className="flex items-center gap-2" style={{ marginBottom: '6px' }}>
+                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: sev.color }} />
+                            <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', color: sev.color }}>
+                              {sev.label}
+                            </span>
+                            <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                              {f.file}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5, margin: '0 0 4px' }}>
+                            {f.issue}
+                          </p>
+                          <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5, margin: 0, fontStyle: 'italic' }}>
+                            → {f.suggestion}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Conductor actions */}
+                  {stage === 'bouncer' && (
+                    <div className="flex items-center gap-3">
+                      {!hasCritical && (
+                        <button
+                          className="reveal-pill"
+                          style={{
+                            height: '36px', fontSize: '12px', padding: '0 18px',
+                            background: 'var(--ok)', color: 'var(--void)',
+                            borderColor: 'transparent', fontWeight: 500,
+                          }}
+                          onClick={() => handleConductorDecision('approve_continue')}
+                        >
+                          <CheckCircle2 size={14} />
+                          Approve & continue
+                        </button>
+                      )}
+                      <button
+                        className="reveal-pill"
+                        style={{ height: '36px', fontSize: '12px', padding: '0 16px' }}
+                        onClick={() => handleConductorDecision('acknowledge')}
+                      >
+                        <ThumbsUp size={12} />
+                        Acknowledge minor
+                      </button>
+                      {hasCritical && (
+                        <button
+                          className="reveal-pill"
+                          style={{
+                            height: '36px', fontSize: '12px', padding: '0 16px',
+                            borderColor: 'rgba(224,90,90,0.3)',
+                          }}
+                          onClick={() => handleConductorDecision('pause')}
+                        >
+                          <Pause size={12} />
+                          Pause — fix critical
+                        </button>
+                      )}
+                      <button
+                        className="reveal-pill"
+                        style={{ height: '36px', fontSize: '12px', padding: '0 16px', opacity: 0.7 }}
+                        onClick={() => handleConductorDecision('abort')}
+                      >
+                        <XCircle size={12} />
+                        Abort
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {bouncerResult.model_used && (
+                <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', display: 'block', marginTop: '8px' }}>
+                  reviewed via {bouncerResult.model_used}
+                </span>
+              )}
+            </section>
+          )}
+
+          {/* ── Done state ─────────────────────────────────── */}
+          {stage === 'done' && (
+            <div style={{
+              padding: '24px', borderRadius: '16px', textAlign: 'center',
+              border: '1px solid rgba(78,187,127,0.2)',
+              background: 'rgba(78,187,127,0.04)',
+            }}>
+              <CheckCircle2 size={28} style={{ color: 'var(--ok)', margin: '0 auto 12px', display: 'block' }} />
+              <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.15em', color: 'var(--ok)' }}>
+                Build Complete & Approved
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Phase rail sub-component ──────────────────────────────── */
+
+function PhaseRail({ currentPhase }: { currentPhase: SessionPhase }) {
+  const phaseIdx = PHASES.findIndex(p => p.key === currentPhase);
+
+  return (
+    <div className="flex items-center justify-center gap-1" style={{ padding: '16px 32px 12px' }}>
+      {PHASES.map((p, i) => {
+        const isComplete = i < phaseIdx;
+        const isCurrent = i === phaseIdx;
+        return (
+          <div key={p.key} className="flex items-center gap-1">
+            {i > 0 && (
+              <div style={{
+                width: '20px', height: '1px',
+                background: isComplete ? 'var(--ok)' : 'rgba(255,255,255,0.08)',
+              }} />
+            )}
+            <span className="font-mono-dm" style={{
+              fontSize: '9px', letterSpacing: '0.1em',
+              padding: '3px 8px', borderRadius: '6px',
+              color: isCurrent ? 'var(--gold)' : isComplete ? 'var(--ok)' : 'var(--text-dim)',
+              background: isCurrent ? 'rgba(201,168,76,0.1)' : 'transparent',
+              border: isCurrent ? '1px solid rgba(201,168,76,0.2)' : '1px solid transparent',
+              fontWeight: isCurrent ? 500 : 400,
+            }}>
+              {isComplete ? '✓ ' : ''}{p.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Lane progress bar sub-component ───────────────────────── */
+
+function LaneBar({ lane, stage, writtenFiles }: { lane: LaneRow; stage: BuildStage; writtenFiles: string[] }) {
+  const badge = ROLE_BADGE[lane.role];
+  const isBuilder = lane.role === 'builder';
+
+  // Calculate progress for builders
+  const laneFiles = isBuilder
+    ? writtenFiles.filter(f => lane.lane_paths.some(p => f.startsWith(p.replace(/\*+$/, ''))))
+    : [];
+  const hasProgress = stage !== 'ready' && isBuilder;
+  const isDone = stage === 'complete' || stage === 'bouncer' || stage === 'done';
+  const isWaiting = stage === 'executing' && !isBuilder;
+
+  return (
+    <div className="flex items-center gap-3" style={{
+      padding: '10px 14px', borderRadius: '10px',
+      background: 'rgba(255,255,255,0.02)',
+      border: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      {/* Agent name */}
+      <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text)', minWidth: '140px' }}>
+        {lane.agent_name}
+      </span>
+
+      {/* Paths */}
+      <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', flex: 1 }}>
+        {isBuilder ? lane.lane_paths.join(', ') : '(reads all)'}
+      </span>
+
+      {/* Progress / status */}
+      {hasProgress && (
+        <div style={{ width: '80px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+          <div style={{
+            width: isDone ? '100%' : '60%',
+            height: '100%', borderRadius: '2px',
+            background: isDone ? 'var(--ok)' : badge.color,
+            transition: 'width 0.5s ease',
+          }} />
+        </div>
+      )}
+
+      {/* Status label */}
+      <span className="font-mono-dm" style={{
+        fontSize: '9px', letterSpacing: '0.1em',
+        color: isDone && isBuilder ? 'var(--ok)'
+          : stage === 'executing' ? badge.color
+          : 'var(--text-dim)',
+        minWidth: '60px', textAlign: 'right',
+      }}>
+        {isDone && isBuilder ? `${laneFiles.length} files`
+          : stage === 'executing' && isBuilder ? 'Writing…'
+          : isWaiting ? 'Waiting'
+          : stage === 'ready' ? badge.label
+          : isDone ? badge.label
+          : ''}
+      </span>
+    </div>
+  );
+}
+
+/* ── Stat chip sub-component ───────────────────────────────── */
+
+function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2" style={{
+      padding: '8px 14px', borderRadius: '10px',
+      background: 'rgba(255,255,255,0.02)',
+      border: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      <span className="font-mono-dm" style={{ fontSize: '18px', fontWeight: 600, color }}>{value}</span>
+      <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.1em', color: 'var(--text-dim)', textTransform: 'uppercase' }}>{label}</span>
+    </div>
+  );
+}
