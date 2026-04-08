@@ -501,6 +501,56 @@ Deno.serve(async (req: Request) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+
+      // Sprint B · B5 — build lane assignment gate. Mirrors build_spec_locked.
+      // pr_flow + elevated both blocked without lanes. Analyze bypasses (above).
+      const { data: laneRows } = await supabase
+        .from("build_lanes")
+        .select("agent_name, lane_paths, role")
+        .eq("session_id", session_id);
+
+      const builderLanes = (laneRows ?? []).filter((l) => l.role === "builder");
+      if (builderLanes.length === 0) {
+        return new Response(
+          JSON.stringify({
+            error: "LANES_NOT_ASSIGNED",
+            message: "All builder agents must have non-overlapping lane assignments before build can start",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Every builder agent in the patches must have a lane row
+      const builderNamesWithLanes = new Set(builderLanes.map((l) => l.agent_name));
+      const missing = patches
+        .map((p) => p.agent_name)
+        .filter((n) => !builderNamesWithLanes.has(n));
+      if (missing.length > 0) {
+        return new Response(
+          JSON.stringify({
+            error: "LANES_NOT_ASSIGNED",
+            message: `Builder agents missing lane assignment: ${missing.join(", ")}`,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // No two builder lanes may share a path
+      const seen = new Map<string, string>();
+      for (const lane of builderLanes) {
+        for (const p of (lane.lane_paths as string[] | null) ?? []) {
+          if (seen.has(p)) {
+            return new Response(
+              JSON.stringify({
+                error: "LANES_NOT_ASSIGNED",
+                message: `Lane path "${p}" is claimed by both ${seen.get(p)} and ${lane.agent_name}`,
+              }),
+              { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+          seen.set(p, lane.agent_name);
+        }
+      }
     }
 
     if (runRow?.execution_mode === "elevated") {
@@ -811,7 +861,7 @@ Deno.serve(async (req: Request) => {
           // Apply each manifest entry under its originating patch's scope.
           // Last write wins on path collisions (synthesis-time conflict).
           const baseMsg = commit_message || "[Maestro] Synthesized patch";
-          for (const { entry, scoped_paths, conductor_approved } of allManifests) {
+          for (const { entry, scoped_paths, conductor_approved, agent_name, agent_id } of allManifests) {
             const single = await applyManifest(
               [entry], owner, repo, branchName, scoped_paths,
               globalApproval || conductor_approved, baseMsg, ghToken,
@@ -820,6 +870,27 @@ Deno.serve(async (req: Request) => {
             aggregate.deleted_files.push(...single.deleted_files);
             aggregate.skipped_files.push(...single.skipped_files);
             aggregate.errors.push(...single.errors);
+
+            if (single.out_of_scope.length > 0 && session_id) {
+              const handoffRows = single.out_of_scope.map((e) => ({
+                session_id,
+                from_agent_id: agent_id || null,
+                from_agent_name: agent_name,
+                to_lane: e.path,
+                request_type: "other" as const,
+                description: `Agent ${agent_name} attempted to write ${e.path} outside its declared scope`,
+                payload: { path: e.path, content: e.content, operation: e.operation },
+              }));
+              await supabase.from("handoff_requests").insert(handoffRows);
+              for (const e of single.out_of_scope) {
+                aggregate.handoffs_requested.push({
+                  from_agent: agent_name,
+                  to_lane: e.path,
+                  path: e.path,
+                  reason: "out_of_scope",
+                });
+              }
+            }
           }
 
           const wrote = aggregate.written_files.length + aggregate.deleted_files.length;

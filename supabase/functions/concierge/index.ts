@@ -288,6 +288,66 @@ Deno.serve(async (req: Request) => {
     // Second pass — intent classification (non-fatal if it fails)
     const classification = await classifyIntent(apiKey, model, userMessage);
 
+    // Sprint B · B5.3 — when recommended next phase is build and no lanes
+    // exist yet, ask the model for a suggested lane assignment and stash
+    // it in sessions.build_spec.suggested_lanes for the frontend to apply.
+    if (classification?.recommended_next_phase === "build") {
+      const { data: existingLanes } = await adminClient
+        .from("build_lanes")
+        .select("id")
+        .eq("session_id", body.session_id)
+        .limit(1);
+      if (!existingLanes || existingLanes.length === 0) {
+        try {
+          const laneRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 1024,
+              system: `You suggest non-overlapping build lane assignments for a council of agents.
+Return JSON only:
+{
+  "suggested_lanes": [
+    { "agent_name": "...", "lane_paths": ["src/..."], "role": "builder" }
+  ]
+}
+Roles: builder | reviewer | read_only | security_audit. Lane paths must not overlap across builders.`,
+              messages: [{ role: "user", content: userMessage }],
+            }),
+          });
+          if (laneRes.ok) {
+            const laneData = await laneRes.json();
+            const laneText: string = laneData?.content?.[0]?.text ?? "";
+            const fenced = laneText.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const t = fenced ? fenced[1].trim() : laneText;
+            const m = t.match(/\{[\s\S]*\}/);
+            if (m) {
+              const parsedLanes = JSON.parse(m[0]);
+              if (Array.isArray(parsedLanes.suggested_lanes)) {
+                const { data: sessRow } = await adminClient
+                  .from("sessions")
+                  .select("build_spec")
+                  .eq("id", body.session_id)
+                  .maybeSingle();
+                const currentSpec = (sessRow?.build_spec as Record<string, unknown> | null) ?? {};
+                await adminClient
+                  .from("sessions")
+                  .update({
+                    build_spec: { ...currentSpec, suggested_lanes: parsedLanes.suggested_lanes },
+                  })
+                  .eq("id", body.session_id);
+              }
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+
     // Look up session to decide whether to auto-apply phase transition
     let appliedPhase: NextPhase | null = null;
     if (classification) {

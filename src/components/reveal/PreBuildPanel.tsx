@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
-import { IntakeSummary } from '../../types';
+import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
 import {
   Hammer, GitBranch, Database, ScanSearch, FileCode2,
   ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Copy,
+  Users, Lock, Sparkles, Pencil, Trash2,
 } from 'lucide-react';
 import RepoSection from './RepoSection';
 
@@ -40,6 +41,21 @@ export default function PreBuildPanel() {
   const [architectError, setArchitectError] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // B5 lane assignment state
+  interface LaneEntry {
+    agent_name: string;
+    agent_id: string;
+    lane_paths: string[];
+    role: BuildLaneRole;
+    editing: boolean;
+    pathDraft: string;
+  }
+  const suggestedLanes = (state.activeSession?.build_spec?.suggested_lanes ?? []) as SuggestedLane[];
+  const [lanes, setLanes] = useState<LaneEntry[]>([]);
+  const [lanesLocked, setLanesLocked] = useState(state.activeSession?.build_spec_locked ?? false);
+  const [laneError, setLaneError] = useState('');
+  const [locking, setLocking] = useState(false);
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
   const getToken = useCallback(async () => {
@@ -51,6 +67,143 @@ export default function PreBuildPanel() {
   const hasSession = !!state.activeSession;
   const canScan = hasSession && hasRepo && projectType === 'existing';
   const canGenerate = hasSession;
+
+  /* ── B5: Lane assignment helpers ──────────────────────────── */
+  const ROLE_OPTIONS: { value: BuildLaneRole; label: string }[] = [
+    { value: 'builder', label: 'Builder' },
+    { value: 'reviewer', label: 'Reviewer' },
+    { value: 'read_only', label: 'Read Only' },
+    { value: 'security_audit', label: 'Security Audit' },
+  ];
+
+  const autoFillFromSuggestions = useCallback(() => {
+    if (suggestedLanes.length === 0) return;
+    const activeAgents = state.agents.filter(a => a.is_active);
+    const entries: LaneEntry[] = suggestedLanes.map(s => {
+      const matched = activeAgents.find(a => a.display_name === s.agent_name || a.name === s.agent_name);
+      return {
+        agent_name: s.agent_name,
+        agent_id: matched?.id ?? '',
+        lane_paths: s.lane_paths,
+        role: s.role,
+        editing: false,
+        pathDraft: s.lane_paths.join(', '),
+      };
+    });
+    setLanes(entries);
+    setLaneError('');
+  }, [suggestedLanes, state.agents]);
+
+  const addLane = useCallback(() => {
+    const activeAgents = state.agents.filter(a => a.is_active);
+    const usedNames = new Set(lanes.map(l => l.agent_name));
+    const next = activeAgents.find(a => !usedNames.has(a.display_name));
+    setLanes(prev => [...prev, {
+      agent_name: next?.display_name ?? 'Agent',
+      agent_id: next?.id ?? '',
+      lane_paths: [],
+      role: 'builder',
+      editing: true,
+      pathDraft: '',
+    }]);
+  }, [state.agents, lanes]);
+
+  const removeLane = useCallback((idx: number) => {
+    setLanes(prev => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const updateLane = useCallback((idx: number, patch: Partial<LaneEntry>) => {
+    setLanes(prev => prev.map((l, i) => i === idx ? { ...l, ...patch } : l));
+  }, []);
+
+  const commitPathEdit = useCallback((idx: number) => {
+    setLanes(prev => prev.map((l, i) => {
+      if (i !== idx) return l;
+      const paths = l.pathDraft.split(',').map(p => p.trim()).filter(Boolean);
+      return { ...l, lane_paths: paths, editing: false };
+    }));
+  }, []);
+
+  // Detect path overlaps between builder lanes
+  const getOverlaps = useCallback((): Map<number, string> => {
+    const overlaps = new Map<number, string>();
+    const builders = lanes.map((l, i) => ({ ...l, idx: i })).filter(l => l.role === 'builder');
+    for (let i = 0; i < builders.length; i++) {
+      for (let j = i + 1; j < builders.length; j++) {
+        for (const p of builders[i].lane_paths) {
+          if (builders[j].lane_paths.includes(p)) {
+            overlaps.set(builders[i].idx, `Overlap with ${builders[j].agent_name} on "${p}"`);
+            overlaps.set(builders[j].idx, `Overlap with ${builders[i].agent_name} on "${p}"`);
+          }
+        }
+      }
+    }
+    return overlaps;
+  }, [lanes]);
+
+  const overlaps = getOverlaps();
+  const hasOverlaps = overlaps.size > 0;
+  const hasBuilders = lanes.some(l => l.role === 'builder');
+  const canLock = lanes.length > 0 && hasBuilders && !hasOverlaps && !lanesLocked;
+
+  const handleLockSpec = useCallback(async () => {
+    if (!state.activeSession || !canLock) return;
+    setLocking(true);
+    setLaneError('');
+
+    try {
+      // Upsert lanes into build_lanes table
+      const rows = lanes.map(l => ({
+        session_id: state.activeSession!.id,
+        agent_id: l.agent_id || null,
+        agent_name: l.agent_name,
+        lane_paths: l.lane_paths,
+        role: l.role,
+      }));
+
+      // Delete old lanes for this session first
+      await supabase
+        .from('build_lanes')
+        .delete()
+        .eq('session_id', state.activeSession.id);
+
+      const { error: insertErr } = await supabase
+        .from('build_lanes')
+        .insert(rows as never[]);
+
+      if (insertErr) throw new Error(insertErr.message);
+
+      // Lock build spec
+      await supabase
+        .from('sessions')
+        .update({ build_spec_locked: true } as never)
+        .eq('id', state.activeSession.id);
+
+      setLanesLocked(true);
+      dispatch({
+        type: 'SET_ACTIVE_SESSION',
+        payload: { ...state.activeSession, build_spec_locked: true },
+      });
+      dispatch({ type: 'SHOW_TOAST', payload: 'Build Spec Locked ✓' });
+    } catch (err) {
+      setLaneError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLocking(false);
+    }
+  }, [state.activeSession, canLock, lanes, dispatch]);
+
+  const handleGoToBuild = useCallback(async () => {
+    if (!state.activeSession) return;
+    await supabase
+      .from('sessions')
+      .update({ current_phase: 'build' } as never)
+      .eq('id', state.activeSession.id);
+    dispatch({
+      type: 'SET_ACTIVE_SESSION',
+      payload: { ...state.activeSession, current_phase: 'build' },
+    });
+    dispatch({ type: 'SHOW_TOAST', payload: 'Entering Build phase' });
+  }, [state.activeSession, dispatch]);
 
   /* ── B6: Intake scan ─────────────────────────────────────── */
   const handleScan = useCallback(async () => {
@@ -476,6 +629,228 @@ export default function PreBuildPanel() {
         )}
       </div>
 
+      {/* ── B5: Lane assignment ─────────────────────────────── */}
+      <div style={{ marginTop: '24px' }}>
+        <div className="flex items-center gap-2" style={{ marginBottom: '14px' }}>
+          <Users size={14} style={{ color: 'var(--gold)' }} />
+          <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--gold)' }}>
+            Assign Agent Lanes
+          </span>
+        </div>
+
+        <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5, margin: '0 0 14px' }}>
+          Assign each active agent to a lane. Builders in the same session cannot write to the same paths.
+        </p>
+
+        {/* Suggested lanes auto-fill */}
+        {suggestedLanes.length > 0 && lanes.length === 0 && !lanesLocked && (
+          <button
+            className="reveal-pill w-full"
+            style={{
+              height: '34px', fontSize: '10px', padding: '0 14px',
+              marginBottom: '12px', justifyContent: 'center',
+              background: 'rgba(201,168,76,0.06)',
+              borderColor: 'rgba(201,168,76,0.2)',
+            }}
+            onClick={autoFillFromSuggestions}
+          >
+            <Sparkles size={12} style={{ color: 'var(--gold)' }} />
+            Auto-fill from Concierge suggestions ({suggestedLanes.length} lanes)
+          </button>
+        )}
+
+        {/* Lane cards */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {lanes.map((lane, idx) => (
+            <div
+              key={idx}
+              style={{
+                borderRadius: '12px',
+                border: `1px solid ${overlaps.has(idx) ? 'rgba(224,90,90,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                background: overlaps.has(idx) ? 'rgba(224,90,90,0.04)' : 'rgba(255,255,255,0.02)',
+                padding: '12px 14px',
+              }}
+            >
+              <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
+                {/* Agent name (select from active agents) */}
+                <select
+                  value={lane.agent_name}
+                  disabled={lanesLocked}
+                  onChange={e => {
+                    const agent = state.agents.find(a => a.display_name === e.target.value);
+                    updateLane(idx, {
+                      agent_name: e.target.value,
+                      agent_id: agent?.id ?? '',
+                    });
+                  }}
+                  className="font-mono-dm"
+                  style={{
+                    fontSize: '11px', background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
+                    color: 'var(--text)', padding: '4px 8px', cursor: lanesLocked ? 'default' : 'pointer',
+                  }}
+                >
+                  {state.agents.filter(a => a.is_active).map(a => (
+                    <option key={a.id} value={a.display_name}>{a.display_name}</option>
+                  ))}
+                  {/* Keep current value if not in active agents */}
+                  {!state.agents.find(a => a.is_active && a.display_name === lane.agent_name) && (
+                    <option value={lane.agent_name}>{lane.agent_name}</option>
+                  )}
+                </select>
+
+                <div className="flex items-center gap-2">
+                  {/* Role select */}
+                  <select
+                    value={lane.role}
+                    disabled={lanesLocked}
+                    onChange={e => updateLane(idx, { role: e.target.value as BuildLaneRole })}
+                    className="font-mono-dm"
+                    style={{
+                      fontSize: '10px', background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
+                      color: 'var(--text-muted)', padding: '3px 6px', cursor: lanesLocked ? 'default' : 'pointer',
+                    }}
+                  >
+                    {ROLE_OPTIONS.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+
+                  {!lanesLocked && (
+                    <button
+                      onClick={() => removeLane(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px' }}
+                      title="Remove lane"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Path display / edit */}
+              <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                <span style={{ opacity: 0.6, marginRight: '6px' }}>Paths:</span>
+                {lane.role === 'read_only' || lane.role === 'security_audit' ? (
+                  <span style={{ fontStyle: 'italic', opacity: 0.5 }}>(reads all, writes none)</span>
+                ) : lane.editing && !lanesLocked ? (
+                  <div className="flex items-center gap-1" style={{ marginTop: '4px' }}>
+                    <input
+                      type="text"
+                      value={lane.pathDraft}
+                      onChange={e => updateLane(idx, { pathDraft: e.target.value })}
+                      onKeyDown={e => { if (e.key === 'Enter') commitPathEdit(idx); }}
+                      placeholder="src/components/**, src/hooks/**"
+                      className="font-mono-dm"
+                      style={{
+                        flex: 1, fontSize: '10px', padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '4px', color: 'var(--text)',
+                        outline: 'none',
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => commitPathEdit(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ok)', padding: '2px' }}
+                    >
+                      <Check size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <span
+                    className="flex items-center gap-1"
+                    style={{ cursor: lanesLocked ? 'default' : 'pointer' }}
+                    onClick={() => !lanesLocked && updateLane(idx, { editing: true, pathDraft: lane.lane_paths.join(', ') })}
+                  >
+                    {lane.lane_paths.length > 0
+                      ? lane.lane_paths.join(', ')
+                      : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>click to set paths</span>
+                    }
+                    {!lanesLocked && <Pencil size={9} style={{ opacity: 0.4, marginLeft: '4px' }} />}
+                  </span>
+                )}
+              </div>
+
+              {/* Overlap warning */}
+              {overlaps.has(idx) && (
+                <div className="flex items-center gap-1" style={{ marginTop: '6px' }}>
+                  <AlertTriangle size={10} style={{ color: 'var(--risk)' }} />
+                  <span style={{ fontSize: '9px', color: 'var(--risk)' }}>
+                    {overlaps.get(idx)}
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Add lane + lock buttons */}
+        {!lanesLocked && (
+          <div className="flex items-center gap-2" style={{ marginTop: '12px' }}>
+            <button
+              className="reveal-pill"
+              style={{ height: '30px', fontSize: '10px', padding: '0 12px' }}
+              onClick={addLane}
+            >
+              + Add lane
+            </button>
+            {lanes.length > 0 && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '30px', fontSize: '10px', padding: '0 14px',
+                  background: canLock ? 'var(--gold)' : 'transparent',
+                  color: canLock ? 'var(--void)' : 'var(--text-dim)',
+                  borderColor: canLock ? 'transparent' : undefined,
+                  fontWeight: canLock ? 500 : 400,
+                  cursor: canLock ? 'pointer' : 'not-allowed',
+                  opacity: canLock ? 1 : 0.5,
+                }}
+                onClick={handleLockSpec}
+                disabled={!canLock || locking}
+              >
+                {locking ? <Loader2 size={12} className="animate-spin" /> : <Lock size={10} />}
+                {locking ? 'Locking…' : 'Lock Build Spec'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Lane error */}
+        {laneError && (
+          <div className="flex items-center gap-2" style={{ marginTop: '8px' }}>
+            <AlertTriangle size={12} style={{ color: 'var(--risk)' }} />
+            <span style={{ fontSize: '10px', color: 'var(--risk)' }}>{laneError}</span>
+          </div>
+        )}
+
+        {/* Locked state */}
+        {lanesLocked && (
+          <div style={{ marginTop: '12px' }}>
+            <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
+              <Check size={12} style={{ color: 'var(--ok)' }} />
+              <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--ok)', letterSpacing: '0.1em' }}>
+                Build Spec Locked ✓
+              </span>
+            </div>
+            <button
+              className="reveal-pill"
+              style={{
+                height: '34px', fontSize: '11px', padding: '0 18px',
+                background: 'var(--gold)', color: 'var(--void)',
+                borderColor: 'transparent', fontWeight: 500,
+              }}
+              onClick={handleGoToBuild}
+            >
+              Go to Build →
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* ── Phase status ────────────────────────────────────── */}
       <div
         className="font-mono-dm"
@@ -496,17 +871,19 @@ export default function PreBuildPanel() {
               width: '6px',
               height: '6px',
               borderRadius: '50%',
-              background: scanResult && architectMd ? 'var(--ok)' : 'var(--gold)',
-              boxShadow: `0 0 8px ${scanResult && architectMd ? 'rgba(78,187,127,0.4)' : 'rgba(201,168,76,0.4)'}`,
+              background: lanesLocked ? 'var(--ok)' : 'var(--gold)',
+              boxShadow: `0 0 8px ${lanesLocked ? 'rgba(78,187,127,0.4)' : 'rgba(201,168,76,0.4)'}`,
             }}
           />
           <span style={{ letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
-            {scanResult && architectMd ? 'Ready to build' : 'Pre-build'}
+            {lanesLocked ? 'Ready to build' : scanResult && architectMd ? 'Lanes needed' : 'Pre-build'}
           </span>
         </div>
         <span style={{ opacity: 0.7 }}>
-          {scanResult && architectMd
-            ? 'Intake scan and ARCHITECT.md generated. Ready to transition to build phase.'
+          {lanesLocked
+            ? 'Build spec locked. Lane assignments confirmed. Ready to transition to build phase.'
+            : scanResult && architectMd
+            ? 'Intake scan and ARCHITECT.md generated. Assign agent lanes and lock the build spec.'
             : 'Connect a repo, run intake scan, then generate the build scaffold.'}
         </span>
       </div>

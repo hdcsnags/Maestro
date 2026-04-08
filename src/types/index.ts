@@ -122,6 +122,24 @@ export type SessionPhase = 'analysis' | 'design' | 'pre_build' | 'build' | 'boun
 export type ConciergePhase = 'post_round1' | 'post_round2' | 'design' | 'pre_build' | 'post_build';
 export type ConciergeIntent = 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build';
 export type DesignMode = 'lite' | 'standard' | 'exploration';
+export type BuildLaneRole = 'builder' | 'reviewer' | 'read_only' | 'security_audit';
+
+export interface BuildLane {
+  id?: string;
+  session_id: string;
+  agent_id: string;
+  agent_name: string;
+  lane_paths: string[];
+  role: BuildLaneRole;
+  allowed_handoffs?: string[];
+  created_at?: string;
+}
+
+export interface SuggestedLane {
+  agent_name: string;
+  lane_paths: string[];
+  role: BuildLaneRole;
+}
 
 export interface IntakeSummary {
   stack: string[];
