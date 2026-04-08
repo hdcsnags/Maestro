@@ -12,6 +12,9 @@ const corsHeaders = {
 };
 
 type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build";
+type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
+type DesignMode = "none" | "lite" | "standard" | "exploration";
+type NextPhase = "analysis" | "design" | "pre_build" | "build";
 
 interface ConciergeRequest {
   session_id: string;
@@ -24,10 +27,22 @@ interface ConciergeRequest {
   synthesis?: string | null;
 }
 
+interface IntentClassification {
+  intent: Intent;
+  design_mode: DesignMode;
+  recommended_next_phase: NextPhase;
+  reasoning: string;
+}
+
 interface ConciergeResult {
   alignment_summary: string;
   tension_points: string[];
   recommended_direction: string;
+  intent: Intent | null;
+  design_mode: DesignMode | null;
+  recommended_next_phase: NextPhase | null;
+  intent_reasoning: string | null;
+  applied_phase: NextPhase | null;
   model_used: string;
 }
 
@@ -77,7 +92,80 @@ function buildUserMessage(req: ConciergeRequest): string {
   return lines.join("\n");
 }
 
-function parseConcierge(raw: string): Omit<ConciergeResult, "model_used"> {
+const CLASSIFY_SYSTEM_PROMPT = `You classify a user's request into a routing intent so Maestro can pick the right next phase.
+
+Return JSON only:
+{
+  "intent": "simple_ask | product_build | ui_heavy | existing_repo_change | new_project",
+  "design_mode": "none | lite | standard | exploration",
+  "recommended_next_phase": "analysis | design | pre_build | build",
+  "reasoning": "1-2 sentences explaining the routing decision"
+}
+
+Rules:
+- simple_ask: a direct question or single-agent task → next_phase 'analysis', design_mode 'none'
+- ui_heavy: visual / UX / branding work → next_phase 'design', design_mode defaults 'standard'
+- product_build: real product/app build, no major UI exploration needed → next_phase 'pre_build', design_mode 'none'
+- existing_repo_change: modifying an existing codebase → next_phase 'pre_build', design_mode 'none'
+- new_project: greenfield repo creation → next_phase 'pre_build', design_mode 'none'
+
+Design mode tiers:
+- lite (1 designer): simple UI tweaks, internal tools, low-risk layouts
+- standard (2 designers): most app/site builds — DEFAULT for ui_heavy
+- exploration (4 designers): high-importance visual projects, branding, consumer UX, or explicit conductor request`;
+
+const VALID_INTENTS: Intent[] = ["simple_ask", "product_build", "ui_heavy", "existing_repo_change", "new_project"];
+const VALID_MODES: DesignMode[] = ["none", "lite", "standard", "exploration"];
+const VALID_PHASES: NextPhase[] = ["analysis", "design", "pre_build", "build"];
+
+function parseClassification(raw: string): IntentClassification | null {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const text = fenced ? fenced[1].trim() : raw;
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const p = JSON.parse(match[0]);
+    const intent = VALID_INTENTS.includes(p.intent) ? p.intent : null;
+    const design_mode = VALID_MODES.includes(p.design_mode) ? p.design_mode : null;
+    const next_phase = VALID_PHASES.includes(p.recommended_next_phase) ? p.recommended_next_phase : null;
+    if (!intent || !design_mode || !next_phase) return null;
+    return {
+      intent,
+      design_mode,
+      recommended_next_phase: next_phase,
+      reasoning: String(p.reasoning ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function classifyIntent(
+  apiKey: string,
+  model: string,
+  userMessage: string,
+): Promise<IntentClassification | null> {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 512,
+      system: CLASSIFY_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const text: string = data?.content?.[0]?.text ?? "";
+  return parseClassification(text);
+}
+
+function parseConcierge(raw: string): Pick<ConciergeResult, "alignment_summary" | "tension_points" | "recommended_direction"> {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const text = fenced ? fenced[1].trim() : raw;
   const match = text.match(/\{[\s\S]*\}/);
@@ -197,7 +285,37 @@ Deno.serve(async (req: Request) => {
     const rawText: string = anthropicData?.content?.[0]?.text ?? "";
     const parsed = parseConcierge(rawText);
 
-    const result: ConciergeResult = { ...parsed, model_used: model };
+    // Second pass — intent classification (non-fatal if it fails)
+    const classification = await classifyIntent(apiKey, model, userMessage);
+
+    // Look up session to decide whether to auto-apply phase transition
+    let appliedPhase: NextPhase | null = null;
+    if (classification) {
+      const { data: sessionRow } = await adminClient
+        .from("sessions")
+        .select("build_spec_locked, conductor_choice")
+        .eq("id", body.session_id)
+        .maybeSingle();
+      const locked = (sessionRow as { build_spec_locked?: boolean } | null)?.build_spec_locked === true;
+      const conductorChoice = (sessionRow as { conductor_choice?: string | null } | null)?.conductor_choice ?? null;
+      if (!locked && !conductorChoice) {
+        const { error: phaseErr } = await adminClient
+          .from("sessions")
+          .update({ current_phase: classification.recommended_next_phase })
+          .eq("id", body.session_id);
+        if (!phaseErr) appliedPhase = classification.recommended_next_phase;
+      }
+    }
+
+    const result: ConciergeResult = {
+      ...parsed,
+      intent: classification?.intent ?? null,
+      design_mode: classification?.design_mode ?? null,
+      recommended_next_phase: classification?.recommended_next_phase ?? null,
+      intent_reasoning: classification?.reasoning ?? null,
+      applied_phase: appliedPhase,
+      model_used: model,
+    };
 
     // Persist via admin client — RLS check is satisfied by the request being
     // authenticated above; admin client bypasses RLS for the insert.
@@ -209,6 +327,10 @@ Deno.serve(async (req: Request) => {
         alignment_summary: result.alignment_summary,
         tension_points: result.tension_points,
         recommended_direction: result.recommended_direction,
+        intent: result.intent,
+        design_mode: result.design_mode,
+        recommended_next_phase: result.recommended_next_phase,
+        intent_reasoning: result.intent_reasoning,
         model_used: result.model_used,
       });
 

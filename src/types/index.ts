@@ -120,6 +120,8 @@ export interface Response {
 
 export type SessionPhase = 'analysis' | 'design' | 'pre_build' | 'build' | 'bouncer' | 'complete';
 export type ConciergePhase = 'post_round1' | 'post_round2' | 'design' | 'pre_build' | 'post_build';
+export type ConciergeIntent = 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build';
+export type DesignMode = 'lite' | 'standard' | 'exploration';
 
 export interface IntakeSummary {
   stack: string[];
@@ -139,6 +141,12 @@ export interface ConciergeDecision {
   conductor_choice?: string | null;
   model_used?: string | null;
   created_at?: string;
+  // B1 — intent classification
+  intent?: ConciergeIntent;
+  design_mode?: DesignMode;
+  recommended_next_phase?: 'design' | 'pre_build' | 'build' | 'analysis';
+  intent_reasoning?: string;
+  applied_phase?: SessionPhase;
 }
 
 export interface Synthesis {
@@ -322,6 +330,58 @@ export const OPENROUTER_MODELS: OpenRouterModel[] = [
   { id: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B (free)', tier: 'free' },
   { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super', tier: 'free' },
 ];
+
+// ─── Sprint B · B2 — Designer lanes ──────────────────────────────
+export type DesignerRole =
+  | 'visual_spatial'
+  | 'structure_ux'
+  | 'product_practical'
+  | 'wildcard_fusion';
+
+export interface DesignerLane {
+  role: DesignerRole;
+  display_name: string;
+  description: string;
+  preferred_model: string;
+  fallback_model: string;
+}
+
+export const DESIGNER_LANES: DesignerLane[] = [
+  {
+    role: 'visual_spatial',
+    display_name: 'Visual Lead',
+    description: 'Layout, visual hierarchy, mockup feel',
+    preferred_model: 'gemini-2.5-flash',
+    fallback_model: 'gemini-3.1-flash-lite-preview',
+  },
+  {
+    role: 'structure_ux',
+    display_name: 'Structure Lead',
+    description: 'App shell, flow, information architecture',
+    preferred_model: 'claude-sonnet-4-6',
+    fallback_model: 'claude-haiku-4-5',
+  },
+  {
+    role: 'product_practical',
+    display_name: 'Product Lead',
+    description: 'Realistic UX, PM thinking, constraints',
+    preferred_model: 'gpt-5.4-mini',
+    fallback_model: 'openai/gpt-oss-20b:free',
+  },
+  {
+    role: 'wildcard_fusion',
+    display_name: 'Wildcard',
+    description: 'Blending, bold options, style exploration',
+    preferred_model: 'x-ai/grok-4.20',
+    fallback_model: 'google/gemma-4-31b-it:free',
+  },
+];
+
+export const DESIGN_MODE_LANES: Record<'lite' | 'standard' | 'exploration', DesignerRole[]> = {
+  lite: ['visual_spatial'],
+  standard: ['visual_spatial', 'structure_ux'],
+  exploration: ['visual_spatial', 'structure_ux', 'product_practical', 'wildcard_fusion'],
+};
 
 export const PROVIDER_REGISTRY = [
   { id: 'anthropic', name: 'Anthropic', models: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'] },
