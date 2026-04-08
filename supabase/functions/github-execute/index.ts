@@ -432,18 +432,52 @@ Deno.serve(async (req: Request) => {
     const body: ExecuteRequest = await req.json();
     const { mode, repo_connection_id, execution_run_id, session_id, patches, synthesis_content, commit_message } = body;
 
-    const { data: repoConn } = await supabase
-      .from("repo_connections")
-      .select("*")
-      .eq("id", repo_connection_id)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    let repoConn: Record<string, unknown> | null = null;
+    if (repo_connection_id) {
+      const { data } = await supabase
+        .from("repo_connections")
+        .select("*")
+        .eq("id", repo_connection_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      repoConn = data;
+    }
+
+    // Fallback — if the explicit id is missing or stale (frontend state drift,
+    // cross-workspace switch, deleted row) look up the active repo connection
+    // for the session's workspace. This unblocks builds when the cached id
+    // no longer points anywhere valid.
+    if (!repoConn && session_id) {
+      const { data: sessRow } = await supabase
+        .from("sessions")
+        .select("workspace_id")
+        .eq("id", session_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const wsId = (sessRow as { workspace_id?: string } | null)?.workspace_id;
+      if (wsId) {
+        const { data: activeConn } = await supabase
+          .from("repo_connections")
+          .select("*")
+          .eq("workspace_id", wsId)
+          .eq("user_id", user.id)
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        repoConn = activeConn;
+      }
+    }
 
     if (!repoConn) {
-      return new Response(JSON.stringify({ error: "Repo connection not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Repo connection not found",
+          message: `No repo connection matched id "${repo_connection_id ?? "(none)"}" and no active repo connection exists for this session's workspace. Reconnect or pick a repo in the New App panel.`,
+          repo_connection_id: repo_connection_id ?? null,
+        }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const { data: secret } = await supabase
