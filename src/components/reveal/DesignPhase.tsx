@@ -23,6 +23,31 @@ interface DesignArtifact {
 
 type ArtifactStatus = 'idle' | 'loading' | 'done' | 'error';
 
+/* ── Helpers ────────────────────────────────────────────────── */
+
+/** Safely extract clean HTML from an artifact's html_content field.
+ *  Handles: JSON-wrapped strings, escaped newlines, backtick fences. */
+function extractHtml(raw: string): string {
+  if (!raw) return '';
+  let html = raw;
+
+  // If wrapped in JSON, try to extract html_content
+  if (html.trimStart().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(html);
+      if (parsed.html_content) html = parsed.html_content;
+    } catch { /* not JSON, use as-is */ }
+  }
+
+  // Strip markdown code fences (```html ... ``` or ```json ... ```)
+  html = html.replace(/^```(?:html|json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+
+  // Replace literal \n with actual newlines
+  html = html.replace(/\\n/g, '\n');
+
+  return html;
+}
+
 /* ── Constants ─────────────────────────────────────────────── */
 
 const ROLE_COLOR: Record<DesignerRole, string> = {
@@ -151,6 +176,8 @@ export default function DesignPhase() {
       payload: { ...session, current_phase: 'pre_build' },
     });
 
+    dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
+
     const lane = DESIGNER_LANES.find(l => l.role === role);
     dispatch({ type: 'SHOW_TOAST', payload: `${lane?.display_name ?? role} selected. Moving to Pre-Build.` });
   }, [session, dispatch]);
@@ -188,6 +215,8 @@ export default function DesignPhase() {
       payload: { ...session, current_phase: 'pre_build' },
     });
 
+    dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
+
     const names = roles.map(r => DESIGNER_LANES.find(l => l.role === r)?.display_name ?? r);
     dispatch({ type: 'SHOW_TOAST', payload: `Merging ${names.join(' + ')}. Moving to Pre-Build.` });
   }, [session, flagged, dispatch]);
@@ -202,12 +231,13 @@ export default function DesignPhase() {
       type: 'SET_ACTIVE_SESSION',
       payload: { ...session, current_phase: 'pre_build' },
     });
+    dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
     dispatch({ type: 'SHOW_TOAST', payload: 'Design skipped. Moving to Pre-Build.' });
   }, [session, dispatch]);
 
   /* ── Download HTML ───────────────────────────────────────── */
   const downloadHtml = useCallback((artifact: DesignArtifact) => {
-    const blob = new Blob([artifact.html_content], { type: 'text/html' });
+    const blob = new Blob([extractHtml(artifact.html_content)], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -217,7 +247,7 @@ export default function DesignPhase() {
   }, []);
 
   const openInTab = useCallback((artifact: DesignArtifact) => {
-    const blob = new Blob([artifact.html_content], { type: 'text/html' });
+    const blob = new Blob([extractHtml(artifact.html_content)], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
   }, []);
@@ -414,8 +444,11 @@ function DesignerCard({
         {status === 'loading' && (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Loader2 size={24} className="animate-spin" style={{ color, margin: '0 auto 12px', display: 'block' }} />
-            <p className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.12em' }}>
-              Designing…
+            <p className="font-mono-dm" style={{ fontSize: '11px', color, letterSpacing: '0.1em', fontWeight: 500 }}>
+              {lane.display_name} is designing…
+            </p>
+            <p className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', marginTop: '6px' }}>
+              This may take 30–60 seconds
             </p>
           </div>
         )}
@@ -446,7 +479,7 @@ function DesignerCard({
               onClick={() => setPreviewExpanded(!previewExpanded)}
             >
               <iframe
-                srcDoc={artifact.html_content}
+                srcDoc={extractHtml(artifact.html_content)}
                 sandbox="allow-scripts"
                 title={`${lane.display_name} mockup`}
                 style={{ width: '100%', height: '100%', border: 'none', pointerEvents: previewExpanded ? 'auto' : 'none' }}
