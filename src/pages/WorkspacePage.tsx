@@ -28,7 +28,7 @@ export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
   const { broadcast } = useOrchestration();
   const { signOut } = useAuth();
-  useWorkspace();
+  const { createSession } = useWorkspace();
 
   const drawerOpen = state.activeDrawer !== null;
   const overlayOpen = state.shortcutOverlayOpen;
@@ -56,8 +56,14 @@ export default function WorkspacePage() {
   }, [state.isBroadcasting, latestResponses.length, state.autoShowCarousel, dispatch]);
 
   const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[]) => {
+    // Option A — lazy session creation. If the user lands fresh and broadcasts,
+    // create a new session on demand rather than auto-loading the last one.
+    if (!state.activeSession && state.workspace) {
+      const created = await createSession(state.workspace.id);
+      if (!created) return;
+    }
     await broadcast(prompt, selectedAgentIds);
-  }, [broadcast]);
+  }, [broadcast, createSession, state.activeSession, state.workspace]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

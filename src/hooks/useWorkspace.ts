@@ -338,8 +338,9 @@ export function useWorkspace() {
           loadAgentSkills(),
           loadRepoConnections(ws.id),
         ]);
-        const sess = await ensureSession(ws.id);
-        if (sess) await loadSessionHistory(sess.id);
+        // Option A — do NOT auto-load the latest active session on sign-in.
+        // Land in a clean state. The user picks a session from the switcher
+        // or a new session is created on first broadcast (see WorkspacePage).
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown initialization error';
         dispatch({ type: 'SET_INIT_ERROR', payload: msg });
