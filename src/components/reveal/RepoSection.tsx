@@ -307,16 +307,14 @@ export default function RepoSection() {
                 {loadingRepos ? <Loader2 size={10} className="animate-spin" /> : null}
                 {loadingRepos ? 'Loading...' : 'Select repository'}
               </button>
-              {state.orchestrationMode === 'build' && (
-                <button
-                  className="reveal-pill"
-                  style={{ height: '30px', fontSize: '11px' }}
-                  onClick={() => setShowCreate(true)}
-                >
-                  <Plus size={10} />
-                  Create new repo
-                </button>
-              )}
+              <button
+                className="reveal-pill"
+                style={{ height: '30px', fontSize: '11px' }}
+                onClick={() => setShowCreate(true)}
+              >
+                <Plus size={10} />
+                Create new repo
+              </button>
             </div>
           ) : showCreate ? (
             <div
