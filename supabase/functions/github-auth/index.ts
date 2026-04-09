@@ -99,24 +99,21 @@ Deno.serve(async (req: Request) => {
 
       const accessToken = tokenData.access_token;
 
-      // Validate the granted scopes — GitHub returns the actual granted
-      // scopes in the X-OAuth-Scopes response header. Fail loud if 'repo'
-      // is missing so the user knows private repos won't appear.
+      // Note: Maestro is registered as a GitHub App on the GitHub side, so
+      // OAuth scopes (X-OAuth-Scopes header) are always empty. Permissions
+      // are tied to the App's installation, not OAuth scopes. We validate
+      // liveness by calling /user; what the token can SEE is governed by
+      // the user's GitHub App installation settings, not by us.
       const ghUserRes = await fetch("https://api.github.com/user", {
         headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": "Maestro" },
       });
-      const grantedScopes = (ghUserRes.headers.get("x-oauth-scopes") ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (!grantedScopes.includes("repo")) {
+      if (!ghUserRes.ok) {
         return new Response(
           JSON.stringify({
-            error: "INSUFFICIENT_SCOPE",
-            message: `GitHub returned scopes [${grantedScopes.join(", ") || "none"}] but Maestro requires "repo" for private repository access. Re-authorize and approve the full repo permission.`,
-            granted_scopes: grantedScopes,
+            error: "GITHUB_TOKEN_INVALID",
+            message: `GitHub rejected the new token (${ghUserRes.status}). Try again.`,
           }),
-          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
       const ghUser = await ghUserRes.json();
@@ -206,12 +203,11 @@ Deno.serve(async (req: Request) => {
       }
 
       // Live-validate the token against GitHub. A row in encrypted_secrets is
-      // not proof the token still works — it can be revoked, expired, or
-      // rotated server-side. We also check that the granted scopes still
-      // include 'repo' — older tokens issued under a weaker scope should be
-      // treated as disconnected so the user is forced to re-authorize.
+      // not proof the token still works — it can be revoked or rotated. We
+      // do NOT check OAuth scopes here: Maestro is a GitHub App on GitHub's
+      // side, so X-OAuth-Scopes is always empty. Permissions come from the
+      // App installation, not OAuth scopes.
       let live = false;
-      let hasRepoScope = false;
       try {
         const probe = await fetch("https://api.github.com/user", {
           headers: {
@@ -221,13 +217,9 @@ Deno.serve(async (req: Request) => {
           },
         });
         live = probe.ok;
-        const scopes = (probe.headers.get("x-oauth-scopes") ?? "")
-          .split(",")
-          .map((s) => s.trim());
-        hasRepoScope = scopes.includes("repo");
       } catch { live = false; }
 
-      if (!live || !hasRepoScope) {
+      if (!live) {
         await supabase
           .from("provider_connections")
           .update({ is_connected: false })
@@ -236,7 +228,7 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({
           connected: false,
           hint: secret.key_hint ?? null,
-          reason: !live ? "token_invalid" : "insufficient_scope",
+          reason: "token_invalid",
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
