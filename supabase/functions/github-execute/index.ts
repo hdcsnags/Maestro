@@ -553,7 +553,7 @@ Deno.serve(async (req: Request) => {
       // pr_flow + elevated both blocked without lanes. Analyze bypasses (above).
       const { data: laneRows } = await supabase
         .from("build_lanes")
-        .select("agent_name, lane_paths, role")
+        .select("agent_id, agent_name, lane_paths, role")
         .eq("session_id", session_id);
 
       const builderLanes = (laneRows ?? []).filter((l) => l.role === "builder");
@@ -567,11 +567,16 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      // Every builder agent in the patches must have a lane row
-      const builderNamesWithLanes = new Set(builderLanes.map((l) => l.agent_name));
+      // Every builder agent in the patches must have a lane row.
+      // Match by agent_id first (reliable), then by agent_name (fallback).
+      const laneAgentIds = new Set(builderLanes.map((l) => l.agent_id).filter(Boolean));
+      const laneAgentNames = new Set(builderLanes.map((l) => l.agent_name));
       const missing = patches
         .map((p) => p.agent_name)
-        .filter((n) => !builderNamesWithLanes.has(n));
+        .filter((n, i) => {
+          const patchAgentId = patches[i].agent_id;
+          return !laneAgentIds.has(patchAgentId) && !laneAgentNames.has(n);
+        });
       if (missing.length > 0) {
         return new Response(
           JSON.stringify({

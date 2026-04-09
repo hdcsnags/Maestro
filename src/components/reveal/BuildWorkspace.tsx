@@ -351,13 +351,16 @@ export default function BuildWorkspace() {
         throw new Error('Select at least one builder response before executing.');
       }
       const patches = approved.map(r => {
-        const lane = lanes.find(l => l.agent_name === r.agent_name);
+        // Match by agent_id first (reliable), fall back to name match
+        const lane = lanes.find(l => l.agent_id === r.agent_id)
+          || lanes.find(l => l.agent_name === r.agent_name)
+          || lanes.find(l => l.agent_name.toLowerCase().includes((r.agent_name ?? '').toLowerCase()));
         return {
-          agent_name: r.agent_name,
+          agent_name: lane?.agent_name ?? r.agent_name,
           agent_id: r.agent_id,
           content: r.content,
           scoped_paths: lane?.lane_paths ?? [],
-          commit_message: `${r.agent_name}: build patch`,
+          commit_message: `${lane?.agent_name ?? r.agent_name}: build patch`,
           conductor_approved: true,
           file_manifest: r.file_manifest ?? [],
         };
