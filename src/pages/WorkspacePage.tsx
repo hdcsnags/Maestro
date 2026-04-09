@@ -57,12 +57,15 @@ export default function WorkspacePage() {
 
   const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[]) => {
     // Option A — lazy session creation. If the user lands fresh and broadcasts,
-    // create a new session on demand rather than auto-loading the last one.
-    if (!state.activeSession && state.workspace) {
+    // create a new session on demand and pass it directly to broadcast
+    // (state.activeSession hasn't updated yet in this render cycle).
+    let sessionForBroadcast = state.activeSession;
+    if (!sessionForBroadcast && state.workspace) {
       const created = await createSession(state.workspace.id);
       if (!created) return;
+      sessionForBroadcast = created;
     }
-    await broadcast(prompt, selectedAgentIds);
+    await broadcast(prompt, selectedAgentIds, sessionForBroadcast);
   }, [broadcast, createSession, state.activeSession, state.workspace]);
 
   useEffect(() => {

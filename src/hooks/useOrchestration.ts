@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry, ConciergeDecision, ConciergePhase } from '../types';
+import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry, ConciergeDecision, ConciergePhase, Session } from '../types';
 
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
@@ -102,9 +102,11 @@ export function useOrchestration() {
 
   const broadcast = useCallback(async (
     prompt: string,
-    selectedAgentIds: string[]
+    selectedAgentIds: string[],
+    sessionOverride?: Session | null
   ) => {
-    if (!user || !state.activeSession || !state.workspace) return;
+    const session = sessionOverride ?? state.activeSession;
+    if (!user || !session || !state.workspace) return;
 
     dispatch({ type: 'SET_IS_BROADCASTING', payload: true });
     dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: selectedAgentIds });
@@ -117,7 +119,7 @@ export function useOrchestration() {
       const { data: rawRound, error: roundError } = await supabase
         .from('rounds')
         .insert({
-          session_id: state.activeSession.id,
+          session_id: session.id,
           user_id: user.id,
           round_number: nextRoundNumber,
           prompt,
@@ -148,7 +150,7 @@ export function useOrchestration() {
       dispatch({ type: 'ADD_ROUND', payload: round });
 
       await logAudit('broadcast', 'Conductor', {
-        sessionId: state.activeSession.id,
+        sessionId: session.id,
         mode: state.executionMode,
       });
 
