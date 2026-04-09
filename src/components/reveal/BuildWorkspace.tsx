@@ -1,12 +1,13 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
+import { useOrchestration } from '../../hooks/useOrchestration';
 import { supabase } from '../../lib/supabase';
-import type { BuildLaneRole, SessionPhase } from '../../types';
+import type { BuildLaneRole, SessionPhase, Response } from '../../types';
 import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
-  Pause, XCircle, ThumbsUp, GitBranch,
+  Pause, XCircle, ThumbsUp, GitBranch, Send,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -32,7 +33,7 @@ interface BouncerResult {
   model_used: string;
 }
 
-type BuildStage = 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
+type BuildStage = 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
 
 /* ── Constants ─────────────────────────────────────────────── */
 
@@ -58,18 +59,46 @@ const PHASES: { key: SessionPhase; label: string }[] = [
   { key: 'complete', label: 'Complete' },
 ];
 
+const BUILD_BROADCAST_MESSAGES = [
+  'Agents are writing code…',
+  'Generating patches…',
+  'Applying architecture…',
+  'Building from Architect.md…',
+];
+
 /* ── Component ─────────────────────────────────────────────── */
 
 export default function BuildWorkspace() {
   const { state, dispatch } = useMaestro();
   const { user } = useAuth();
+  const { broadcast } = useOrchestration();
   const session = state.activeSession;
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
 
   const [lanes, setLanes] = useState<LaneRow[]>([]);
-  const [stage, setStage] = useState<BuildStage>('ready');
+  const [stage, setStage] = useState<BuildStage>('broadcast');
   const [error, setError] = useState('');
+
+  // Broadcast step state
+  const [buildRoundId, setBuildRoundId] = useState<string | null>(null);
+  const [approvedResponseIds, setApprovedResponseIds] = useState<Set<string>>(new Set());
+  const [broadcastMsgIdx, setBroadcastMsgIdx] = useState(0);
+  const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cycling broadcast message
+  useEffect(() => {
+    if (stage === 'broadcasting') {
+      setBroadcastMsgIdx(0);
+      broadcastTimerRef.current = setInterval(() => {
+        setBroadcastMsgIdx(prev => (prev + 1) % BUILD_BROADCAST_MESSAGES.length);
+      }, 3000);
+    } else if (broadcastTimerRef.current) {
+      clearInterval(broadcastTimerRef.current);
+      broadcastTimerRef.current = null;
+    }
+    return () => { if (broadcastTimerRef.current) clearInterval(broadcastTimerRef.current); };
+  }, [stage]);
 
   // Execution state
   const [writtenFiles, setWrittenFiles] = useState<string[]>([]);
@@ -122,6 +151,95 @@ export default function BuildWorkspace() {
       setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
     }
   }, [session, isVisible, state.executionRuns]);
+
+  // Derive build responses: responses from the build broadcast round
+  const buildResponses: Response[] = buildRoundId
+    ? state.responses.filter(r => r.round_id === buildRoundId)
+    : [];
+
+  // Auto-detect if we already have build responses (e.g. page reload)
+  useEffect(() => {
+    if (!session || !isVisible || stage !== 'broadcast') return;
+    // If there are rounds for this session, check if the latest one looks like a build broadcast
+    const sessionRounds = state.rounds.filter(r => r.session_id === session.id);
+    const lastRound = sessionRounds[sessionRounds.length - 1];
+    if (lastRound) {
+      const roundResponses = state.responses.filter(r => r.round_id === lastRound.id);
+      if (roundResponses.length > 0) {
+        setBuildRoundId(lastRound.id);
+        setApprovedResponseIds(new Set(roundResponses.map(r => r.id)));
+        setStage('reviewing');
+      }
+    }
+  }, [session, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When broadcasting, detect the new round created by broadcast()
+  useEffect(() => {
+    if (stage !== 'broadcasting' || buildRoundId) return;
+    const sessionRounds = state.rounds.filter(r => r.session_id === session?.id);
+    const lastRound = sessionRounds[sessionRounds.length - 1];
+    if (lastRound) setBuildRoundId(lastRound.id);
+  }, [stage, buildRoundId, state.rounds, session]);
+
+  // When broadcasting, watch for responses to auto-transition to reviewing
+  useEffect(() => {
+    if (stage !== 'broadcasting' || !buildRoundId) return;
+    const roundResponses = state.responses.filter(r => r.round_id === buildRoundId);
+    const builderCount = lanes.filter(l => l.role === 'builder').length || 1;
+    if (roundResponses.length >= builderCount) {
+      setApprovedResponseIds(new Set(roundResponses.map(r => r.id)));
+      setStage('reviewing');
+    }
+  }, [stage, buildRoundId, state.responses, lanes]);
+
+  /* ── Broadcast to builder agents ─────────────────────────── */
+  const handleBuildBroadcast = useCallback(async () => {
+    if (!session) return;
+    setStage('broadcasting');
+    setError('');
+
+    const builderAgentIds = lanes
+      .filter(l => l.role === 'builder')
+      .map(l => {
+        const agent = state.agents.find(a => a.name === l.agent_name);
+        return agent?.id;
+      })
+      .filter((id): id is string => !!id);
+
+    if (builderAgentIds.length === 0) {
+      setError('No builder agents found in lane assignments. Assign builders in Pre-Build first.');
+      setStage('broadcast');
+      return;
+    }
+
+    const architectMd = session.architect_md ?? '';
+    const prompt = [
+      'BUILD MODE — Generate code patches for your assigned files.',
+      '',
+      architectMd ? `## ARCHITECT.md\n\n${architectMd}` : '',
+      '',
+      'For each file in your lane, produce the complete file content.',
+      'Follow the architecture, file tree, and tech stack defined above.',
+      'Return your output as code blocks with file paths.',
+    ].filter(Boolean).join('\n');
+
+    try {
+      await broadcast(prompt, builderAgentIds);
+      // buildRoundId will be set by the useEffect that watches state.rounds
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('broadcast');
+    }
+  }, [session, lanes, state.agents, broadcast]);
+
+  const toggleResponseApproval = useCallback((responseId: string) => {
+    setApprovedResponseIds(prev => {
+      const next = new Set(prev);
+      if (next.has(responseId)) next.delete(responseId);
+      else next.add(responseId);
+      return next;
+    });
+  }, []);
 
   /* ── Execute build ───────────────────────────────────────── */
   const handleExecute = useCallback(async () => {
@@ -319,9 +437,45 @@ export default function BuildWorkspace() {
             <div className="flex items-center gap-3">
               <Hammer size={18} style={{ color: 'var(--gold)' }} />
               <span className="font-mono-dm" style={{ fontSize: '13px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--gold)' }}>
-                {stage === 'bouncer' ? 'Bouncer Review' : stage === 'done' ? 'Build Complete' : 'Build in Progress'}
+                {stage === 'broadcast' ? 'Build — Broadcast to Agents'
+                  : stage === 'broadcasting' ? 'Build — Agents Working'
+                  : stage === 'reviewing' ? 'Build — Review Responses'
+                  : stage === 'bouncer' ? 'Bouncer Review'
+                  : stage === 'done' ? 'Build Complete'
+                  : 'Build in Progress'}
               </span>
             </div>
+            {stage === 'broadcast' && lanes.filter(l => l.role === 'builder').length > 0 && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'var(--gold)', color: 'var(--void)',
+                  borderColor: 'transparent', fontWeight: 500,
+                }}
+                onClick={handleBuildBroadcast}
+              >
+                <Send size={14} />
+                Start Building
+              </button>
+            )}
+            {stage === 'reviewing' && buildResponses.length > 0 && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: approvedResponseIds.size > 0 ? 'var(--gold)' : 'rgba(255,255,255,0.06)',
+                  color: approvedResponseIds.size > 0 ? 'var(--void)' : 'var(--text-dim)',
+                  borderColor: 'transparent', fontWeight: 500,
+                  cursor: approvedResponseIds.size > 0 ? 'pointer' : 'not-allowed',
+                }}
+                disabled={approvedResponseIds.size === 0}
+                onClick={() => setStage('ready')}
+              >
+                <Play size={14} />
+                Approve &amp; Continue ({approvedResponseIds.size})
+              </button>
+            )}
             {stage === 'ready' && (
               <button
                 className="reveal-pill"
@@ -347,6 +501,123 @@ export default function BuildWorkspace() {
               <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
               <span style={{ fontSize: '13px', color: 'var(--risk)' }}>{error}</span>
             </div>
+          )}
+
+          {/* ── Broadcast: pre-build overview ───────────────── */}
+          {stage === 'broadcast' && (
+            <section style={{ marginBottom: '28px' }}>
+              {session.architect_md && (
+                <div style={{
+                  padding: '16px 20px', marginBottom: '16px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                    Architect.md Context
+                  </div>
+                  <pre style={{
+                    fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.6,
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '200px',
+                    overflow: 'auto', fontFamily: 'var(--font-mono)',
+                  }}>
+                    {session.architect_md.slice(0, 1200)}{session.architect_md.length > 1200 ? '\n…' : ''}
+                  </pre>
+                </div>
+              )}
+              <div style={{
+                padding: '20px', borderRadius: '12px',
+                background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.12)',
+              }}>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Builder agents will generate code based on <strong style={{ color: 'var(--gold)' }}>Architect.md</strong> and their lane assignments.
+                  After they respond, you'll review their output before executing.
+                </p>
+                {lanes.filter(l => l.role === 'builder').length === 0 && (
+                  <p style={{ fontSize: '12px', color: 'var(--risk)', marginTop: '10px' }}>
+                    No builder lanes assigned — go back to Pre-Build to set up lanes.
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* ── Broadcasting: agents working ────────────────── */}
+          {stage === 'broadcasting' && (
+            <div className="flex flex-col items-center" style={{ padding: '48px 0' }}>
+              <Loader2 size={32} className="animate-spin" style={{ color: 'var(--gold)', marginBottom: '16px' }} />
+              <span className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.12em', color: 'var(--gold)', marginBottom: '8px' }}>
+                {BUILD_BROADCAST_MESSAGES[broadcastMsgIdx]}
+              </span>
+              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', color: 'var(--text-dim)' }}>
+                {buildResponses.length} / {lanes.filter(l => l.role === 'builder').length} agents responded
+              </span>
+            </div>
+          )}
+
+          {/* ── Reviewing: agent responses ───────────────────── */}
+          {stage === 'reviewing' && buildResponses.length > 0 && (
+            <section style={{ marginBottom: '28px' }}>
+              <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '12px' }}>
+                Builder Responses — select which to include in execution
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {buildResponses.map(resp => {
+                  const approved = approvedResponseIds.has(resp.id);
+                  return (
+                    <div
+                      key={resp.id}
+                      onClick={() => toggleResponseApproval(resp.id)}
+                      style={{
+                        padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+                        background: approved ? 'rgba(90,184,142,0.04)' : 'rgba(255,255,255,0.02)',
+                        border: `1px solid ${approved ? 'rgba(90,184,142,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <div className="flex items-center justify-between" style={{ marginBottom: '10px' }}>
+                        <div className="flex items-center gap-2">
+                          <div style={{
+                            width: '20px', height: '20px', borderRadius: '6px',
+                            background: approved ? 'var(--ok)' : 'rgba(255,255,255,0.06)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'background 0.2s',
+                          }}>
+                            {approved && <CheckCircle2 size={12} style={{ color: 'var(--void)' }} />}
+                          </div>
+                          <span className="font-mono-dm" style={{
+                            fontSize: '12px', letterSpacing: '0.1em',
+                            color: resp.agent_color || 'var(--text-secondary)',
+                            fontWeight: 500,
+                          }}>
+                            {resp.agent_name}
+                          </span>
+                          <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                            {resp.model}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {resp.file_manifest && resp.file_manifest.length > 0 && (
+                            <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                              {resp.file_manifest.length} files
+                            </span>
+                          )}
+                          <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                            {resp.tokens_used.toLocaleString()} tok
+                          </span>
+                        </div>
+                      </div>
+                      <pre style={{
+                        fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5,
+                        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        maxHeight: '120px', overflow: 'hidden',
+                        fontFamily: 'var(--font-mono)',
+                      }}>
+                        {resp.content.slice(0, 500)}{resp.content.length > 500 ? '…' : ''}
+                      </pre>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           )}
 
           {/* ── Lane assignments ────────────────────────────── */}
