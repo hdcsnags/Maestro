@@ -233,7 +233,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ConciergeRequest = await req.json();
-    if (!body.session_id || !body.phase || !Array.isArray(body.responses)) {
+    // pre_build_complete doesn't need responses — it reads architect_md + build_lanes directly
+    if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && !Array.isArray(body.responses))) {
       return new Response(
         JSON.stringify({ error: "Invalid request: session_id, phase, and responses required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },

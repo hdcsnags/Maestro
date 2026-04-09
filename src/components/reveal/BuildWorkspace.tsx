@@ -14,6 +14,7 @@ import {
 
 interface LaneRow {
   id: string;
+  agent_id: string | null;
   agent_name: string;
   lane_paths: string[];
   role: BuildLaneRole;
@@ -135,7 +136,7 @@ export default function BuildWorkspace() {
     if (!session || !isVisible) return;
     supabase
       .from('build_lanes')
-      .select('id, agent_name, lane_paths, role')
+      .select('id, agent_id, agent_name, lane_paths, role')
       .eq('session_id', session.id)
       .then(({ data }) => {
         if (data) setLanes(data as LaneRow[]);
@@ -264,7 +265,13 @@ export default function BuildWorkspace() {
     const builderAgentIds = lanes
       .filter(l => l.role === 'builder')
       .map(l => {
-        const agent = state.agents.find(a => a.name === l.agent_name);
+        // Prefer agent_id from build_lanes (set by architect C1), fall back to fuzzy name match
+        if (l.agent_id) return l.agent_id;
+        const agent = state.agents.find(a =>
+          a.name === l.agent_name ||
+          a.name.toLowerCase().includes(l.agent_name.toLowerCase()) ||
+          l.agent_name.toLowerCase().includes(a.name.toLowerCase())
+        );
         return agent?.id;
       })
       .filter((id): id is string => !!id);
