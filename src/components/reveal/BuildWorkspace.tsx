@@ -33,7 +33,7 @@ interface BouncerResult {
   model_used: string;
 }
 
-type BuildStage = 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
+type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
 
 /* ── Constants ─────────────────────────────────────────────── */
 
@@ -66,6 +66,13 @@ const BUILD_BROADCAST_MESSAGES = [
   'Building from Architect.md…',
 ];
 
+const PREPARING_MESSAGES = [
+  'Concierge is reading the blueprint…',
+  'Mapping builder assignments…',
+  'Scoping file paths…',
+  'Preparing build prompt…',
+];
+
 /* ── Component ─────────────────────────────────────────────── */
 
 export default function BuildWorkspace() {
@@ -77,7 +84,7 @@ export default function BuildWorkspace() {
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
 
   const [lanes, setLanes] = useState<LaneRow[]>([]);
-  const [stage, setStage] = useState<BuildStage>('broadcast');
+  const [stage, setStage] = useState<BuildStage>('preparing');
   const [error, setError] = useState('');
 
   // Broadcast step state
@@ -85,13 +92,15 @@ export default function BuildWorkspace() {
   const [approvedResponseIds, setApprovedResponseIds] = useState<Set<string>>(new Set());
   const [broadcastMsgIdx, setBroadcastMsgIdx] = useState(0);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const preparingTriggered = useRef(false);
 
-  // Cycling broadcast message
+  // Cycling broadcast/preparing message
   useEffect(() => {
-    if (stage === 'broadcasting') {
+    if (stage === 'broadcasting' || stage === 'preparing') {
       setBroadcastMsgIdx(0);
+      const msgs = stage === 'preparing' ? PREPARING_MESSAGES : BUILD_BROADCAST_MESSAGES;
       broadcastTimerRef.current = setInterval(() => {
-        setBroadcastMsgIdx(prev => (prev + 1) % BUILD_BROADCAST_MESSAGES.length);
+        setBroadcastMsgIdx(prev => (prev + 1) % msgs.length);
       }, 3000);
     } else if (broadcastTimerRef.current) {
       clearInterval(broadcastTimerRef.current);
@@ -133,6 +142,60 @@ export default function BuildWorkspace() {
       });
   }, [session, isVisible]);
 
+  // Sprint C · F2 — Auto-call concierge on build phase entry
+  useEffect(() => {
+    if (!session || !isVisible || stage !== 'preparing' || preparingTriggered.current) return;
+    preparingTriggered.current = true;
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${supabaseUrl}/functions/v1/concierge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ session_id: session.id, phase: 'pre_build_complete' }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: 'Concierge request failed' }));
+          console.warn('Concierge build plan failed:', err);
+          setStage('broadcast');
+          return;
+        }
+        const plan = await res.json();
+        dispatch({ type: 'SET_BUILD_PLAN', payload: plan });
+        setStage('plan_review');
+      } catch (err) {
+        console.warn('Concierge build plan error:', err);
+        setStage('broadcast');
+      }
+    })();
+  }, [session, isVisible, stage, supabaseUrl, getToken, dispatch]);
+
+  // Approve build plan and start broadcasting
+  const handleApprovePlan = useCallback(async () => {
+    const buildPlan = state.buildPlan;
+    if (!session || !buildPlan) return;
+    setStage('broadcasting');
+    setError('');
+
+    const builderAgentIds = buildPlan.builder_agents
+      .map(b => b.agent_id)
+      .filter(Boolean);
+
+    if (builderAgentIds.length === 0) {
+      setError('No builder agents in concierge plan.');
+      setStage('broadcast');
+      return;
+    }
+
+    try {
+      await broadcast(buildPlan.build_prompt, builderAgentIds);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('broadcast');
+    }
+  }, [session, state.buildPlan, broadcast]);
+
   // Check for existing execution runs
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -159,7 +222,7 @@ export default function BuildWorkspace() {
 
   // Auto-detect if we already have build responses (e.g. page reload)
   useEffect(() => {
-    if (!session || !isVisible || stage !== 'broadcast') return;
+    if (!session || !isVisible || (stage !== 'broadcast' && stage !== 'preparing')) return;
     // If there are rounds for this session, check if the latest one looks like a build broadcast
     const sessionRounds = state.rounds.filter(r => r.session_id === session.id);
     const lastRound = sessionRounds[sessionRounds.length - 1];
@@ -273,6 +336,26 @@ export default function BuildWorkspace() {
       const run = runData as Record<string, unknown>;
       dispatch({ type: 'ADD_EXECUTION_RUN', payload: run as never });
 
+      // Assemble patches from approved build broadcast responses. github-execute
+      // requires a non-empty patches[] — without this it (correctly) 400s with
+      // NO_PATCHES because nothing else in the pipeline forwards them.
+      const approved = buildResponses.filter(r => approvedResponseIds.has(r.id));
+      if (approved.length === 0) {
+        throw new Error('Select at least one builder response before executing.');
+      }
+      const patches = approved.map(r => {
+        const lane = lanes.find(l => l.agent_name === r.agent_name);
+        return {
+          agent_name: r.agent_name,
+          agent_id: r.agent_id,
+          content: r.content,
+          scoped_paths: lane?.lane_paths ?? [],
+          commit_message: `${r.agent_name}: build patch`,
+          conductor_approved: true,
+          file_manifest: r.file_manifest ?? [],
+        };
+      });
+
       // Call github-execute
       const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
         method: 'POST',
@@ -285,6 +368,7 @@ export default function BuildWorkspace() {
           session_id: session.id,
           execution_mode: state.executionMode,
           strategy: state.executionStrategy,
+          patches,
         }),
       });
 
@@ -316,7 +400,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch]);
+  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, lanes]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
@@ -437,7 +521,9 @@ export default function BuildWorkspace() {
             <div className="flex items-center gap-3">
               <Hammer size={18} style={{ color: 'var(--gold)' }} />
               <span className="font-mono-dm" style={{ fontSize: '13px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--gold)' }}>
-                {stage === 'broadcast' ? 'Build — Broadcast to Agents'
+                {stage === 'preparing' ? 'Build — Preparing Plan'
+                  : stage === 'plan_review' ? 'Build — Review Plan'
+                  : stage === 'broadcast' ? 'Build — Broadcast to Agents'
                   : stage === 'broadcasting' ? 'Build — Agents Working'
                   : stage === 'reviewing' ? 'Build — Review Responses'
                   : stage === 'bouncer' ? 'Bouncer Review'
@@ -445,6 +531,20 @@ export default function BuildWorkspace() {
                   : 'Build in Progress'}
               </span>
             </div>
+            {stage === 'plan_review' && state.buildPlan && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'var(--gold)', color: 'var(--void)',
+                  borderColor: 'transparent', fontWeight: 500,
+                }}
+                onClick={handleApprovePlan}
+              >
+                <Play size={14} />
+                Approve &amp; Build
+              </button>
+            )}
             {stage === 'broadcast' && lanes.filter(l => l.role === 'builder').length > 0 && (
               <button
                 className="reveal-pill"
@@ -501,6 +601,94 @@ export default function BuildWorkspace() {
               <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
               <span style={{ fontSize: '13px', color: 'var(--risk)' }}>{error}</span>
             </div>
+          )}
+
+          {/* ── Preparing: concierge loading ─────────────────── */}
+          {stage === 'preparing' && (
+            <section style={{ textAlign: 'center', padding: '60px 0' }}>
+              <Loader2 size={28} className="animate-spin" style={{ color: 'var(--gold)', margin: '0 auto 16px' }} />
+              <p className="font-mono-dm" style={{ fontSize: '12px', color: 'var(--gold)', letterSpacing: '0.15em', marginBottom: '8px' }}>
+                {PREPARING_MESSAGES[broadcastMsgIdx]}
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                Concierge is analyzing the architecture and preparing builder assignments.
+              </p>
+            </section>
+          )}
+
+          {/* ── Plan Review: concierge build plan ────────────── */}
+          {stage === 'plan_review' && state.buildPlan && (
+            <section style={{ marginBottom: '28px' }}>
+              {/* Summary card */}
+              <div style={{
+                padding: '20px 24px', marginBottom: '20px', borderRadius: '16px',
+                background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.12)',
+              }}>
+                <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--gold)', marginBottom: '12px' }}>
+                  Build Plan Summary
+                </div>
+                <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6, margin: 0 }}>
+                  {state.buildPlan.build_summary}
+                </p>
+              </div>
+
+              {/* Builder assignments */}
+              <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '12px' }}>
+                Builder Assignments
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                {state.buildPlan.builder_agents.map((agent, i) => (
+                  <div key={i} style={{
+                    padding: '14px 18px', borderRadius: '12px',
+                    background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <div className="flex items-center gap-2" style={{ marginBottom: '6px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)' }}>{agent.agent_name}</span>
+                      <span style={{
+                        fontSize: '10px', padding: '2px 8px', borderRadius: '6px',
+                        background: 'rgba(90,184,142,0.08)', color: '#5ab88e', fontWeight: 500,
+                      }}>Builder</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                      {agent.instruction}
+                    </div>
+                    <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                      {agent.scoped_paths.join(' · ')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Build prompt preview */}
+              <details style={{ marginBottom: '16px' }}>
+                <summary className="font-mono-dm" style={{
+                  fontSize: '10px', letterSpacing: '0.15em', textTransform: 'uppercase',
+                  color: 'var(--text-dim)', cursor: 'pointer', marginBottom: '8px',
+                }}>
+                  Build Prompt Preview
+                </summary>
+                <pre style={{
+                  fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '200px',
+                  overflow: 'auto', fontFamily: 'var(--font-mono)',
+                  padding: '12px', borderRadius: '8px',
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)',
+                }}>
+                  {state.buildPlan.build_prompt.slice(0, 1500)}{state.buildPlan.build_prompt.length > 1500 ? '\n…' : ''}
+                </pre>
+              </details>
+
+              {/* Skip to manual */}
+              <div style={{ textAlign: 'center' }}>
+                <button
+                  className="reveal-pill"
+                  style={{ height: '32px', fontSize: '11px', opacity: 0.5 }}
+                  onClick={() => setStage('broadcast')}
+                >
+                  Skip to manual broadcast
+                </button>
+              </div>
+            </section>
           )}
 
           {/* ── Broadcast: pre-build overview ───────────────── */}

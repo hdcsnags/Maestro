@@ -108,6 +108,53 @@ export function useOrchestration() {
     const session = sessionOverride ?? state.activeSession;
     if (!user || !session || !state.workspace) return;
 
+    // Sprint C · F1 — Pre-broadcast triage routing.
+    // In analysis mode, ask concierge-triage if this is a simple question.
+    // Skip triage for build phase, pre_build, or if explicitly bypassed.
+    const phase = (session as Record<string, unknown>).current_phase as string | undefined;
+    const skipTriage = phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
+
+    if (!skipTriage) {
+      try {
+        dispatch({ type: 'SET_IS_TRIAGING', payload: true });
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        const triageRes = await Promise.race([
+          fetch(`${supabaseUrl}/functions/v1/concierge-triage`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authSession?.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: session.id,
+              prompt,
+              agent_count: selectedAgentIds.length,
+              session_context: {
+                current_phase: phase ?? 'analysis',
+                round_count: state.rounds.length,
+                has_build_spec: !!(session as Record<string, unknown>).build_spec,
+              },
+            }),
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+
+        if (triageRes && (triageRes as globalThis.Response).ok) {
+          const triageData = await (triageRes as globalThis.Response).json();
+          if (triageData.route === 'simple_ask' && triageData.confidence >= 0.75) {
+            dispatch({ type: 'SET_TRIAGE_RESULT', payload: triageData });
+            dispatch({ type: 'SET_IS_TRIAGING', payload: false });
+            return; // Short-circuit — no broadcast needed
+          }
+        }
+      } catch {
+        // Triage failure is non-fatal — proceed with normal broadcast
+      } finally {
+        dispatch({ type: 'SET_IS_TRIAGING', payload: false });
+      }
+    }
+
     dispatch({ type: 'SET_IS_BROADCASTING', payload: true });
     dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: selectedAgentIds });
 

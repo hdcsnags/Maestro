@@ -134,6 +134,82 @@ export default function ConciergePanel() {
     return () => window.removeEventListener('keydown', handler);
   }, [handleClose]);
 
+  // Sprint C · F1 — "Ask the council anyway" handler for triage simple_ask
+  const handleAskCouncilAnyway = useCallback(() => {
+    const lastPrompt = state.triageResult ? state.rounds[state.rounds.length - 1]?.prompt : null;
+    dispatch({ type: 'SET_TRIAGE_RESULT', payload: null });
+    dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
+    if (lastPrompt) {
+      const activeAgentIds = state.agents.filter(a => a.is_active).map(a => a.id);
+      broadcast(lastPrompt, activeAgentIds);
+    }
+  }, [state.triageResult, state.rounds, state.agents, dispatch, broadcast]);
+
+  // ─── Sprint C · F1 — Triage simple_ask view ──────────────────────────────
+  const triage = state.triageResult;
+  if (triage && state.conciergeVisible) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        style={{ background: 'rgba(8,8,6,0.75)', backdropFilter: 'blur(8px)' }}
+        onClick={handleClose}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            width: '100%', maxWidth: '520px', margin: '0 24px',
+            padding: '40px 32px', borderRadius: '24px',
+            border: '1px solid rgba(201,168,76,0.12)',
+            background: 'linear-gradient(180deg, rgba(18,17,14,0.98), rgba(12,11,9,0.98))',
+            boxShadow: '0 0 80px rgba(201,168,76,0.06), 0 24px 48px rgba(0,0,0,0.4)',
+          }}
+        >
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+            <div>
+              <div className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--gold)', marginBottom: '4px' }}>
+                Concierge — Quick Answer
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Confidence: {Math.round(triage.confidence * 100)}%
+              </div>
+            </div>
+            <button onClick={handleClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Answer */}
+          <div style={{
+            background: 'rgba(201,168,76,0.04)',
+            border: '1px solid rgba(201,168,76,0.08)',
+            borderRadius: '12px',
+            padding: '20px',
+            marginBottom: '20px',
+          }}>
+            <p style={{ color: 'var(--text-primary)', fontSize: '14px', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-wrap' }}>
+              {triage.direct_answer || triage.reasoning}
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <button onClick={handleAskCouncilAnyway} className="reveal-pill" style={{ height: '36px', fontSize: '12px', opacity: 0.7 }}>
+              <RotateCcw size={14} /> Ask the council anyway
+            </button>
+            <button onClick={handleClose} className="reveal-pill" style={{
+              height: '36px', fontSize: '12px',
+              background: 'rgba(201,168,76,0.12)',
+              borderColor: 'rgba(201,168,76,0.25)',
+            }}>
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ─── Empty state (no decision yet) ───────────────────────────────────────
   if (!decision) {
     return (

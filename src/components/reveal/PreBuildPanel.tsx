@@ -311,12 +311,26 @@ export default function PreBuildPanel() {
 
       setArchitectMd(data.architect_md as string);
 
+      // C1: architect now auto-assigns lanes and locks build_spec
+      const autoLocked = data.build_spec_locked === true;
+      const lanesAssigned = data.lanes_assigned === true;
+
       // Refresh session in context
       if (state.activeSession) {
         dispatch({
           type: 'SET_ACTIVE_SESSION',
-          payload: { ...state.activeSession, architect_md: data.architect_md },
+          payload: {
+            ...state.activeSession,
+            architect_md: data.architect_md,
+            ...(autoLocked ? { build_spec_locked: true } : {}),
+          },
         });
+        if (autoLocked) setLanesLocked(true);
+      }
+
+      // Auto-lock toast feedback
+      if (lanesAssigned && autoLocked) {
+        dispatch({ type: 'SHOW_TOAST', payload: 'Lanes auto-assigned and locked by Architect' });
       }
     } catch (err) {
       setArchitectError(err instanceof Error ? err.message : 'Generation failed');

@@ -11,7 +11,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build";
+type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
 type NextPhase = "analysis" | "design" | "pre_build" | "build";
@@ -249,6 +249,166 @@ Deno.serve(async (req: Request) => {
           message: "Concierge requires an Anthropic API key. Add one in the Provider Vault to enable synthesis guidance.",
         }),
         { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Sprint C · C2 — Concierge-triggered build planning.
+    // When phase is pre_build_complete, read architect_md + build_lanes and
+    // generate a scoped build prompt. Short-circuits the normal synthesis flow.
+    if (body.phase === "pre_build_complete") {
+      const { data: sessionData } = await adminClient
+        .from("sessions")
+        .select("architect_md, title")
+        .eq("id", body.session_id)
+        .maybeSingle();
+
+      const architectMd = (sessionData as { architect_md?: string } | null)?.architect_md ?? "";
+      const projectTitle = (sessionData as { title?: string } | null)?.title ?? "Untitled";
+
+      const { data: laneData } = await adminClient
+        .from("build_lanes")
+        .select("agent_id, agent_name, lane_paths, role")
+        .eq("session_id", body.session_id);
+
+      const lanes = (laneData ?? []) as Array<{
+        agent_id: string | null;
+        agent_name: string;
+        lane_paths: string[];
+        role: string;
+      }>;
+
+      const builders = lanes.filter((l) => l.role === "builder");
+
+      if (builders.length === 0 || !architectMd) {
+        return new Response(
+          JSON.stringify({
+            error: "BUILD_NOT_READY",
+            message: builders.length === 0
+              ? "No builder lanes assigned. Generate Architect.md first."
+              : "No Architect.md found. Generate the scaffold first.",
+          }),
+          { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Use Sonnet for build prompt generation — this is code-understanding work
+      const buildModel = "claude-sonnet-4-6";
+
+      const buildPlanPrompt = `You are Maestro's Concierge preparing a build plan.
+
+Given the ARCHITECT.md below, generate a BUILD PROMPT that will be sent to each builder agent.
+The prompt should be specific, actionable, and reference the architecture.
+
+Also produce a brief build_summary for the conductor to review before approving.
+
+Return JSON only:
+{
+  "build_prompt": "The complete prompt to send to builder agents. Reference the Architect.md. Tell them to produce complete file contents for their assigned paths.",
+  "build_summary": "2-3 sentence summary of what will be built, for conductor approval.",
+  "builder_agents": [
+    { "agent_id": "...", "agent_name": "...", "scoped_paths": ["..."], "instruction": "1 sentence specific to this agent's lane" }
+  ]
+}`;
+
+      const builderList = builders
+        .map((b) => `- ${b.agent_name} (${b.role}): ${b.lane_paths.join(", ")}`)
+        .join("\n");
+
+      const buildUserMsg = `Project: ${projectTitle}
+
+--- ARCHITECT.MD ---
+${architectMd}
+
+--- BUILDER LANES ---
+${builderList}
+
+Generate the build plan.`;
+
+      const buildRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: buildModel,
+          max_tokens: 2048,
+          system: buildPlanPrompt,
+          messages: [{ role: "user", content: buildUserMsg }],
+        }),
+      });
+
+      if (!buildRes.ok) {
+        const errText = await buildRes.text();
+        return new Response(
+          JSON.stringify({
+            error: "ANTHROPIC_REQUEST_FAILED",
+            message: `Build plan generation failed (${buildRes.status}): ${errText.slice(0, 300)}`,
+          }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const buildData = await buildRes.json();
+      const buildRaw: string = buildData?.content?.[0]?.text ?? "";
+
+      // Parse the build plan JSON
+      const fenced = buildRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
+      const jsonText = fenced ? fenced[1].trim() : buildRaw;
+      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+
+      let buildPlan: {
+        build_prompt: string;
+        build_summary: string;
+        builder_agents: Array<{
+          agent_id: string;
+          agent_name: string;
+          scoped_paths: string[];
+          instruction: string;
+        }>;
+      };
+
+      try {
+        buildPlan = JSON.parse(jsonMatch?.[0] ?? "{}");
+      } catch {
+        // Fallback: construct from lanes directly
+        buildPlan = {
+          build_prompt: `BUILD MODE — You are building ${projectTitle} as specified in the ARCHITECT.md below.\n\nARCHITECT REFERENCE:\n${architectMd}\n\nGenerate complete file contents for every file in your assigned lane. No placeholders. No snippets. Full files.`,
+          build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length > 1 ? "s" : ""}.`,
+          builder_agents: builders.map((b) => ({
+            agent_id: b.agent_id ?? "",
+            agent_name: b.agent_name,
+            scoped_paths: b.lane_paths,
+            instruction: `Build files in: ${b.lane_paths.join(", ")}`,
+          })),
+        };
+      }
+
+      // Ensure builder_agents have real IDs from the lanes table
+      buildPlan.builder_agents = builders.map((b) => {
+        const planned = (buildPlan.builder_agents ?? []).find(
+          (pa) =>
+            pa.agent_name === b.agent_name ||
+            pa.agent_name.toLowerCase().includes(b.agent_name.toLowerCase())
+        );
+        return {
+          agent_id: b.agent_id ?? "",
+          agent_name: b.agent_name,
+          scoped_paths: b.lane_paths,
+          instruction: planned?.instruction ?? `Build files in: ${b.lane_paths.join(", ")}`,
+        };
+      });
+
+      return new Response(
+        JSON.stringify({
+          phase: "pre_build_complete",
+          build_prompt: buildPlan.build_prompt,
+          build_summary: buildPlan.build_summary,
+          builder_agents: buildPlan.builder_agents,
+          model_used: buildModel,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 

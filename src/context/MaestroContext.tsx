@@ -3,6 +3,7 @@ import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
+  TriageResult, BuildPlan,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -31,6 +32,9 @@ interface MaestroState {
   isSynthesizing: boolean;
   conciergeDecision: ConciergeDecision | null;
   conciergeVisible: boolean;
+  triageResult: TriageResult | null;
+  isTriaging: boolean;
+  buildPlan: BuildPlan | null;
   carouselVisible: boolean;
   autoShowCarousel: boolean;
   toastMessage: string | null;
@@ -78,6 +82,9 @@ type Action =
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
   | { type: 'SET_CONCIERGE_VISIBLE'; payload: boolean }
   | { type: 'SET_CONCIERGE_DECISION'; payload: ConciergeDecision | null }
+  | { type: 'SET_TRIAGE_RESULT'; payload: TriageResult | null }
+  | { type: 'SET_IS_TRIAGING'; payload: boolean }
+  | { type: 'SET_BUILD_PLAN'; payload: BuildPlan | null }
   | { type: 'SET_CAROUSEL_VISIBLE'; payload: boolean }
   | { type: 'SET_AUTO_SHOW_CAROUSEL'; payload: boolean }
   | { type: 'SHOW_TOAST'; payload: string }
@@ -116,6 +123,9 @@ const initial: MaestroState = {
   isSynthesizing: false,
   conciergeDecision: null,
   conciergeVisible: false,
+  triageResult: null,
+  isTriaging: false,
+  buildPlan: null,
   carouselVisible: false,
   autoShowCarousel: false,
   toastMessage: null,
@@ -171,6 +181,9 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         broadcastingAgents: [],
         folioIndex: 0,
         activeRepoConnection: null,
+        triageResult: null,
+        isTriaging: false,
+        buildPlan: null,
       };
     }
     case 'SET_SESSIONS': return { ...state, sessions: action.payload };
@@ -228,11 +241,14 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
     case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
     case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload, conciergeVisible: action.payload !== null };
+    case 'SET_TRIAGE_RESULT': return { ...state, triageResult: action.payload, conciergeVisible: action.payload !== null };
+    case 'SET_IS_TRIAGING': return { ...state, isTriaging: action.payload };
+    case 'SET_BUILD_PLAN': return { ...state, buildPlan: action.payload };
     case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };
     case 'SET_AUTO_SHOW_CAROUSEL': return { ...state, autoShowCarousel: action.payload };
     case 'SHOW_TOAST': return { ...state, toastMessage: action.payload };
     case 'CLEAR_TOAST': return { ...state, toastMessage: null };
-    case 'CLEAR_STAGE': return { ...state, folioIndex: 0 };
+    case 'CLEAR_STAGE': return { ...state, folioIndex: 0, triageResult: null, isTriaging: false, buildPlan: null };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
     case 'OPEN_DRAWER': {
       const isSame = state.activeDrawer === action.payload;

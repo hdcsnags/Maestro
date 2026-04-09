@@ -167,6 +167,26 @@ export interface ConciergeDecision {
   applied_phase?: SessionPhase;
 }
 
+export interface TriageResult {
+  route: 'simple_ask' | 'orchestra';
+  intent: 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build';
+  confidence: number;
+  reasoning: string;
+  direct_answer?: string;
+}
+
+export interface BuildPlan {
+  build_prompt: string;
+  build_summary: string;
+  builder_agents: Array<{
+    agent_id: string;
+    agent_name: string;
+    scoped_paths: string[];
+    instruction: string;
+  }>;
+  model_used?: string;
+}
+
 export interface Synthesis {
   id: string;
   round_id: string;

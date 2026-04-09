@@ -454,6 +454,18 @@ function DesignerCard({
   onSelect, onToggleFlag, onDownload, onOpenTab,
 }: DesignerCardProps) {
   const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  const handleIframeLoad = useCallback((e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    try {
+      const doc = (e.target as HTMLIFrameElement).contentDocument;
+      const body = doc?.body;
+      if (!body || body.innerHTML.trim().length < 20) setPreviewFailed(true);
+    } catch {
+      // Cross-origin or empty — treat as failed
+      setPreviewFailed(true);
+    }
+  }, []);
 
   return (
     <div style={{
@@ -514,7 +526,33 @@ function DesignerCard({
 
         {status === 'done' && artifact && (
           <>
-            {/* HTML preview */}
+            {/* HTML preview or fallback */}
+            {previewFailed ? (
+              <div style={{
+                borderRadius: '10px', padding: '32px 20px', textAlign: 'center',
+                border: '1px dashed rgba(255,255,255,0.1)',
+                marginBottom: '16px', background: 'rgba(255,255,255,0.01)',
+              }}>
+                <AlertTriangle size={20} style={{ color: 'var(--text-dim)', margin: '0 auto 12px', display: 'block' }} />
+                <p className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '16px' }}>
+                  Preview unavailable
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <button className="reveal-pill" style={{
+                    height: '34px', fontSize: '11px', padding: '0 16px',
+                    background: 'rgba(201,168,76,0.1)', borderColor: 'rgba(201,168,76,0.25)',
+                  }} onClick={onOpenTab}>
+                    <ExternalLink size={12} /> Open in new tab ↗
+                  </button>
+                  <button className="reveal-pill" style={{
+                    height: '34px', fontSize: '11px', padding: '0 16px',
+                    background: 'rgba(201,168,76,0.1)', borderColor: 'rgba(201,168,76,0.25)',
+                  }} onClick={onDownload}>
+                    <Download size={12} /> Download HTML
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div
               style={{
                 borderRadius: '10px', overflow: 'hidden',
@@ -530,8 +568,10 @@ function DesignerCard({
                 sandbox="allow-scripts"
                 title={`${lane.display_name} mockup`}
                 style={{ width: '100%', height: '100%', border: 'none', pointerEvents: previewExpanded ? 'auto' : 'none' }}
+                onLoad={handleIframeLoad}
               />
             </div>
+            )}
 
             {/* Action row */}
             <div className="flex items-center gap-2" style={{ marginBottom: '16px' }}>

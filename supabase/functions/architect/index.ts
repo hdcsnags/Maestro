@@ -239,9 +239,68 @@ ${decisionsText || "(no concierge decisions yet)"}`;
       ...(suggestedLanes.length > 0 ? { suggested_lanes: suggestedLanes } : {}),
     };
 
+    // Sprint C · C1 — Auto-populate build_lanes table and lock build spec.
+    // Match parsed agent names to real agents in the workspace so we get
+    // proper agent_id references instead of display-name-only rows.
+    let lanesAssigned = false;
+    if (suggestedLanes.length > 0) {
+      const { data: agents } = await supabase
+        .from("agents")
+        .select("id, name, display_name")
+        .eq("workspace_id", sessionRow.workspace_id);
+
+      const agentList = (agents ?? []) as Array<{
+        id: string;
+        name: string;
+        display_name: string;
+      }>;
+
+      const laneRows = suggestedLanes
+        .map((lane) => {
+          const match = agentList.find(
+            (a) =>
+              a.display_name === lane.agent_name ||
+              a.name === lane.agent_name ||
+              a.display_name
+                .toLowerCase()
+                .includes(lane.agent_name.toLowerCase()) ||
+              lane.agent_name
+                .toLowerCase()
+                .includes(a.display_name.toLowerCase())
+          );
+          return {
+            session_id: body.session_id,
+            agent_id: match?.id ?? null,
+            agent_name: match?.display_name ?? lane.agent_name,
+            lane_paths: lane.lane_paths,
+            role: lane.role,
+          };
+        });
+
+      // Clear old lanes, insert new ones
+      await supabase
+        .from("build_lanes")
+        .delete()
+        .eq("session_id", body.session_id);
+
+      const { error: laneErr } = await supabase
+        .from("build_lanes")
+        .insert(laneRows as never[]);
+
+      if (!laneErr) {
+        lanesAssigned = true;
+        // Auto-lock build spec so conductor can go straight to build
+        updatedBuildSpec.build_spec_locked = true;
+      }
+    }
+
     const { error: updateError } = await supabase
       .from("sessions")
-      .update({ architect_md: architectMd, build_spec: updatedBuildSpec })
+      .update({
+        architect_md: architectMd,
+        build_spec: updatedBuildSpec,
+        ...(lanesAssigned ? { build_spec_locked: true } : {}),
+      } as never)
       .eq("id", body.session_id);
     if (updateError) {
       return new Response(
@@ -255,7 +314,12 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     }
 
     return new Response(
-      JSON.stringify({ architect_md: architectMd, suggested_lanes: suggestedLanes }),
+      JSON.stringify({
+        architect_md: architectMd,
+        suggested_lanes: suggestedLanes,
+        lanes_assigned: lanesAssigned,
+        build_spec_locked: lanesAssigned,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
