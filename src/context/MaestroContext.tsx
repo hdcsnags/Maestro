@@ -170,6 +170,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         conciergeVisible: false,
         broadcastingAgents: [],
         folioIndex: 0,
+        activeRepoConnection: null,
       };
     }
     case 'SET_SESSIONS': return { ...state, sessions: action.payload };

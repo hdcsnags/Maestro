@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
@@ -16,6 +16,13 @@ const COMPLEXITY_COLOR: Record<string, string> = {
   medium: 'var(--gold)',
   high: 'var(--risk)',
 };
+
+const SCAFFOLD_MESSAGES = [
+  'Reading your codebase…',
+  'Mapping file structure…',
+  'Assigning agent lanes…',
+  'Generating Architect.md…',
+];
 
 export default function PreBuildPanel() {
   const { state, dispatch } = useMaestro();
@@ -40,6 +47,22 @@ export default function PreBuildPanel() {
   );
   const [architectError, setArchitectError] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // Scaffold generation cycling messages
+  const [scaffoldMsgIdx, setScaffoldMsgIdx] = useState(0);
+  const scaffoldTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (generating) {
+      setScaffoldMsgIdx(0);
+      scaffoldTimerRef.current = setInterval(() => {
+        setScaffoldMsgIdx(prev => (prev + 1) % SCAFFOLD_MESSAGES.length);
+      }, 2500);
+    } else if (scaffoldTimerRef.current) {
+      clearInterval(scaffoldTimerRef.current);
+      scaffoldTimerRef.current = null;
+    }
+    return () => { if (scaffoldTimerRef.current) clearInterval(scaffoldTimerRef.current); };
+  }, [generating]);
 
   // B5 lane assignment state
   interface LaneEntry {
@@ -573,7 +596,7 @@ export default function PreBuildPanel() {
           <div className="flex flex-col items-start">
             <span>{generating ? 'Generating…' : architectMd ? 'Scaffold ready' : 'Generate scaffold'}</span>
             <span style={{ fontSize: '8px', letterSpacing: '0.05em', opacity: 0.7, textTransform: 'none' }}>
-              {generating ? 'Building ARCHITECT.md…' : architectMd ? 'Click to re-generate' : 'File tree, tech stack, agent assignments'}
+              {generating ? SCAFFOLD_MESSAGES[scaffoldMsgIdx] : architectMd ? 'Click to re-generate' : 'File tree, tech stack, agent assignments'}
             </span>
           </div>
         </button>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import {
@@ -26,36 +26,42 @@ type ArtifactStatus = 'idle' | 'loading' | 'done' | 'error';
 /* ── Helpers ────────────────────────────────────────────────── */
 
 /** Safely extract clean HTML from an artifact's html_content field.
- *  The design edge function often returns AI-generated responses where
- *  html_content is double-wrapped: ```json fence around {"html_content": "<!DOCTYPE..."}
- *  with escaped newlines that break JSON.parse. This handles all cases. */
+ *  The design edge function stores the raw model response which is often
+ *  double-wrapped: ```json fence around {"html_content": "<!DOCTYPE..."}
+ *  with escaped newlines. JSON.parse fails because real newlines appear
+ *  inside JSON string values. We handle this with progressive extraction. */
 function extractHtml(raw: string): string {
   if (!raw) return '';
   let html = raw;
 
-  // Strip markdown code fences first (```html, ```json, ```)
+  // Strip markdown code fences (```html, ```json, ```)
   html = html.replace(/^```(?:html|json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
 
-  // Try JSON parse (works if the inner JSON is well-formed)
+  // If it looks like a JSON object, try to extract html_content
   if (html.trimStart().startsWith('{')) {
+    // First: try direct JSON.parse (works if well-formed)
     try {
       const parsed = JSON.parse(html);
-      if (parsed.html_content) html = parsed.html_content;
+      if (parsed.html_content) {
+        html = parsed.html_content;
+      }
     } catch {
-      // JSON.parse failed (likely raw newlines inside string values).
-      // Use regex to extract the html_content value.
-      const match = html.match(/"html_content"\s*:\s*"(<!DOCTYPE[\s\S]*)/i);
-      if (match) {
-        // Grab everything after "html_content": " up to the last closing structure
-        let extracted = match[1];
-        // Remove trailing ",\n  "rationale"..." or "}\n}" junk after the HTML
-        // Find the last </html> and cut there
-        const htmlEnd = extracted.lastIndexOf('</html>');
-        if (htmlEnd !== -1) {
-          extracted = extracted.substring(0, htmlEnd + 7);
+      // JSON.parse failed — real newlines inside string values.
+      // Strategy: find "html_content": " then grab until </html> or end of value
+      const startPattern = /"html_content"\s*:\s*"/;
+      const startMatch = startPattern.exec(html);
+      if (startMatch) {
+        const contentStart = startMatch.index + startMatch[0].length;
+        let extracted = html.substring(contentStart);
+
+        // Find </html> as the natural end boundary
+        const htmlEndIdx = extracted.lastIndexOf('</html>');
+        if (htmlEndIdx !== -1) {
+          extracted = extracted.substring(0, htmlEndIdx + 7);
         } else {
-          // No </html> found — trim trailing JSON structure
-          extracted = extracted.replace(/"\s*,\s*"rationale"[\s\S]*$/, '');
+          // No </html> — look for the closing quote + comma/brace pattern
+          // Match: "  ,  "rationale" or "  } at end
+          extracted = extracted.replace(/"\s*,\s*"(rationale|tradeoffs|model_used|error)"[\s\S]*$/, '');
           extracted = extracted.replace(/"\s*\}\s*$/, '');
         }
         html = extracted;
@@ -63,14 +69,13 @@ function extractHtml(raw: string): string {
     }
   }
 
-  // Replace escaped newlines with real newlines
+  // Unescape JSON string escapes
   html = html.replace(/\\n/g, '\n');
-  // Replace escaped quotes
+  html = html.replace(/\\t/g, '\t');
   html = html.replace(/\\"/g, '"');
-  // Replace escaped backslashes
   html = html.replace(/\\\\/g, '\\');
 
-  return html;
+  return html.trim();
 }
 
 /* ── Constants ─────────────────────────────────────────────── */
@@ -109,6 +114,20 @@ export default function DesignPhase() {
   const [selected, setSelected] = useState<DesignerRole | null>(null);
   const [globalError, setGlobalError] = useState('');
   const [running, setRunning] = useState(false);
+
+  // Elapsed time counter for loading state
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (running) {
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [running]);
 
   const isVisible = session?.current_phase === 'design';
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -373,6 +392,7 @@ export default function DesignPhase() {
                 isFlagged={isFlagged}
                 isSelected={isSelected}
                 allDone={allDone}
+                elapsed={elapsed}
                 onSelect={() => handleSelect(role)}
                 onToggleFlag={() => toggleFlag(role)}
                 onDownload={() => artifact && downloadHtml(artifact)}
@@ -421,6 +441,7 @@ interface DesignerCardProps {
   isFlagged: boolean;
   isSelected: boolean;
   allDone: boolean;
+  elapsed: number;
   onSelect: () => void;
   onToggleFlag: () => void;
   onDownload: () => void;
@@ -429,7 +450,7 @@ interface DesignerCardProps {
 
 function DesignerCard({
   lane, artifact, status, color,
-  isFlagged, isSelected, allDone,
+  isFlagged, isSelected, allDone, elapsed,
   onSelect, onToggleFlag, onDownload, onOpenTab,
 }: DesignerCardProps) {
   const [previewExpanded, setPreviewExpanded] = useState(false);
@@ -437,10 +458,11 @@ function DesignerCard({
   return (
     <div style={{
       borderRadius: '16px',
-      border: `1px solid ${isSelected ? color : isFlagged ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.06)'}`,
+      border: `1px solid ${isSelected ? color : isFlagged ? 'rgba(201,168,76,0.35)' : status === 'loading' ? `${color}50` : 'rgba(255,255,255,0.06)'}`,
       background: isSelected ? `${color}08` : isFlagged ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
       overflow: 'hidden',
       transition: 'border-color 0.2s, background 0.2s',
+      animation: status === 'loading' ? 'designPulse 2s ease-in-out infinite' : undefined,
     }}>
       {/* Card header */}
       <div className="flex items-center gap-3" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
@@ -470,7 +492,7 @@ function DesignerCard({
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Loader2 size={24} className="animate-spin" style={{ color, margin: '0 auto 12px', display: 'block' }} />
             <p className="font-mono-dm" style={{ fontSize: '11px', color, letterSpacing: '0.1em', fontWeight: 500 }}>
-              {lane.display_name} is designing…
+              {lane.display_name} is designing… ({elapsed}s)
             </p>
             <p className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', marginTop: '6px' }}>
               This may take 30–60 seconds

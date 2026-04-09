@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { Eye } from 'lucide-react';
 
@@ -13,6 +14,20 @@ import { Eye } from 'lucide-react';
  */
 
 type OrbMode = 'idle' | 'broadcasting' | 'synthesizing' | 'concierge';
+
+const BROADCAST_MESSAGES = [
+  'Consulting the council…',
+  'Weighing perspectives…',
+  'Agents are thinking…',
+  'Synthesizing views…',
+  'Reading the room…',
+];
+
+const SYNTH_MESSAGES = [
+  'Synthesizing…',
+  'Finding alignment…',
+  'Resolving tensions…',
+];
 
 function getOrbMode(isBroadcasting: boolean, isSynthesizing: boolean, conciergeVisible: boolean): OrbMode {
   if (conciergeVisible) return 'concierge';
@@ -35,17 +50,32 @@ const ORB_GLOW: Record<OrbMode, string> = {
   concierge: '0 0 50px 8px rgba(201,168,76,0.30), 0 0 120px 25px rgba(201,168,76,0.15), inset 0 0 35px rgba(255,224,150,0.20)',
 };
 
-const STATUS_TEXT: Record<OrbMode, string> = {
-  idle: '',
-  broadcasting: 'Broadcasting…',
-  synthesizing: 'Synthesizing…',
-  concierge: 'Concierge ready',
-};
-
 export default function EmptyStage() {
   const { state, dispatch } = useMaestro();
   const activeCount = state.agents.filter(a => a.is_active).length;
   const mode = getOrbMode(state.isBroadcasting, state.isSynthesizing, state.conciergeVisible);
+
+  // Cycling ambient text for broadcasting / synthesizing
+  const [msgIndex, setMsgIndex] = useState(0);
+  useEffect(() => {
+    if (mode !== 'broadcasting' && mode !== 'synthesizing') {
+      setMsgIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      const pool = mode === 'broadcasting' ? BROADCAST_MESSAGES : SYNTH_MESSAGES;
+      setMsgIndex(prev => (prev + 1) % pool.length);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [mode]);
+
+  const statusText = mode === 'broadcasting'
+    ? BROADCAST_MESSAGES[msgIndex % BROADCAST_MESSAGES.length]
+    : mode === 'synthesizing'
+    ? SYNTH_MESSAGES[msgIndex % SYNTH_MESSAGES.length]
+    : mode === 'concierge'
+    ? 'Concierge ready'
+    : '';
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
   const responseCount = latestRound
@@ -101,7 +131,7 @@ export default function EmptyStage() {
             opacity: 0.85,
           }}
         >
-          {STATUS_TEXT[mode] || `${activeCount} ${activeCount === 1 ? 'voice' : 'voices'} standing by`}
+          {statusText || `${activeCount} ${activeCount === 1 ? 'voice' : 'voices'} standing by`}
         </div>
 
         {/* Responses ready indicator (carousel hidden but responses exist) */}

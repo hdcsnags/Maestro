@@ -501,6 +501,11 @@ select option:checked {
   100% { background-position: 200% 0; }
 }
 
+@keyframes designPulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 12px 2px rgba(255,255,255,0.06); }
+}
+
 /* ═══ Responsive ═══ */
 
 @media (max-width: 980px) {
