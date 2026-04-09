@@ -32,8 +32,66 @@ Required sections (use exactly these markdown headings):
 ## Build Spec Summary
 ## Do Not Touch
 
+The "Agent Lane Assignments" section MUST be a markdown pipe table with
+exactly these columns and header row, in this order:
+
+| Agent | Lane Paths | Role |
+|-------|-----------|------|
+| Frontend Builder | src/components/**, src/pages/** | builder |
+| API Builder | src/api/**, src/lib/** | builder |
+| Reviewer | (cross-cutting) | reviewer |
+
+- Use the actual file paths from the File Structure section above, not
+  placeholders. Each lane path must be a real glob into this scaffold.
+- Builder lanes must not overlap. Reviewer / read_only / security_audit
+  lanes may span across builder paths.
+- Role column must be exactly one of: builder, reviewer, read_only, security_audit.
+
 Return the markdown only — no preamble, no code fences around the whole
 document.`;
+
+interface SuggestedLane {
+  agent_name: string;
+  lane_paths: string[];
+  role: "builder" | "reviewer" | "read_only" | "security_audit";
+}
+
+const VALID_LANE_ROLES = new Set(["builder", "reviewer", "read_only", "security_audit"]);
+
+// Extract the Agent Lane Assignments table from the generated ARCHITECT.md.
+// Tolerates surrounding whitespace, hyphenated separator rows, and stops at
+// the next ## heading. Returns [] when the table can't be found or parsed —
+// the build_spec update is then a no-op rather than poisoning state.
+function parseLaneAssignments(md: string): SuggestedLane[] {
+  const sectionMatch = md.match(/##\s*Agent Lane Assignments\s*\n([\s\S]*?)(?=\n##\s|$)/i);
+  if (!sectionMatch) return [];
+  const section = sectionMatch[1];
+
+  const lines = section.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("|"));
+  if (lines.length < 2) return [];
+
+  // Drop the header row and the separator row (---|---|---).
+  const rows = lines.filter((l) => !/^\|\s*-+/.test(l)).slice(1);
+
+  const out: SuggestedLane[] = [];
+  for (const row of rows) {
+    const cells = row.split("|").map((c) => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length - 1);
+    if (cells.length < 3) continue;
+    const [agent, pathsCell, roleCell] = cells;
+    const role = roleCell.toLowerCase();
+    if (!VALID_LANE_ROLES.has(role)) continue;
+    const lane_paths = pathsCell
+      .split(",")
+      .map((p) => p.trim().replace(/^`|`$/g, ""))
+      .filter((p) => p && p !== "(cross-cutting)");
+    out.push({
+      agent_name: agent.replace(/\*+/g, "").trim(),
+      lane_paths,
+      role: role as SuggestedLane["role"],
+    });
+  }
+  return out;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -172,9 +230,18 @@ ${decisionsText || "(no concierge decisions yet)"}`;
       );
     }
 
+    // Sprint B follow-up — extract suggested lanes from the generated
+    // Architect.md and merge them into sessions.build_spec so PreBuildPanel
+    // shows real scaffold paths instead of hardcoded src/components/**.
+    const suggestedLanes = parseLaneAssignments(architectMd);
+    const updatedBuildSpec: Record<string, unknown> = {
+      ...buildSpec,
+      ...(suggestedLanes.length > 0 ? { suggested_lanes: suggestedLanes } : {}),
+    };
+
     const { error: updateError } = await supabase
       .from("sessions")
-      .update({ architect_md: architectMd })
+      .update({ architect_md: architectMd, build_spec: updatedBuildSpec })
       .eq("id", body.session_id);
     if (updateError) {
       return new Response(
@@ -188,7 +255,7 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     }
 
     return new Response(
-      JSON.stringify({ architect_md: architectMd }),
+      JSON.stringify({ architect_md: architectMd, suggested_lanes: suggestedLanes }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {

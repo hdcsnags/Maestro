@@ -99,9 +99,27 @@ Deno.serve(async (req: Request) => {
 
       const accessToken = tokenData.access_token;
 
-      const ghUser = await fetch("https://api.github.com/user", {
+      // Validate the granted scopes — GitHub returns the actual granted
+      // scopes in the X-OAuth-Scopes response header. Fail loud if 'repo'
+      // is missing so the user knows private repos won't appear.
+      const ghUserRes = await fetch("https://api.github.com/user", {
         headers: { Authorization: `Bearer ${accessToken}`, "User-Agent": "Maestro" },
-      }).then(r => r.json());
+      });
+      const grantedScopes = (ghUserRes.headers.get("x-oauth-scopes") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!grantedScopes.includes("repo")) {
+        return new Response(
+          JSON.stringify({
+            error: "INSUFFICIENT_SCOPE",
+            message: `GitHub returned scopes [${grantedScopes.join(", ") || "none"}] but Maestro requires "repo" for private repository access. Re-authorize and approve the full repo permission.`,
+            granted_scopes: grantedScopes,
+          }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const ghUser = await ghUserRes.json();
 
       const { data: existing } = await supabase
         .from("encrypted_secrets")
@@ -189,9 +207,11 @@ Deno.serve(async (req: Request) => {
 
       // Live-validate the token against GitHub. A row in encrypted_secrets is
       // not proof the token still works — it can be revoked, expired, or
-      // rotated server-side. If GitHub rejects it, mark the connection
-      // disconnected so the UI surfaces a Reconnect button.
+      // rotated server-side. We also check that the granted scopes still
+      // include 'repo' — older tokens issued under a weaker scope should be
+      // treated as disconnected so the user is forced to re-authorize.
       let live = false;
+      let hasRepoScope = false;
       try {
         const probe = await fetch("https://api.github.com/user", {
           headers: {
@@ -201,9 +221,13 @@ Deno.serve(async (req: Request) => {
           },
         });
         live = probe.ok;
+        const scopes = (probe.headers.get("x-oauth-scopes") ?? "")
+          .split(",")
+          .map((s) => s.trim());
+        hasRepoScope = scopes.includes("repo");
       } catch { live = false; }
 
-      if (!live) {
+      if (!live || !hasRepoScope) {
         await supabase
           .from("provider_connections")
           .update({ is_connected: false })
@@ -212,7 +236,7 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({
           connected: false,
           hint: secret.key_hint ?? null,
-          reason: "token_invalid",
+          reason: !live ? "token_invalid" : "insufficient_scope",
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 

@@ -56,7 +56,7 @@ Deno.serve(async (req: Request) => {
 
     while (page <= maxPages) {
       const ghResponse = await fetch(
-        `https://api.github.com/user/repos?per_page=100&page=${page}&sort=updated&direction=desc&affiliation=owner,collaborator,organization_member`,
+        `https://api.github.com/user/repos?per_page=100&page=${page}&sort=updated&direction=desc&visibility=all&affiliation=owner,collaborator,organization_member`,
         {
           headers: {
             Authorization: `Bearer ${ghToken}`,

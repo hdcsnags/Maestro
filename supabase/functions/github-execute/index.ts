@@ -430,7 +430,20 @@ Deno.serve(async (req: Request) => {
     }
 
     const body: ExecuteRequest = await req.json();
-    const { mode, repo_connection_id, execution_run_id, session_id, patches, synthesis_content, commit_message } = body;
+    const { mode, repo_connection_id, execution_run_id, session_id, synthesis_content, commit_message } = body;
+    // Hard guard: patches must be a non-empty array. Frontend can send an
+    // empty/undefined patches array if the user fires Build before any
+    // responses are selected — every downstream .map/.flatMap would crash.
+    const patches: AgentPatch[] = Array.isArray(body.patches) ? body.patches : [];
+    if (patches.length === 0) {
+      return new Response(
+        JSON.stringify({
+          error: "NO_PATCHES",
+          message: "No patches were submitted. Select at least one agent response before executing.",
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     let repoConn: Record<string, unknown> | null = null;
     if (repo_connection_id) {
