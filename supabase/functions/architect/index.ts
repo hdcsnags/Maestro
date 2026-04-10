@@ -122,7 +122,11 @@ function scoreAgentForLane(agent: AgentRow, lane: SuggestedLane): number {
   if (role.includes(label) || label.includes(role)) score += 30;
 
   if (lane.role === "builder") {
-    if (role.includes("build") || role.includes("code") || role.includes("generation")) score += 18;
+    if (role.includes("build") || role.includes("code") || role.includes("generation")) score += 45;
+    if (name.includes("sonnet")) score += 35;
+    if (name.includes("gpt 5 4") || name.includes("gpt 5")) score += 25;
+    if (norm(agent.provider_group).includes("anthropic")) score += 12;
+    if (norm(agent.provider_group).includes("openai")) score += 10;
     if (paths.includes("component") || paths.includes("page") || paths.includes("style") || paths.includes("ui")) {
       if (role.includes("ui") || role.includes("design") || role.includes("spatial") || role.includes("frontend")) score += 22;
     }
@@ -136,6 +140,7 @@ function scoreAgentForLane(agent: AgentRow, lane: SuggestedLane): number {
   }
 
   // Prefer default active slots as stable fallbacks when the label is generic.
+  if (agent.is_active) score += 8;
   score += Math.max(0, 5 - agent.slot_index);
   return score;
 }
@@ -145,8 +150,7 @@ function assignAgentToLane(
   agents: AgentRow[],
   usedAgentIds: Set<string>,
 ): AgentRow | null {
-  const active = agents.filter((agent) => agent.is_active);
-  const candidates = active.length > 0 ? active : agents;
+  const candidates = agents;
 
   const exact = candidates.find(
     (agent) => norm(agent.display_name) === norm(lane.agent_name) || norm(agent.name) === norm(lane.agent_name),

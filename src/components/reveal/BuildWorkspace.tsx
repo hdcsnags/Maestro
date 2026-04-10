@@ -95,6 +95,10 @@ function safeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
+function norm(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 /* ── Component ─────────────────────────────────────────────── */
 
 export default function BuildWorkspace() {
@@ -102,6 +106,7 @@ export default function BuildWorkspace() {
   const { user } = useAuth();
   const { broadcast } = useOrchestration();
   const session = state.activeSession;
+  const agents = state.agents;
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
 
@@ -176,17 +181,57 @@ export default function BuildWorkspace() {
 
     if (ids.size > 0) return { ids: [...ids], warning: '' };
 
+    const scoreAgentForLane = (agent: typeof agents[number], lane: LaneRow, index: number): number => {
+      const label = norm(lane.agent_name);
+      const role = norm(agent.role);
+      const name = norm(`${agent.display_name} ${agent.name}`);
+      const provider = norm(`${agent.provider} ${agent.provider_group ?? ''} ${agent.model}`);
+      const paths = norm(lane.lane_paths.join(' '));
+
+      let score = 0;
+      if (name === label) score += 100;
+      if (name.includes(label) || label.includes(name)) score += 80;
+      if (role.includes(label) || label.includes(role)) score += 25;
+
+      if (role.includes('build') || role.includes('code generation')) score += 45;
+      if (name.includes('sonnet')) score += 35;
+      if (name.includes('gpt 5 4') || name.includes('gpt 5')) score += 25;
+      if (provider.includes('anthropic')) score += 18;
+      if (provider.includes('openai')) score += 14;
+
+      if (paths.includes('component') || paths.includes('page') || paths.includes('style') || paths.includes('ui')) {
+        if (role.includes('design') || role.includes('spatial') || role.includes('ui')) score += 12;
+        if (role.includes('build')) score += 18;
+      }
+
+      if (paths.includes('api') || paths.includes('lib') || paths.includes('hook') || paths.includes('server') || paths.includes('function')) {
+        if (role.includes('reasoning') || role.includes('architecture') || role.includes('build')) score += 18;
+      }
+
+      if (agent.is_active) score += 8;
+      score -= index * 2;
+      return score;
+    };
+
+    const pickFallbackAgent = (lane: LaneRow, index: number) => {
+      const available = agents.filter(a => !ids.has(a.id));
+      const candidates = available.length > 0 ? available : agents;
+      return candidates
+        .map(agent => ({ agent, score: scoreAgentForLane(agent, lane, index) }))
+        .sort((a, b) => b.score - a.score)[0]?.agent ?? null;
+    };
+
     const builderLanes = lanes.filter(l => l.role === 'builder');
     for (const lane of builderLanes) {
       if (lane.agent_id) {
         ids.add(lane.agent_id);
         continue;
       }
-      const laneName = lane.agent_name.toLowerCase();
-      const match = state.agents.find(a => {
-        const name = a.name.toLowerCase();
-        const display = a.display_name.toLowerCase();
-        const role = a.role.toLowerCase();
+      const laneName = norm(lane.agent_name);
+      const match = agents.find(a => {
+        const name = norm(a.name);
+        const display = norm(a.display_name);
+        const role = norm(a.role);
         return display === laneName
           || name === laneName
           || display.includes(laneName)
@@ -201,13 +246,25 @@ export default function BuildWorkspace() {
       return { ids: [...ids], warning: 'Some builder IDs were recovered from lane assignments.' };
     }
 
+    builderLanes.forEach((lane, index) => {
+      const fallback = pickFallbackAgent(lane, index);
+      if (fallback) ids.add(fallback.id);
+    });
+
+    if (ids.size > 0) {
+      return {
+        ids: [...ids],
+        warning: 'Builder lanes used generic labels, so Maestro assigned the strongest available build agents.',
+      };
+    }
+
     return {
       ids: [],
       warning: builderLanes.length === 0
         ? 'No builder lanes were found. Return to Pre-Build and regenerate Architect.md.'
         : 'Builder lanes exist but could not be matched to active agents.',
     };
-  }, [lanes, state.agents]);
+  }, [lanes, agents]);
 
   const resolvedBuilderAgentIds = useMemo(
     () => resolveBuilderAgentIds(normalizedBuildPlan).ids,
