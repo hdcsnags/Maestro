@@ -209,6 +209,10 @@ function checkAgentScope(patch: AgentPatch, globalApproval: boolean): ScopeCheck
   return { allowed: true, reason: "" };
 }
 
+function hasWriteManifest(patch: AgentPatch): boolean {
+  return Array.isArray(patch.file_manifest) && patch.file_manifest.length > 0;
+}
+
 async function ghApi(path: string, token: string, options: RequestInit = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     ...options,
@@ -549,25 +553,29 @@ Deno.serve(async (req: Request) => {
         .select("agent_id, agent_name, lane_paths, role")
         .eq("session_id", session_id);
 
+      const writingPatches = patches.filter(hasWriteManifest);
       const builderLanes = (laneRows ?? []).filter((l) => l.role === "builder");
-      if (builderLanes.length === 0) {
+      if (writingPatches.length > 0 && builderLanes.length === 0) {
         return new Response(
           JSON.stringify({
             error: "LANES_NOT_ASSIGNED",
-            message: "All builder agents must have non-overlapping lane assignments before build can start",
+            message: "Code-writing builder agents must have non-overlapping lane assignments before build can execute",
           }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
-      // Every builder agent in the patches must have a lane row.
+      // Only patches that contain actual file writes require a builder lane.
+      // Reviewer/read_only/prose-only responses may be included in the run
+      // context, but they must not block execution just because they lack
+      // build_lanes rows.
       // Match by agent_id first (reliable), then by agent_name (fallback).
       const laneAgentIds = new Set(builderLanes.map((l) => l.agent_id).filter(Boolean));
       const laneAgentNames = new Set(builderLanes.map((l) => l.agent_name));
-      const missing = patches
+      const missing = writingPatches
         .map((p) => p.agent_name)
         .filter((n, i) => {
-          const patchAgentId = patches[i].agent_id;
+          const patchAgentId = writingPatches[i].agent_id;
           return !laneAgentIds.has(patchAgentId) && !laneAgentNames.has(n);
         });
       if (missing.length > 0) {

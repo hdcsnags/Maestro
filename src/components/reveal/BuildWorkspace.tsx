@@ -209,6 +209,11 @@ export default function BuildWorkspace() {
     };
   }, [lanes, state.agents]);
 
+  const resolvedBuilderAgentIds = useMemo(
+    () => resolveBuilderAgentIds(normalizedBuildPlan).ids,
+    [resolveBuilderAgentIds, normalizedBuildPlan],
+  );
+
   // Load lanes on mount
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -311,9 +316,14 @@ export default function BuildWorkspace() {
   // Derive build responses: responses from the build broadcast round
   const buildResponses: Response[] = useMemo(() => (
     buildRoundId
-      ? state.responses.filter(r => r.round_id === buildRoundId)
+      ? state.responses.filter(r =>
+        r.round_id === buildRoundId
+        && resolvedBuilderAgentIds.length > 0
+        && !!r.agent_id
+        && resolvedBuilderAgentIds.includes(r.agent_id)
+      )
       : []
-  ), [buildRoundId, state.responses]);
+  ), [buildRoundId, state.responses, resolvedBuilderAgentIds]);
 
   // Auto-detect if we already have build responses (e.g. page reload)
   useEffect(() => {
@@ -325,11 +335,16 @@ export default function BuildWorkspace() {
       const roundResponses = state.responses.filter(r => r.round_id === lastRound.id);
       if (roundResponses.length > 0) {
         setBuildRoundId(lastRound.id);
-        setApprovedResponseIds(new Set(roundResponses.map(r => r.id)));
-        setStage('reviewing');
+        const eligibleResponses = resolvedBuilderAgentIds.length > 0
+          ? roundResponses.filter(r => r.agent_id && resolvedBuilderAgentIds.includes(r.agent_id))
+          : [];
+        if (eligibleResponses.length > 0) {
+          setApprovedResponseIds(new Set(eligibleResponses.map(r => r.id)));
+          setStage('reviewing');
+        }
       }
     }
-  }, [session, isVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session, isVisible, resolvedBuilderAgentIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When broadcasting, detect the new round created by broadcast()
   useEffect(() => {
@@ -342,13 +357,18 @@ export default function BuildWorkspace() {
   // When broadcasting, watch for responses to auto-transition to reviewing
   useEffect(() => {
     if (stage !== 'broadcasting' || !buildRoundId) return;
-    const roundResponses = state.responses.filter(r => r.round_id === buildRoundId);
+    const roundResponses = state.responses.filter(r =>
+      r.round_id === buildRoundId
+      && resolvedBuilderAgentIds.length > 0
+      && !!r.agent_id
+      && resolvedBuilderAgentIds.includes(r.agent_id)
+    );
     const builderCount = lanes.filter(l => l.role === 'builder').length || 1;
     if (roundResponses.length >= builderCount) {
       setApprovedResponseIds(new Set(roundResponses.map(r => r.id)));
       setStage('reviewing');
     }
-  }, [stage, buildRoundId, state.responses, lanes]);
+  }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds]);
 
   /* ── Broadcast to builder agents ─────────────────────────── */
   const handleBuildBroadcast = useCallback(async () => {
@@ -440,7 +460,12 @@ export default function BuildWorkspace() {
       // Assemble patches from approved build broadcast responses. github-execute
       // requires a non-empty patches[] — without this it (correctly) 400s with
       // NO_PATCHES because nothing else in the pipeline forwards them.
-      const approved = buildResponses.filter(r => approvedResponseIds.has(r.id));
+      const approved = buildResponses.filter(r =>
+        approvedResponseIds.has(r.id)
+        && resolvedBuilderAgentIds.length > 0
+        && !!r.agent_id
+        && resolvedBuilderAgentIds.includes(r.agent_id)
+      );
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
       }
@@ -504,7 +529,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, lanes]);
+  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
