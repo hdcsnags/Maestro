@@ -4,6 +4,12 @@ import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
 import { Agent, Response, AuditEvent, Round, Synthesis, ResponseArtifact, OrchestrationMode, FileManifestEntry, ConciergeDecision, ConciergePhase, Session } from '../types';
 
+interface BroadcastOptions {
+  modeOverride?: OrchestrationMode;
+  skipSynthesis?: boolean;
+  skipTriage?: boolean;
+}
+
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
   const { user } = useAuth();
@@ -250,16 +256,18 @@ export function useOrchestration() {
   const broadcast = useCallback(async (
     prompt: string,
     selectedAgentIds: string[],
-    sessionOverride?: Session | null
+    sessionOverride?: Session | null,
+    options: BroadcastOptions = {},
   ) => {
     const session = sessionOverride ?? state.activeSession;
     if (!user || !session || !state.workspace) return;
+    const broadcastMode = options.modeOverride ?? state.orchestrationMode;
 
     // Sprint C · F1 — Pre-broadcast triage routing.
     // In analysis mode, ask concierge-triage if this is a simple question.
     // Skip triage for build phase, pre_build, or if explicitly bypassed.
     const phase = session.current_phase;
-    const skipTriage = phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
+    const skipTriage = options.skipTriage || broadcastMode === 'build' || phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
 
     if (!skipTriage) {
       try {
@@ -345,7 +353,7 @@ export function useOrchestration() {
 
       await logAudit('broadcast', 'Conductor', {
         sessionId: session.id,
-        mode: state.executionMode,
+        mode: broadcastMode,
       });
 
       const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
@@ -354,7 +362,7 @@ export function useOrchestration() {
       const tiered = buildTieredContext(prompt);
 
       await Promise.all(
-        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode, tiered.contextText, tiered.contextFiles))
+        targetAgents.map(agent => callAgent(agent, prompt, roundId, broadcastMode, tiered.contextText, tiered.contextFiles))
       );
 
       await supabase
@@ -365,6 +373,8 @@ export function useOrchestration() {
       // Auto-synthesize after all agents respond, then concierge fires after synthesis
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+      if (options.skipSynthesis) return;
+
       dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
       try {
         await synthesizeRef.current?.(roundId);

@@ -99,6 +99,10 @@ function norm(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+function hasWriteManifest(response: Response): boolean {
+  return Array.isArray(response.file_manifest) && response.file_manifest.length > 0;
+}
+
 /* ── Component ─────────────────────────────────────────────── */
 
 export default function BuildWorkspace() {
@@ -344,7 +348,11 @@ export default function BuildWorkspace() {
     }
 
     try {
-      await broadcast(buildPlan.build_prompt, builderAgentIds);
+      await broadcast(buildPlan.build_prompt, builderAgentIds, session, {
+        modeOverride: 'build',
+        skipSynthesis: true,
+        skipTriage: true,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStage('broadcast');
@@ -465,7 +473,11 @@ export default function BuildWorkspace() {
     ].filter(Boolean).join('\n');
 
     try {
-      await broadcast(prompt, builderAgentIds);
+      await broadcast(prompt, builderAgentIds, session, {
+        modeOverride: 'build',
+        skipSynthesis: true,
+        skipTriage: true,
+      });
       // buildRoundId will be set by the useEffect that watches state.rounds
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -526,6 +538,9 @@ export default function BuildWorkspace() {
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
       }
+      if (!approved.some(hasWriteManifest)) {
+        throw new Error('No selected builder response included a file_manifest. Re-run Build; agents must return complete file contents before GitHub can be written.');
+      }
       const patches = approved.map(r => {
         // Match by agent_id first (reliable), fall back to name match
         const lane = lanes.find(l => l.agent_id === r.agent_id)
@@ -568,6 +583,15 @@ export default function BuildWorkspace() {
       }
 
       const result = data.result ?? data;
+      if (data.success === false || result.status === 'failed') {
+        const details = [
+          ...(Array.isArray(result.blocked) ? result.blocked.map((b: { agent?: string; reason?: string }) => `${b.agent ?? 'agent'}: ${b.reason ?? 'blocked'}`) : []),
+          ...(Array.isArray(result.errors) ? result.errors : []),
+          ...(Array.isArray(result.skipped_files) ? result.skipped_files.map((s: { path?: string; reason?: string }) => `${s.path ?? 'file'}: ${s.reason ?? 'skipped'}`) : []),
+        ].filter(Boolean);
+        throw new Error(details.length > 0 ? `GitHub execution produced no writes: ${details.slice(0, 3).join('; ')}` : 'GitHub execution produced no writes.');
+      }
+
       setWrittenFiles((result.written_files as string[]) ?? []);
       setSkippedFiles((result.skipped_files as { path: string; reason: string }[]) ?? []);
       setPrUrls((result.prs as string[]) ?? []);
