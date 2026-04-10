@@ -25,57 +25,87 @@ type ArtifactStatus = 'idle' | 'loading' | 'done' | 'error';
 
 /* ── Helpers ────────────────────────────────────────────────── */
 
-/** Safely extract clean HTML from an artifact's html_content field.
- *  The design edge function stores the raw model response which is often
- *  double-wrapped: ```json fence around {"html_content": "<!DOCTYPE..."}
- *  with escaped newlines. JSON.parse fails because real newlines appear
- *  inside JSON string values. We handle this with progressive extraction. */
-function extractHtml(raw: string): string {
-  if (!raw) return '';
-  let html = raw;
+function stripFence(value: string): string {
+  const text = value.trim();
+  const fenced = text.match(/^```(?:json|html)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced?.[1] ?? text).trim();
+}
 
-  // Strip markdown code fences (```html, ```json, ```)
-  html = html.replace(/^```(?:html|json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+function decodeEscapedHtml(value: string): string {
+  let decoded = value.trim();
 
-  // If it looks like a JSON object, try to extract html_content
-  if (html.trimStart().startsWith('{')) {
-    // First: try direct JSON.parse (works if well-formed)
-    try {
-      const parsed = JSON.parse(html);
-      if (parsed.html_content) {
-        html = parsed.html_content;
-      }
-    } catch {
-      // JSON.parse failed — real newlines inside string values.
-      // Strategy: find "html_content": " then grab until </html> or end of value
-      const startPattern = /"html_content"\s*:\s*"/;
-      const startMatch = startPattern.exec(html);
-      if (startMatch) {
-        const contentStart = startMatch.index + startMatch[0].length;
-        let extracted = html.substring(contentStart);
+  for (let i = 0; i < 3; i += 1) {
+    const next = decoded
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+      .trim();
 
-        // Find </html> as the natural end boundary
-        const htmlEndIdx = extracted.lastIndexOf('</html>');
-        if (htmlEndIdx !== -1) {
-          extracted = extracted.substring(0, htmlEndIdx + 7);
-        } else {
-          // No </html> — look for the closing quote + comma/brace pattern
-          // Match: "  ,  "rationale" or "  } at end
-          extracted = extracted.replace(/"\s*,\s*"(rationale|tradeoffs|model_used|error)"[\s\S]*$/, '');
-          extracted = extracted.replace(/"\s*\}\s*$/, '');
-        }
-        html = extracted;
-      }
-    }
+    if (next === decoded) break;
+    decoded = next;
   }
 
-  // Unescape JSON string escapes
-  html = html.replace(/\\n/g, '\n');
-  html = html.replace(/\\t/g, '\t');
-  html = html.replace(/\\"/g, '"');
-  html = html.replace(/\\\\/g, '\\');
+  return decoded;
+}
 
-  return html.trim();
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function readHtmlContent(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || !('html_content' in value)) return null;
+  const html = (value as { html_content?: unknown }).html_content;
+  return typeof html === 'string' ? html : null;
+}
+
+function extractJsonStringField(source: string, key: string): string | null {
+  const match = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(source);
+  if (!match) return null;
+
+  const parsed = parseJson(`"${match[1]}"`);
+  return typeof parsed === 'string' ? parsed : match[1];
+}
+
+/** Safely extract clean HTML from raw model output, fenced JSON, or nested html_content JSON. */
+function extractHtml(raw: string): string {
+  if (!raw) return '';
+  let text = stripFence(raw);
+
+  for (let i = 0; i < 2; i += 1) {
+    const parsed = parseJson(text);
+    if (typeof parsed === 'string') {
+      text = stripFence(parsed);
+      continue;
+    }
+
+    const html = readHtmlContent(parsed);
+    if (html !== null) return decodeEscapedHtml(html);
+    break;
+  }
+
+  const fencedJson = text.match(/```json\s*([\s\S]*?)```/i);
+  if (fencedJson) {
+    const html = readHtmlContent(parseJson(fencedJson[1].trim()));
+    if (html !== null) return decodeEscapedHtml(html);
+  }
+
+  const htmlField = extractJsonStringField(text, 'html_content');
+  if (htmlField !== null) return decodeEscapedHtml(htmlField);
+
+  const htmlStart = text.search(/<!doctype html|<html[\s>]/i);
+  if (htmlStart !== -1) {
+    const htmlEnd = text.toLowerCase().lastIndexOf('</html>');
+    const html = htmlEnd === -1 ? text.slice(htmlStart) : text.slice(htmlStart, htmlEnd + 7);
+    return decodeEscapedHtml(html);
+  }
+
+  return decodeEscapedHtml(text);
 }
 
 /* ── Constants ─────────────────────────────────────────────── */
@@ -298,7 +328,7 @@ export default function DesignPhase() {
     <div className="fixed inset-0 z-40 flex items-center justify-center" style={{ background: 'rgba(8,8,6,0.6)', backdropFilter: 'blur(6px)' }}>
       <div
         style={{
-          width: '100%', maxWidth: '960px', maxHeight: '90vh',
+          width: '100%', maxWidth: 'min(1440px, calc(100vw - 48px))', maxHeight: '94vh',
           margin: '0 24px', borderRadius: '24px',
           border: '1px solid rgba(201,168,76,0.15)',
           background: 'linear-gradient(180deg, rgba(18,17,14,0.99), rgba(12,11,9,0.99))',
@@ -362,8 +392,9 @@ export default function DesignPhase() {
         <div style={{
           padding: '24px 28px', overflowY: 'auto', flex: 1,
           display: 'grid',
-          gridTemplateColumns: activeRoles.length <= 2 ? 'repeat(auto-fit, minmax(360px, 1fr))' : 'repeat(2, 1fr)',
+          gridTemplateColumns: activeRoles.length === 1 ? 'minmax(0, 920px)' : 'repeat(auto-fit, minmax(min(520px, 100%), 1fr))',
           gap: '20px',
+          justifyContent: 'center',
         }}>
           {activeRoles.map(role => {
             const lane = DESIGNER_LANES.find(l => l.role === role)!;
@@ -446,6 +477,12 @@ function DesignerCard({
 }: DesignerCardProps) {
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
+  const previewHtml = artifact ? extractHtml(artifact.html_content) : '';
+  const previewUnavailable = previewFailed || (status === 'done' && previewHtml.trimStart()[0] !== '<');
+
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [artifact?.html_content]);
 
   const handleIframeLoad = useCallback((e: React.SyntheticEvent<HTMLIFrameElement>) => {
     try {
@@ -518,7 +555,7 @@ function DesignerCard({
         {status === 'done' && artifact && (
           <>
             {/* HTML preview or fallback */}
-            {previewFailed ? (
+            {previewUnavailable ? (
               <div style={{
                 borderRadius: '10px', padding: '32px 20px', textAlign: 'center',
                 border: '1px dashed rgba(255,255,255,0.1)',
@@ -549,13 +586,13 @@ function DesignerCard({
                 borderRadius: '10px', overflow: 'hidden',
                 border: '1px solid rgba(255,255,255,0.06)',
                 marginBottom: '16px', cursor: 'pointer',
-                height: previewExpanded ? '500px' : '240px',
+                height: previewExpanded ? 'min(72vh, 760px)' : '420px',
                 transition: 'height 0.3s ease',
               }}
               onClick={() => setPreviewExpanded(!previewExpanded)}
             >
               <iframe
-                srcDoc={extractHtml(artifact.html_content)}
+                srcDoc={previewHtml}
                 sandbox="allow-scripts"
                 title={`${lane.display_name} mockup`}
                 style={{ width: '100%', height: '100%', border: 'none', pointerEvents: previewExpanded ? 'auto' : 'none' }}

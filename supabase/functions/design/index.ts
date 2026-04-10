@@ -28,8 +28,8 @@ const DESIGNER_LANES: Record<DesignerRole, DesignerLane> = {
     role: "visual_spatial",
     display_name: "Visual Lead",
     description: "Layout, visual hierarchy, mockup feel",
-    preferred_model: "gemini-2.5-flash",
-    fallback_model: "gemini-3.1-flash-lite-preview",
+    preferred_model: "gpt-5.4",
+    fallback_model: "gpt-5.4-mini",
   },
   structure_ux: {
     role: "structure_ux",
@@ -90,6 +90,7 @@ Return a single self-contained HTML file that:
 - Demonstrates your design approach fully
 - Includes realistic placeholder content
 - Is clearly labeled with your designer role
+- Is sized like a real desktop product screen, not a thumbnail or tiny widget
 
 After the HTML, provide:
 RATIONALE: 2-3 sentences on your design decisions
@@ -103,21 +104,87 @@ Return JSON only:
 }`;
 }
 
-function parseLaneResult(raw: string): { html_content: string; rationale: string; tradeoffs: string } {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const text = fenced ? fenced[1].trim() : raw;
-  const match = text.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      const p = JSON.parse(match[0]);
-      return {
-        html_content: String(p.html_content ?? ""),
-        rationale: String(p.rationale ?? ""),
-        tradeoffs: String(p.tradeoffs ?? ""),
-      };
-    } catch { /* fall through */ }
+function stripFence(value: string): string {
+  const text = value.trim();
+  const fenced = text.match(/^```(?:json|html)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced?.[1] ?? text).trim();
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
   }
-  return { html_content: raw, rationale: "", tradeoffs: "" };
+}
+
+function decodeEscapedHtml(value: string): string {
+  let decoded = value.trim();
+  for (let i = 0; i < 3; i += 1) {
+    const next = decoded
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\")
+      .trim();
+    if (next === decoded) break;
+    decoded = next;
+  }
+  return decoded;
+}
+
+function readStringField(value: unknown, field: string): string {
+  if (!value || typeof value !== "object" || !(field in value)) return "";
+  const record = value as Record<string, unknown>;
+  return typeof record[field] === "string" ? record[field] : "";
+}
+
+function extractJsonStringField(source: string, key: string): string {
+  const match = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(source);
+  if (!match) return "";
+  const parsed = parseJson(`"${match[1]}"`);
+  return typeof parsed === "string" ? parsed : match[1];
+}
+
+function extractHtml(raw: string): string {
+  let text = stripFence(raw);
+
+  for (let i = 0; i < 2; i += 1) {
+    const parsed = parseJson(text);
+    if (typeof parsed === "string") {
+      text = stripFence(parsed);
+      continue;
+    }
+
+    const html = readStringField(parsed, "html_content");
+    if (html) return decodeEscapedHtml(html);
+    break;
+  }
+
+  const htmlField = extractJsonStringField(text, "html_content");
+  if (htmlField) return decodeEscapedHtml(htmlField);
+
+  const htmlStart = text.search(/<!doctype html|<html[\s>]/i);
+  if (htmlStart !== -1) {
+    const htmlEnd = text.toLowerCase().lastIndexOf("</html>");
+    const html = htmlEnd === -1 ? text.slice(htmlStart) : text.slice(htmlStart, htmlEnd + 7);
+    return decodeEscapedHtml(html);
+  }
+
+  return decodeEscapedHtml(text);
+}
+
+function parseLaneResult(raw: string): { html_content: string; rationale: string; tradeoffs: string } {
+  const text = stripFence(raw);
+  const parsed = parseJson(text);
+  const object = typeof parsed === "string" ? parseJson(stripFence(parsed)) : parsed;
+
+  return {
+    html_content: extractHtml(raw),
+    rationale: readStringField(object, "rationale") || extractJsonStringField(text, "rationale"),
+    tradeoffs: readStringField(object, "tradeoffs") || extractJsonStringField(text, "tradeoffs"),
+  };
 }
 
 function providerForModel(model: string): "anthropic" | "openai" | "google" | "openrouter" {
@@ -159,7 +226,7 @@ async function callModel(
       },
       body: JSON.stringify({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -180,7 +247,7 @@ async function callModel(
       },
       body: JSON.stringify({
         model,
-        [tokenField]: 4096,
+        [tokenField]: 8192,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
@@ -201,7 +268,7 @@ async function callModel(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: "user", parts: [{ text: userMessage }] }],
-          generationConfig: { maxOutputTokens: 4096 },
+          generationConfig: { maxOutputTokens: 8192 },
         }),
       },
     );
@@ -219,7 +286,7 @@ async function callModel(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },

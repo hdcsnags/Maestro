@@ -390,8 +390,8 @@ export const DESIGNER_LANES: DesignerLane[] = [
     role: 'visual_spatial',
     display_name: 'Visual Lead',
     description: 'Layout, visual hierarchy, mockup feel',
-    preferred_model: 'gemini-2.5-flash',
-    fallback_model: 'gemini-3.1-flash-lite-preview',
+    preferred_model: 'gpt-5.4',
+    fallback_model: 'gpt-5.4-mini',
   },
   {
     role: 'structure_ux',
