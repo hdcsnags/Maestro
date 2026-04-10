@@ -37,12 +37,15 @@ exactly these columns and header row, in this order:
 
 | Agent | Lane Paths | Role |
 |-------|-----------|------|
-| Frontend Builder | src/components/**, src/pages/** | builder |
-| API Builder | src/api/**, src/lib/** | builder |
-| Reviewer | (cross-cutting) | reviewer |
+| Claude Sonnet 4.6 | src/components/**, src/pages/** | builder |
+| GPT-5.4 (Reasoning) | src/api/**, src/lib/** | builder |
+| GPT-5.4 (PM) | (cross-cutting) | reviewer |
 
 - Use the actual file paths from the File Structure section above, not
   placeholders. Each lane path must be a real glob into this scaffold.
+- Use ONLY exact agent display names from the Active Agent Roster supplied
+  in the user message. Do not invent generic names like "Frontend Builder",
+  "API Builder", or "Reviewer" unless those exact names appear in the roster.
 - Builder lanes must not overlap. Reviewer / read_only / security_audit
   lanes may span across builder paths.
 - Role column must be exactly one of: builder, reviewer, read_only, security_audit.
@@ -54,6 +57,16 @@ interface SuggestedLane {
   agent_name: string;
   lane_paths: string[];
   role: "builder" | "reviewer" | "read_only" | "security_audit";
+}
+
+interface AgentRow {
+  id: string;
+  name: string;
+  display_name: string;
+  role: string;
+  provider_group: string;
+  slot_index: number;
+  is_active: boolean;
 }
 
 const VALID_LANE_ROLES = new Set(["builder", "reviewer", "read_only", "security_audit"]);
@@ -91,6 +104,63 @@ function parseLaneAssignments(md: string): SuggestedLane[] {
     });
   }
   return out;
+}
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function scoreAgentForLane(agent: AgentRow, lane: SuggestedLane): number {
+  const label = norm(lane.agent_name);
+  const role = norm(agent.role);
+  const name = norm(`${agent.display_name} ${agent.name}`);
+  const paths = norm(lane.lane_paths.join(" "));
+
+  let score = 0;
+  if (name === label) score += 100;
+  if (name.includes(label) || label.includes(name)) score += 80;
+  if (role.includes(label) || label.includes(role)) score += 30;
+
+  if (lane.role === "builder") {
+    if (role.includes("build") || role.includes("code") || role.includes("generation")) score += 18;
+    if (paths.includes("component") || paths.includes("page") || paths.includes("style") || paths.includes("ui")) {
+      if (role.includes("ui") || role.includes("design") || role.includes("spatial") || role.includes("frontend")) score += 22;
+    }
+    if (paths.includes("api") || paths.includes("lib") || paths.includes("hook") || paths.includes("server") || paths.includes("function")) {
+      if (role.includes("reasoning") || role.includes("architecture") || role.includes("build")) score += 18;
+    }
+  }
+
+  if (lane.role === "reviewer" || lane.role === "security_audit") {
+    if (role.includes("review") || role.includes("policy") || role.includes("scope") || role.includes("reasoning")) score += 25;
+  }
+
+  // Prefer default active slots as stable fallbacks when the label is generic.
+  score += Math.max(0, 5 - agent.slot_index);
+  return score;
+}
+
+function assignAgentToLane(
+  lane: SuggestedLane,
+  agents: AgentRow[],
+  usedAgentIds: Set<string>,
+): AgentRow | null {
+  const active = agents.filter((agent) => agent.is_active);
+  const candidates = active.length > 0 ? active : agents;
+
+  const exact = candidates.find(
+    (agent) => norm(agent.display_name) === norm(lane.agent_name) || norm(agent.name) === norm(lane.agent_name),
+  );
+  if (exact && !usedAgentIds.has(exact.id)) return exact;
+
+  const fuzzy = candidates
+    .filter((agent) => !usedAgentIds.has(agent.id))
+    .map((agent) => ({ agent, score: scoreAgentForLane(agent, lane) }))
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (fuzzy && fuzzy.score > 0) return fuzzy.agent;
+
+  return candidates.find((agent) => !usedAgentIds.has(agent.id)) ?? candidates[0] ?? null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -184,7 +254,24 @@ Deno.serve(async (req: Request) => {
       })
       .join("\n\n");
 
+    const { data: activeAgentRows } = await supabase
+      .from("agents")
+      .select("id, name, display_name, role, provider_group, slot_index, is_active")
+      .eq("workspace_id", sessionRow.workspace_id)
+      .order("provider_group", { ascending: true })
+      .order("slot_index", { ascending: true });
+
+    const allAgents = (activeAgentRows ?? []) as AgentRow[];
+    const activeAgents = allAgents.filter((agent) => agent.is_active);
+    const agentRosterText = (activeAgents.length > 0 ? activeAgents : allAgents)
+      .map((agent) => `- ${agent.display_name} | role: ${agent.role} | provider_group: ${agent.provider_group}`)
+      .join("\n");
+
     const userMessage = `Project: ${sessionRow.title ?? "Untitled session"}
+
+--- Active Agent Roster ---
+Use exact display names from this list in the Agent Lane Assignments table.
+${agentRosterText || "(no active agents found)"}
 
 --- Intake Summary ---
 ${intakeSummary ? JSON.stringify(intakeSummary, null, 2) : "(no intake scan run yet)"}
@@ -244,30 +331,13 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     // proper agent_id references instead of display-name-only rows.
     let lanesAssigned = false;
     if (suggestedLanes.length > 0) {
-      const { data: agents } = await supabase
-        .from("agents")
-        .select("id, name, display_name")
-        .eq("workspace_id", sessionRow.workspace_id);
-
-      const agentList = (agents ?? []) as Array<{
-        id: string;
-        name: string;
-        display_name: string;
-      }>;
+      const agentList = allAgents;
+      const usedAgentIds = new Set<string>();
 
       const laneRows = suggestedLanes
         .map((lane) => {
-          const match = agentList.find(
-            (a) =>
-              a.display_name === lane.agent_name ||
-              a.name === lane.agent_name ||
-              a.display_name
-                .toLowerCase()
-                .includes(lane.agent_name.toLowerCase()) ||
-              lane.agent_name
-                .toLowerCase()
-                .includes(a.display_name.toLowerCase())
-          );
+          const match = assignAgentToLane(lane, agentList, usedAgentIds);
+          if (match) usedAgentIds.add(match.id);
           return {
             session_id: body.session_id,
             agent_id: match?.id ?? null,

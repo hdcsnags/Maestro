@@ -36,6 +36,19 @@ interface BouncerResult {
 
 type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
 
+interface NormalizedBuilderAgent {
+  agent_id: string;
+  agent_name: string;
+  scoped_paths: string[];
+  instruction: string;
+}
+
+interface NormalizedBuildPlan {
+  build_prompt: string;
+  build_summary: string;
+  builder_agents: NormalizedBuilderAgent[];
+}
+
 /* ── Constants ─────────────────────────────────────────────── */
 
 const SEVERITY_STYLE: Record<string, { color: string; bg: string; label: string }> = {
@@ -73,6 +86,14 @@ const PREPARING_MESSAGES = [
   'Scoping file paths…',
   'Preparing build prompt…',
 ];
+
+function safeText(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function safeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
 
 /* ── Component ─────────────────────────────────────────────── */
 
@@ -131,6 +152,63 @@ export default function BuildWorkspace() {
     return data.session?.access_token ?? '';
   }, []);
 
+  const normalizedBuildPlan: NormalizedBuildPlan | null = useMemo(() => {
+    if (!state.buildPlan) return null;
+    return {
+      build_prompt: safeText(state.buildPlan.build_prompt),
+      build_summary: safeText(state.buildPlan.build_summary, 'Concierge prepared a build plan.'),
+      builder_agents: Array.isArray(state.buildPlan.builder_agents)
+        ? state.buildPlan.builder_agents.map(agent => ({
+          agent_id: safeText(agent.agent_id),
+          agent_name: safeText(agent.agent_name, 'Builder'),
+          scoped_paths: safeStringArray(agent.scoped_paths),
+          instruction: safeText(agent.instruction, 'Build the assigned files from Architect.md.'),
+        }))
+        : [],
+    };
+  }, [state.buildPlan]);
+
+  const resolveBuilderAgentIds = useCallback((plan: NormalizedBuildPlan | null) => {
+    const ids = new Set<string>();
+    for (const agent of plan?.builder_agents ?? []) {
+      if (agent.agent_id) ids.add(agent.agent_id);
+    }
+
+    if (ids.size > 0) return { ids: [...ids], warning: '' };
+
+    const builderLanes = lanes.filter(l => l.role === 'builder');
+    for (const lane of builderLanes) {
+      if (lane.agent_id) {
+        ids.add(lane.agent_id);
+        continue;
+      }
+      const laneName = lane.agent_name.toLowerCase();
+      const match = state.agents.find(a => {
+        const name = a.name.toLowerCase();
+        const display = a.display_name.toLowerCase();
+        const role = a.role.toLowerCase();
+        return display === laneName
+          || name === laneName
+          || display.includes(laneName)
+          || laneName.includes(display)
+          || role.includes(laneName)
+          || laneName.includes(role);
+      });
+      if (match) ids.add(match.id);
+    }
+
+    if (ids.size > 0) {
+      return { ids: [...ids], warning: 'Some builder IDs were recovered from lane assignments.' };
+    }
+
+    return {
+      ids: [],
+      warning: builderLanes.length === 0
+        ? 'No builder lanes were found. Return to Pre-Build and regenerate Architect.md.'
+        : 'Builder lanes exist but could not be matched to active agents.',
+    };
+  }, [lanes, state.agents]);
+
   // Load lanes on mount
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -139,7 +217,12 @@ export default function BuildWorkspace() {
       .select('id, agent_id, agent_name, lane_paths, role')
       .eq('session_id', session.id)
       .then(({ data }) => {
-        if (data) setLanes(data as LaneRow[]);
+        if (data) {
+          setLanes((data as LaneRow[]).map(lane => ({
+            ...lane,
+            lane_paths: safeStringArray(lane.lane_paths),
+          })));
+        }
       });
   }, [session, isVisible]);
 
@@ -174,19 +257,28 @@ export default function BuildWorkspace() {
 
   // Approve build plan and start broadcasting
   const handleApprovePlan = useCallback(async () => {
-    const buildPlan = state.buildPlan;
+    const buildPlan = normalizedBuildPlan;
     if (!session || !buildPlan) return;
     setStage('broadcasting');
     setError('');
 
-    const builderAgentIds = buildPlan.builder_agents
-      .map(b => b.agent_id)
-      .filter(Boolean);
+    const resolved = resolveBuilderAgentIds(buildPlan);
+    const builderAgentIds = resolved.ids;
 
     if (builderAgentIds.length === 0) {
-      setError('No builder agents in concierge plan.');
+      setError(resolved.warning || 'No builder agents in concierge plan.');
       setStage('broadcast');
       return;
+    }
+
+    if (!buildPlan.build_prompt) {
+      setError('Concierge returned an incomplete build plan with no build prompt.');
+      setStage('broadcast');
+      return;
+    }
+
+    if (resolved.warning) {
+      dispatch({ type: 'SHOW_TOAST', payload: resolved.warning });
     }
 
     try {
@@ -195,7 +287,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('broadcast');
     }
-  }, [session, state.buildPlan, broadcast]);
+  }, [session, normalizedBuildPlan, resolveBuilderAgentIds, dispatch, broadcast]);
 
   // Check for existing execution runs
   useEffect(() => {
@@ -534,7 +626,7 @@ export default function BuildWorkspace() {
                   : 'Build in Progress'}
               </span>
             </div>
-            {stage === 'plan_review' && state.buildPlan && (
+            {stage === 'plan_review' && normalizedBuildPlan && (
               <button
                 className="reveal-pill"
                 style={{
@@ -620,7 +712,7 @@ export default function BuildWorkspace() {
           )}
 
           {/* ── Plan Review: concierge build plan ────────────── */}
-          {stage === 'plan_review' && state.buildPlan && (
+          {stage === 'plan_review' && normalizedBuildPlan && (
             <section style={{ marginBottom: '28px' }}>
               {/* Summary card */}
               <div style={{
@@ -631,7 +723,7 @@ export default function BuildWorkspace() {
                   Build Plan Summary
                 </div>
                 <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6, margin: 0 }}>
-                  {state.buildPlan.build_summary}
+                  {normalizedBuildPlan.build_summary}
                 </p>
               </div>
 
@@ -640,7 +732,7 @@ export default function BuildWorkspace() {
                 Builder Assignments
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-                {state.buildPlan.builder_agents.map((agent, i) => (
+                {normalizedBuildPlan.builder_agents.length > 0 ? normalizedBuildPlan.builder_agents.map((agent, i) => (
                   <div key={i} style={{
                     padding: '14px 18px', borderRadius: '12px',
                     background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)',
@@ -656,10 +748,18 @@ export default function BuildWorkspace() {
                       {agent.instruction}
                     </div>
                     <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
-                      {agent.scoped_paths.join(' · ')}
+                      {agent.scoped_paths.length > 0 ? agent.scoped_paths.join(' · ') : '(paths unavailable)'}
                     </div>
                   </div>
-                ))}
+                )) : (
+                  <div style={{
+                    padding: '14px 18px', borderRadius: '12px',
+                    background: 'rgba(224,90,90,0.04)', border: '1px solid rgba(224,90,90,0.12)',
+                    color: 'var(--risk)', fontSize: '12px',
+                  }}>
+                    Concierge returned no builder assignments. Regenerate Architect.md or use the manual fallback.
+                  </div>
+                )}
               </div>
 
               {/* Build prompt preview */}
@@ -677,7 +777,7 @@ export default function BuildWorkspace() {
                   padding: '12px', borderRadius: '8px',
                   background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)',
                 }}>
-                  {state.buildPlan.build_prompt.slice(0, 1500)}{state.buildPlan.build_prompt.length > 1500 ? '\n…' : ''}
+                  {normalizedBuildPlan.build_prompt.slice(0, 1500)}{normalizedBuildPlan.build_prompt.length > 1500 ? '\n…' : ''}
                 </pre>
               </details>
 
