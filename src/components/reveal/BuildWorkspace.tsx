@@ -7,7 +7,7 @@ import type { BuildLaneRole, SessionPhase, Response } from '../../types';
 import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
-  Pause, XCircle, ThumbsUp, GitBranch, Send,
+  Pause, XCircle, ThumbsUp, GitBranch,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -308,7 +308,8 @@ export default function BuildWorkspace() {
         if (!res.ok) {
           const err = await res.json().catch(() => ({ message: 'Concierge request failed' }));
           console.warn('Concierge build plan failed:', err);
-          setStage('broadcast');
+          setError(err.message || err.error || 'Concierge could not prepare a build plan. Return to Pre-Build and regenerate Architect.md.');
+          setStage('plan_review');
           return;
         }
         const plan = await res.json();
@@ -316,7 +317,8 @@ export default function BuildWorkspace() {
         setStage('plan_review');
       } catch (err) {
         console.warn('Concierge build plan error:', err);
-        setStage('broadcast');
+        setError(err instanceof Error ? err.message : 'Concierge could not prepare a build plan.');
+        setStage('plan_review');
       }
     })();
   }, [session, isVisible, stage, supabaseUrl, getToken, dispatch]);
@@ -333,13 +335,13 @@ export default function BuildWorkspace() {
 
     if (builderAgentIds.length === 0) {
       setError(resolved.warning || 'No builder agents in concierge plan.');
-      setStage('broadcast');
+      setStage('plan_review');
       return;
     }
 
     if (!buildPlan.build_prompt) {
       setError('Concierge returned an incomplete build plan with no build prompt.');
-      setStage('broadcast');
+      setStage('plan_review');
       return;
     }
 
@@ -355,7 +357,7 @@ export default function BuildWorkspace() {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setStage('broadcast');
+      setStage('plan_review');
     }
   }, [session, normalizedBuildPlan, resolveBuilderAgentIds, dispatch, broadcast]);
 
@@ -434,56 +436,6 @@ export default function BuildWorkspace() {
       setStage('reviewing');
     }
   }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds]);
-
-  /* ── Broadcast to builder agents ─────────────────────────── */
-  const handleBuildBroadcast = useCallback(async () => {
-    if (!session) return;
-    setStage('broadcasting');
-    setError('');
-
-    const builderAgentIds = lanes
-      .filter(l => l.role === 'builder')
-      .map(l => {
-        // Prefer agent_id from build_lanes (set by architect C1), fall back to fuzzy name match
-        if (l.agent_id) return l.agent_id;
-        const agent = state.agents.find(a =>
-          a.name === l.agent_name ||
-          a.name.toLowerCase().includes(l.agent_name.toLowerCase()) ||
-          l.agent_name.toLowerCase().includes(a.name.toLowerCase())
-        );
-        return agent?.id;
-      })
-      .filter((id): id is string => !!id);
-
-    if (builderAgentIds.length === 0) {
-      setError('No builder agents found in lane assignments. Assign builders in Pre-Build first.');
-      setStage('broadcast');
-      return;
-    }
-
-    const architectMd = session.architect_md ?? '';
-    const prompt = [
-      'BUILD MODE — Generate code patches for your assigned files.',
-      '',
-      architectMd ? `## ARCHITECT.md\n\n${architectMd}` : '',
-      '',
-      'For each file in your lane, produce the complete file content.',
-      'Follow the architecture, file tree, and tech stack defined above.',
-      'Return your output as code blocks with file paths.',
-    ].filter(Boolean).join('\n');
-
-    try {
-      await broadcast(prompt, builderAgentIds, session, {
-        modeOverride: 'build',
-        skipSynthesis: true,
-        skipTriage: true,
-      });
-      // buildRoundId will be set by the useEffect that watches state.rounds
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setStage('broadcast');
-    }
-  }, [session, lanes, state.agents, broadcast]);
 
   const toggleResponseApproval = useCallback((responseId: string) => {
     setApprovedResponseIds(prev => {
@@ -751,20 +703,6 @@ export default function BuildWorkspace() {
                 Approve &amp; Build
               </button>
             )}
-            {stage === 'broadcast' && lanes.filter(l => l.role === 'builder').length > 0 && (
-              <button
-                className="reveal-pill"
-                style={{
-                  height: '36px', fontSize: '12px', padding: '0 20px',
-                  background: 'var(--gold)', color: 'var(--void)',
-                  borderColor: 'transparent', fontWeight: 500,
-                }}
-                onClick={handleBuildBroadcast}
-              >
-                <Send size={14} />
-                Start Building
-              </button>
-            )}
             {stage === 'reviewing' && buildResponses.length > 0 && (
               <button
                 className="reveal-pill"
@@ -868,7 +806,7 @@ export default function BuildWorkspace() {
                     background: 'rgba(224,90,90,0.04)', border: '1px solid rgba(224,90,90,0.12)',
                     color: 'var(--risk)', fontSize: '12px',
                   }}>
-                    Concierge returned no builder assignments. Regenerate Architect.md or use the manual fallback.
+                    Concierge returned no builder assignments. Return to Pre-Build and regenerate Architect.md.
                   </div>
                 )}
               </div>
@@ -892,16 +830,6 @@ export default function BuildWorkspace() {
                 </pre>
               </details>
 
-              {/* Skip to manual */}
-              <div style={{ textAlign: 'center' }}>
-                <button
-                  className="reveal-pill"
-                  style={{ height: '32px', fontSize: '11px', opacity: 0.5 }}
-                  onClick={() => setStage('broadcast')}
-                >
-                  Skip to manual broadcast
-                </button>
-              </div>
             </section>
           )}
 
