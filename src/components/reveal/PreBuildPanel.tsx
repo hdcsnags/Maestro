@@ -51,6 +51,7 @@ export default function PreBuildPanel() {
   // Scaffold generation cycling messages
   const [scaffoldMsgIdx, setScaffoldMsgIdx] = useState(0);
   const scaffoldTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previousSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (generating) {
       setScaffoldMsgIdx(0);
@@ -89,10 +90,48 @@ export default function PreBuildPanel() {
     return data.session?.access_token ?? '';
   }, []);
 
+  useEffect(() => {
+    const session = state.activeSession;
+    if (!session) return;
+    const sessionChanged = previousSessionIdRef.current !== session.id;
+    previousSessionIdRef.current = session.id;
+
+    setProjectType(session.project_type ?? 'new');
+    setScanResult((session.build_spec?.intake_summary as IntakeSummary) ?? null);
+    setArchitectMd(session.architect_md ?? null);
+    setLanesLocked(session.build_spec_locked ?? false);
+    if (sessionChanged) {
+      setLanes([]);
+      setLaneError('');
+      setScanError('');
+      setArchitectError('');
+    }
+  }, [state.activeSession]);
+
   const hasRepo = !!state.activeRepoConnection;
   const hasSession = !!state.activeSession;
   const canScan = hasSession && hasRepo && projectType === 'existing';
   const canGenerate = hasSession;
+
+  useEffect(() => {
+    const session = state.activeSession;
+    if (!session) return;
+
+    const githubRepo = state.activeRepoConnection
+      ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}`
+      : session.github_repo;
+
+    const patch: { project_type?: ProjectType; github_repo?: string } = {};
+    if (session.project_type !== projectType) patch.project_type = projectType;
+    if (githubRepo && session.github_repo !== githubRepo) patch.github_repo = githubRepo;
+    if (Object.keys(patch).length === 0) return;
+
+    void supabase
+      .from('sessions')
+      .update(patch as never)
+      .eq('id', session.id);
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: patch });
+  }, [state.activeSession, state.activeRepoConnection, projectType, dispatch]);
 
   /* ── B5: Lane assignment helpers ──────────────────────────── */
   const ROLE_OPTIONS: { value: BuildLaneRole; label: string }[] = [

@@ -501,6 +501,10 @@ export default function BuildWorkspace() {
     setError('');
 
     try {
+      if (!state.activeRepoConnection?.id) {
+        throw new Error('No active GitHub repo is connected. Pick or create a repo before executing the build.');
+      }
+
       const token = await getToken();
 
       // Create execution run
@@ -552,7 +556,7 @@ export default function BuildWorkspace() {
           content: r.content,
           scoped_paths: lane?.lane_paths ?? [],
           commit_message: `${lane?.agent_name ?? r.agent_name}: build patch`,
-          conductor_approved: true,
+          conductor_approved: false,
           file_manifest: r.file_manifest ?? [],
         };
       });
@@ -565,10 +569,11 @@ export default function BuildWorkspace() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          mode: state.executionStrategy,
+          repo_connection_id: state.activeRepoConnection.id,
           execution_run_id: run.id,
           session_id: session.id,
           execution_mode: state.executionMode,
-          strategy: state.executionStrategy,
           patches,
         }),
       });
@@ -610,7 +615,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
+  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
