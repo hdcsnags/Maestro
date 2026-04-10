@@ -381,6 +381,7 @@ Deno.serve(async (req: Request) => {
     }
 
     let result: OrchestrateResult = { title: '', content: '', signals: {}, artifacts: [] };
+    const maxOutputTokens = orchestrationMode === "build" ? 8192 : 4096;
 
     if (provider === 'anthropic') {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -392,7 +393,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           model: model || 'claude-sonnet-4-5',
-          max_tokens: 4096,
+          max_tokens: maxOutputTokens,
           system: systemPrompt,
           messages: [{ role: 'user', content: prompt }],
         }),
@@ -413,7 +414,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           model: model || 'gpt-5.4-mini',
-          max_completion_tokens: 4096,
+          max_completion_tokens: maxOutputTokens,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: systemPrompt },
@@ -438,7 +439,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemPrompt }] },
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4096 },
+            generationConfig: { responseMimeType: 'application/json', maxOutputTokens },
           }),
         }
       );
@@ -460,7 +461,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           model: model || 'auto',
-          max_tokens: 4096,
+          max_tokens: maxOutputTokens,
           // No response_format: not all OpenRouter models (esp. :free) honor JSON mode.
           // parseResult() handles non-JSON via regex fallback.
           messages: [
