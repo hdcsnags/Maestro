@@ -21,13 +21,19 @@ export default function FolioCarousel() {
   const { state, dispatch } = useMaestro();
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
-  const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
+  const latestResponses = useMemo(
+    () => latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [],
+    [latestRound, state.responses],
+  );
   const roundNumber = latestRound?.round_number ?? 0;
 
   const broadcastingAgentObjs = state.agents.filter(a => state.broadcastingAgents.includes(a.id));
-  const streamingAgents = state.isBroadcasting && latestRound
-    ? broadcastingAgentObjs.filter(a => !latestResponses.find(r => r.agent_id === a.id))
-    : [];
+  const streamingAgents = useMemo(
+    () => state.isBroadcasting && latestRound
+      ? broadcastingAgentObjs.filter(a => !latestResponses.find(r => r.agent_id === a.id))
+      : [],
+    [state.isBroadcasting, latestRound, broadcastingAgentObjs, latestResponses],
+  );
 
   const items: FolioItem[] = useMemo(() => {
     const result: FolioItem[] = [];

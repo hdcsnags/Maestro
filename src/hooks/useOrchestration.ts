@@ -100,138 +100,6 @@ export function useOrchestration() {
     return { contextText, indicator, contextFiles };
   }, [state.activeSession, state.rounds, state.syntheses, state.responses]);
 
-  const broadcast = useCallback(async (
-    prompt: string,
-    selectedAgentIds: string[],
-    sessionOverride?: Session | null
-  ) => {
-    const session = sessionOverride ?? state.activeSession;
-    if (!user || !session || !state.workspace) return;
-
-    // Sprint C · F1 — Pre-broadcast triage routing.
-    // In analysis mode, ask concierge-triage if this is a simple question.
-    // Skip triage for build phase, pre_build, or if explicitly bypassed.
-    const phase = (session as Record<string, unknown>).current_phase as string | undefined;
-    const skipTriage = phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
-
-    if (!skipTriage) {
-      try {
-        dispatch({ type: 'SET_IS_TRIAGING', payload: true });
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const { data: { session: authSession } } = await supabase.auth.getSession();
-        const triageRes = await Promise.race([
-          fetch(`${supabaseUrl}/functions/v1/concierge-triage`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${authSession?.access_token}`,
-            },
-            body: JSON.stringify({
-              session_id: session.id,
-              prompt,
-              agent_count: selectedAgentIds.length,
-              session_context: {
-                current_phase: phase ?? 'analysis',
-                round_count: state.rounds.length,
-                has_build_spec: !!(session as Record<string, unknown>).build_spec,
-              },
-            }),
-          }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
-        ]);
-
-        if (triageRes && (triageRes as globalThis.Response).ok) {
-          const triageData = await (triageRes as globalThis.Response).json();
-          if (triageData.route === 'simple_ask' && triageData.confidence >= 0.75) {
-            dispatch({ type: 'SET_TRIAGE_RESULT', payload: triageData });
-            dispatch({ type: 'SET_IS_TRIAGING', payload: false });
-            return; // Short-circuit — no broadcast needed
-          }
-        }
-      } catch {
-        // Triage failure is non-fatal — proceed with normal broadcast
-      } finally {
-        dispatch({ type: 'SET_IS_TRIAGING', payload: false });
-      }
-    }
-
-    dispatch({ type: 'SET_IS_BROADCASTING', payload: true });
-    dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: selectedAgentIds });
-
-    try {
-      const nextRoundNumber = (state.rounds.length > 0
-        ? Math.max(...state.rounds.map(r => r.round_number)) + 1
-        : 1);
-
-      const { data: rawRound, error: roundError } = await supabase
-        .from('rounds')
-        .insert({
-          session_id: session.id,
-          user_id: user.id,
-          round_number: nextRoundNumber,
-          prompt,
-          target_agents: selectedAgentIds as unknown as never,
-          status: 'broadcasting',
-        } as never)
-        .select()
-        .maybeSingle();
-
-      const roundData = rawRound as Record<string, unknown> | null;
-
-      if (roundError || !roundData) {
-        console.error('Failed to create round', roundError);
-        dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
-        return;
-      }
-
-      const round: Round = {
-        id: roundData.id as string,
-        session_id: roundData.session_id as string,
-        round_number: roundData.round_number as number,
-        prompt: roundData.prompt as string,
-        target_agents: roundData.target_agents as string[],
-        status: roundData.status as 'broadcasting',
-        created_at: roundData.created_at as string,
-      };
-
-      dispatch({ type: 'ADD_ROUND', payload: round });
-
-      await logAudit('broadcast', 'Conductor', {
-        sessionId: session.id,
-        mode: state.executionMode,
-      });
-
-      const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
-      const roundId = roundData.id as string;
-
-      const tiered = buildTieredContext(prompt);
-
-      await Promise.all(
-        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode, tiered.contextText, tiered.contextFiles))
-      );
-
-      await supabase
-        .from('rounds')
-        .update({ status: 'complete' } as never)
-        .eq('id', roundId);
-
-      // Auto-synthesize after all agents respond, then concierge fires after synthesis
-      dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
-      dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
-      dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
-      try {
-        await synthesizeRef.current?.(roundId);
-      } finally {
-        dispatch({ type: 'SET_IS_SYNTHESIZING', payload: false });
-      }
-
-    } catch (err) {
-      console.error('Broadcast error:', err);
-      dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
-      dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
-    }
-  }, [user, state, dispatch, logAudit, buildTieredContext]);
-
   const callAgent = useCallback(async (
     agent: Agent,
     prompt: string,
@@ -251,27 +119,24 @@ export function useOrchestration() {
       .filter(s => s.agent_id === agent.id && s.is_active)
       .map(s => ({ name: s.name, instruction: s.instruction }));
 
-    // Tiered context (T1-T3) is prepended to the user prompt.
-    // Tier 4 context_files are resolved server-side via fetchFileContent.
     const augmentedPrompt = tieredContext
       ? `Prior session context (for reference only):\n\n${tieredContext}\n\n---\n\nCurrent request:\n${prompt}`
       : prompt;
 
-    // Task 4 — Build mode auto-inject literal scoped paths as context_files.
-    // Globs (*, **) are NOT expanded here; they remain hint text in the system
-    // prompt. Hard limits: max 5 files, 50KB each. Oversize files become path
-    // hints only. The actual fetch happens server-side in orchestrate.
-    let mergedContextFiles = [...contextFiles];
-    if (mode === 'build' && agent.scoped_paths && state.activeRepoConnection) {
-      const isLiteral = (p: string) => !p.includes('*') && !p.endsWith('/');
-      const literals = agent.scoped_paths.filter(isLiteral).slice(0, 5);
-      const seen = new Set(mergedContextFiles.map(f => f.path));
-      for (const path of literals) {
-        if (seen.has(path)) continue;
-        mergedContextFiles.push({ path });
-        seen.add(path);
-      }
-    }
+    const mergedContextFiles = mode === 'build' && agent.scoped_paths && state.activeRepoConnection
+      ? (() => {
+        const isLiteral = (p: string) => !p.includes('*') && !p.endsWith('/');
+        const literals = agent.scoped_paths.filter(isLiteral).slice(0, 5);
+        const next = [...contextFiles];
+        const seen = new Set(next.map(f => f.path));
+        for (const path of literals) {
+          if (seen.has(path)) continue;
+          next.push({ path });
+          seen.add(path);
+        }
+        return next;
+      })()
+      : contextFiles;
 
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/orchestrate`, {
@@ -380,17 +245,150 @@ export function useOrchestration() {
         });
       }
     }
-  }, [user, state.agentSkills, state.activeRepoConnection, dispatch, logAudit]);
+  }, [user, state.agentSkills, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit]);
+
+  const broadcast = useCallback(async (
+    prompt: string,
+    selectedAgentIds: string[],
+    sessionOverride?: Session | null
+  ) => {
+    const session = sessionOverride ?? state.activeSession;
+    if (!user || !session || !state.workspace) return;
+
+    // Sprint C · F1 — Pre-broadcast triage routing.
+    // In analysis mode, ask concierge-triage if this is a simple question.
+    // Skip triage for build phase, pre_build, or if explicitly bypassed.
+    const phase = session.current_phase;
+    const skipTriage = phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
+
+    if (!skipTriage) {
+      try {
+        dispatch({ type: 'SET_IS_TRIAGING', payload: true });
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const { data: { session: authSession } } = await supabase.auth.getSession();
+        const triageRes = await Promise.race([
+          fetch(`${supabaseUrl}/functions/v1/concierge-triage`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authSession?.access_token}`,
+            },
+            body: JSON.stringify({
+              session_id: session.id,
+              prompt,
+              agent_count: selectedAgentIds.length,
+              session_context: {
+                current_phase: phase ?? 'analysis',
+                round_count: state.rounds.length,
+                has_build_spec: !!session.build_spec,
+              },
+            }),
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+
+        if (triageRes && (triageRes as globalThis.Response).ok) {
+          const triageData = await (triageRes as globalThis.Response).json();
+          if (triageData.route === 'simple_ask' && triageData.confidence >= 0.75) {
+            dispatch({ type: 'SET_TRIAGE_RESULT', payload: { ...triageData, prompt } });
+            dispatch({ type: 'SET_IS_TRIAGING', payload: false });
+            return; // Short-circuit — no broadcast needed
+          }
+        }
+      } catch {
+        // Triage failure is non-fatal — proceed with normal broadcast
+      } finally {
+        dispatch({ type: 'SET_IS_TRIAGING', payload: false });
+      }
+    }
+
+    dispatch({ type: 'SET_IS_BROADCASTING', payload: true });
+    dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: selectedAgentIds });
+
+    try {
+      const nextRoundNumber = (state.rounds.length > 0
+        ? Math.max(...state.rounds.map(r => r.round_number)) + 1
+        : 1);
+
+      const { data: rawRound, error: roundError } = await supabase
+        .from('rounds')
+        .insert({
+          session_id: session.id,
+          user_id: user.id,
+          round_number: nextRoundNumber,
+          prompt,
+          target_agents: selectedAgentIds as unknown as never,
+          status: 'broadcasting',
+        } as never)
+        .select()
+        .maybeSingle();
+
+      const roundData = rawRound as Record<string, unknown> | null;
+
+      if (roundError || !roundData) {
+        console.error('Failed to create round', roundError);
+        dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
+        return;
+      }
+
+      const round: Round = {
+        id: roundData.id as string,
+        session_id: roundData.session_id as string,
+        round_number: roundData.round_number as number,
+        prompt: roundData.prompt as string,
+        target_agents: roundData.target_agents as string[],
+        status: roundData.status as 'broadcasting',
+        created_at: roundData.created_at as string,
+      };
+
+      dispatch({ type: 'ADD_ROUND', payload: round });
+
+      await logAudit('broadcast', 'Conductor', {
+        sessionId: session.id,
+        mode: state.executionMode,
+      });
+
+      const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
+      const roundId = roundData.id as string;
+
+      const tiered = buildTieredContext(prompt);
+
+      await Promise.all(
+        targetAgents.map(agent => callAgent(agent, prompt, roundId, state.orchestrationMode, tiered.contextText, tiered.contextFiles))
+      );
+
+      await supabase
+        .from('rounds')
+        .update({ status: 'complete' } as never)
+        .eq('id', roundId);
+
+      // Auto-synthesize after all agents respond, then concierge fires after synthesis
+      dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
+      dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+      dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
+      try {
+        await synthesizeRef.current?.(roundId);
+      } finally {
+        dispatch({ type: 'SET_IS_SYNTHESIZING', payload: false });
+      }
+
+    } catch (err) {
+      console.error('Broadcast error:', err);
+      dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
+      dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+    }
+  }, [user, state, dispatch, logAudit, buildTieredContext, callAgent]);
 
   const triggerConcierge = useCallback(async (
     phase: ConciergePhase,
     roundId?: string,
     synthesisContent?: string,
   ) => {
-    if (!user || !state.activeSession) return;
+    const activeSessionId = state.activeSession?.id;
+    if (!user || !activeSessionId) return;
 
     const targetRoundId = roundId
-      ?? [...state.rounds].filter(r => r.session_id === state.activeSession?.id).sort((a, b) => b.round_number - a.round_number)[0]?.id;
+      ?? [...state.rounds].filter(r => r.session_id === activeSessionId).sort((a, b) => b.round_number - a.round_number)[0]?.id;
     if (!targetRoundId) return;
 
     const responses = state.responses
@@ -416,7 +414,7 @@ export function useOrchestration() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          session_id: state.activeSession.id,
+          session_id: activeSessionId,
           phase,
           responses,
           synthesis,
@@ -428,7 +426,7 @@ export function useOrchestration() {
       if (!response.ok) {
         console.error('Concierge error:', result);
         const errDecision: ConciergeDecision = {
-          session_id: state.activeSession.id,
+          session_id: activeSessionId,
           phase,
           alignment_summary: result.message ?? 'Concierge unavailable.',
           tension_points: [],
@@ -443,7 +441,7 @@ export function useOrchestration() {
       }
 
       const decision: ConciergeDecision = {
-        session_id: state.activeSession.id,
+        session_id: activeSessionId,
         phase,
         alignment_summary: result.alignment_summary ?? '',
         tension_points: Array.isArray(result.tension_points) ? result.tension_points : [],
@@ -457,7 +455,7 @@ export function useOrchestration() {
     } catch (err) {
       console.error('Concierge call failed:', err);
     }
-  }, [user, state.activeSession, state.rounds, state.responses, state.syntheses, dispatch, logAudit]);
+  }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit]);
 
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;

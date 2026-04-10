@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
@@ -217,9 +217,11 @@ export default function BuildWorkspace() {
   }, [session, isVisible, state.executionRuns]);
 
   // Derive build responses: responses from the build broadcast round
-  const buildResponses: Response[] = buildRoundId
-    ? state.responses.filter(r => r.round_id === buildRoundId)
-    : [];
+  const buildResponses: Response[] = useMemo(() => (
+    buildRoundId
+      ? state.responses.filter(r => r.round_id === buildRoundId)
+      : []
+  ), [buildRoundId, state.responses]);
 
   // Auto-detect if we already have build responses (e.g. page reload)
   useEffect(() => {
@@ -424,10 +426,7 @@ export default function BuildWorkspace() {
       .from('sessions')
       .update({ current_phase: 'bouncer' } as never)
       .eq('id', session.id);
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...session, current_phase: 'bouncer' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'bouncer' } });
 
     try {
       const token = await getToken();
@@ -489,10 +488,7 @@ export default function BuildWorkspace() {
         .from('sessions')
         .update({ current_phase: 'pre_build' } as never)
         .eq('id', session.id);
-      dispatch({
-        type: 'SET_ACTIVE_SESSION',
-        payload: { ...session, current_phase: 'pre_build' },
-      });
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
       dispatch({ type: 'SHOW_TOAST', payload: 'Build aborted — returning to Pre-Build' });
       return;
     }
@@ -502,10 +498,7 @@ export default function BuildWorkspace() {
       .from('sessions')
       .update({ current_phase: 'complete' } as never)
       .eq('id', session.id);
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...session, current_phase: 'complete' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'complete' } });
     setStage('done');
     dispatch({ type: 'SHOW_TOAST', payload: 'Build approved — session complete ✓' });
   }, [session, bouncerResult, dispatch]);

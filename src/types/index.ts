@@ -173,6 +173,7 @@ export interface TriageResult {
   confidence: number;
   reasoning: string;
   direct_answer?: string;
+  prompt?: string;
 }
 
 export interface BuildPlan {

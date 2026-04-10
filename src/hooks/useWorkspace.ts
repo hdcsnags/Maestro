@@ -318,7 +318,7 @@ export function useWorkspace() {
       .eq('id', sessionId);
     dispatch({ type: 'SET_SESSIONS', payload: state.sessions.map(s => s.id === sessionId ? { ...s, title } : s) });
     if (state.activeSession?.id === sessionId) {
-      dispatch({ type: 'SET_ACTIVE_SESSION', payload: { ...state.activeSession, title } });
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { title } });
     }
   }, [user, state.sessions, state.activeSession, dispatch]);
 
@@ -346,7 +346,7 @@ export function useWorkspace() {
         dispatch({ type: 'SET_INIT_ERROR', payload: msg });
       }
     })();
-  }, [user]);
+  }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadAgentSkills, loadRepoConnections]);
 
   return {
     ensureWorkspace,

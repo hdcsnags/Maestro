@@ -43,7 +43,10 @@ export default function SynthesisDrawer() {
   const isOpen = state.activeDrawer === 'synthesis';
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
-  const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
+  const latestResponses = useMemo(
+    () => latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [],
+    [latestRound, state.responses],
+  );
   const latestSynthesis = latestRound ? state.syntheses.find(s => s.round_id === latestRound.id) : null;
   const flaggedResponses = latestResponses.filter(r => r.is_flagged);
 
@@ -81,7 +84,7 @@ export default function SynthesisDrawer() {
         .from('sessions')
         .update({ execution_mode: mode } as never)
         .eq('id', state.activeSession.id);
-      dispatch({ type: 'SET_ACTIVE_SESSION', payload: { ...state.activeSession, execution_mode: mode } });
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { execution_mode: mode } });
     }
   };
 

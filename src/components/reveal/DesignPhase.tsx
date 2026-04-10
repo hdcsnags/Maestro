@@ -215,10 +215,7 @@ export default function DesignPhase() {
       .update({ current_phase: 'pre_build' } as never)
       .eq('id', session.id);
 
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...session, current_phase: 'pre_build' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
 
     dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
 
@@ -254,10 +251,7 @@ export default function DesignPhase() {
       .update({ current_phase: 'pre_build' } as never)
       .eq('id', session.id);
 
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...session, current_phase: 'pre_build' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
 
     dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
 
@@ -271,10 +265,7 @@ export default function DesignPhase() {
       .from('sessions')
       .update({ current_phase: 'pre_build' } as never)
       .eq('id', session.id);
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...session, current_phase: 'pre_build' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
     dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
     dispatch({ type: 'SHOW_TOAST', payload: 'Design skipped. Moving to Pre-Build.' });
   }, [session, dispatch]);

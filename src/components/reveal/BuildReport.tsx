@@ -188,6 +188,7 @@ export default function BuildReport() {
       .from('sessions')
       .update({ current_phase: 'analysis' } as never)
       .eq('id', session.id);
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'analysis' } });
     dispatch({ type: 'SHOW_TOAST', payload: 'Starting new analysis round' });
   }, [session, dispatch]);
 
@@ -197,6 +198,7 @@ export default function BuildReport() {
       .from('sessions')
       .update({ current_phase: 'build' } as never)
       .eq('id', session.id);
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'build' } });
     dispatch({ type: 'SHOW_TOAST', payload: 'Returning to build — bouncer findings as context' });
   }, [session, dispatch]);
 

@@ -42,10 +42,7 @@ export default function ConciergePanel() {
         .from('sessions')
         .update({ current_phase: phase } as never)
         .eq('id', state.activeSession.id);
-      dispatch({
-        type: 'SET_ACTIVE_SESSION',
-        payload: { ...state.activeSession, current_phase: phase },
-      });
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: phase } });
     }
     dispatch({ type: 'SHOW_TOAST', payload: toastMsg });
   }, [handleClose, state.activeSession, dispatch]);
@@ -136,14 +133,14 @@ export default function ConciergePanel() {
 
   // Sprint C · F1 — "Ask the council anyway" handler for triage simple_ask
   const handleAskCouncilAnyway = useCallback(() => {
-    const lastPrompt = state.triageResult ? state.rounds[state.rounds.length - 1]?.prompt : null;
+    const triagePrompt = state.triageResult?.prompt ?? null;
     dispatch({ type: 'SET_TRIAGE_RESULT', payload: null });
     dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
-    if (lastPrompt) {
+    if (triagePrompt) {
       const activeAgentIds = state.agents.filter(a => a.is_active).map(a => a.id);
-      broadcast(lastPrompt, activeAgentIds);
+      broadcast(triagePrompt, activeAgentIds);
     }
-  }, [state.triageResult, state.rounds, state.agents, dispatch, broadcast]);
+  }, [state.triageResult, state.agents, dispatch, broadcast]);
 
   // ─── Sprint C · F1 — Triage simple_ask view ──────────────────────────────
   const triage = state.triageResult;
@@ -413,4 +410,4 @@ export default function ConciergePanel() {
       </div>
     </div>
   );
-}
+}

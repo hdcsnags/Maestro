@@ -388,13 +388,6 @@ async function applyManifest(
   return out;
 }
 
-function deriveStatus(r: ManifestExecutionResult): "success" | "partial" | "failed" {
-  const wrote = r.written_files.length + r.deleted_files.length;
-  if (wrote === 0) return "failed";
-  if (r.skipped_files.length > 0 || r.errors.length > 0) return "partial";
-  return "success";
-}
-
 async function createPR(owner: string, repo: string, head: string, base: string, title: string, body: string, token: string) {
   return ghApi(`/repos/${owner}/${repo}/pulls`, token, {
     method: "POST",

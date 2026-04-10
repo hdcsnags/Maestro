@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useReducer, ReactNode } from 'react';
 import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
@@ -56,6 +57,7 @@ type Action =
   | { type: 'UPDATE_AGENT_SKILL'; payload: Partial<AgentSkill> & { id: string } }
   | { type: 'UPDATE_AGENT'; payload: Partial<Agent> & { id: string } }
   | { type: 'SET_ACTIVE_SESSION'; payload: Session | null }
+  | { type: 'UPDATE_ACTIVE_SESSION'; payload: Partial<Session> }
   | { type: 'SET_SESSIONS'; payload: Session[] }
   | { type: 'SET_ROUNDS'; payload: Round[] }
   | { type: 'ADD_ROUND'; payload: Round }
@@ -180,12 +182,15 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         conciergeVisible: false,
         broadcastingAgents: [],
         folioIndex: 0,
-        activeRepoConnection: null,
         triageResult: null,
         isTriaging: false,
         buildPlan: null,
       };
     }
+    case 'UPDATE_ACTIVE_SESSION':
+      return state.activeSession
+        ? { ...state, activeSession: { ...state.activeSession, ...action.payload } }
+        : state;
     case 'SET_SESSIONS': return { ...state, sessions: action.payload };
     case 'SET_ROUNDS': return { ...state, rounds: action.payload };
     case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload] };

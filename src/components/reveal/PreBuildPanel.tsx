@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
@@ -73,7 +73,10 @@ export default function PreBuildPanel() {
     editing: boolean;
     pathDraft: string;
   }
-  const suggestedLanes = (state.activeSession?.build_spec?.suggested_lanes ?? []) as SuggestedLane[];
+  const suggestedLanes = useMemo(
+    () => (state.activeSession?.build_spec?.suggested_lanes ?? []) as SuggestedLane[],
+    [state.activeSession?.build_spec],
+  );
   const [lanes, setLanes] = useState<LaneEntry[]>([]);
   const [lanesLocked, setLanesLocked] = useState(state.activeSession?.build_spec_locked ?? false);
   const [laneError, setLaneError] = useState('');
@@ -203,10 +206,7 @@ export default function PreBuildPanel() {
         .eq('id', state.activeSession.id);
 
       setLanesLocked(true);
-      dispatch({
-        type: 'SET_ACTIVE_SESSION',
-        payload: { ...state.activeSession, build_spec_locked: true },
-      });
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { build_spec_locked: true } });
       dispatch({ type: 'SHOW_TOAST', payload: 'Build Spec Locked ✓' });
     } catch (err) {
       setLaneError(err instanceof Error ? err.message : String(err));
@@ -221,10 +221,7 @@ export default function PreBuildPanel() {
       .from('sessions')
       .update({ current_phase: 'build' } as never)
       .eq('id', state.activeSession.id);
-    dispatch({
-      type: 'SET_ACTIVE_SESSION',
-      payload: { ...state.activeSession, current_phase: 'build' },
-    });
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'build' } });
     dispatch({ type: 'SHOW_TOAST', payload: 'Entering Build phase' });
   }, [state.activeSession, dispatch]);
 
@@ -263,9 +260,8 @@ export default function PreBuildPanel() {
       // Refresh session in context with updated build_spec
       if (state.activeSession) {
         dispatch({
-          type: 'SET_ACTIVE_SESSION',
+          type: 'UPDATE_ACTIVE_SESSION',
           payload: {
-            ...state.activeSession,
             build_spec: {
               ...(state.activeSession.build_spec ?? {}),
               intake_summary: data.intake_summary,
@@ -318,9 +314,8 @@ export default function PreBuildPanel() {
       // Refresh session in context
       if (state.activeSession) {
         dispatch({
-          type: 'SET_ACTIVE_SESSION',
+          type: 'UPDATE_ACTIVE_SESSION',
           payload: {
-            ...state.activeSession,
             architect_md: data.architect_md,
             ...(autoLocked ? { build_spec_locked: true } : {}),
           },
