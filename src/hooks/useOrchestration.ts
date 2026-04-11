@@ -12,10 +12,18 @@ interface BroadcastOptions {
 
 export function useOrchestration() {
   const { state, dispatch } = useMaestro();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
 
   // Ref so broadcast() can call synthesize() without circular useCallback deps
   const synthesizeRef = useRef<(roundId: string) => Promise<void>>();
+
+  const getAccessToken = useCallback(async () => {
+    if (session?.access_token) return session.access_token;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error('Session expired. Sign in again to call Maestro services.');
+    return token;
+  }, [session]);
 
   const logAudit = useCallback(async (
     eventType: string,
@@ -118,8 +126,7 @@ export function useOrchestration() {
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const accessToken = session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const accessToken = await getAccessToken();
 
     const agentSkills = state.agentSkills
       .filter(s => s.agent_id === agent.id && s.is_active)
@@ -263,7 +270,7 @@ export function useOrchestration() {
         });
       }
     }
-  }, [user, state.agentSkills, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit]);
+  }, [user, state.agentSkills, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit, getAccessToken]);
 
   const broadcast = useCallback(async (
     prompt: string,
@@ -285,13 +292,13 @@ export function useOrchestration() {
       try {
         dispatch({ type: 'SET_IS_TRIAGING', payload: true });
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const { data: { session: authSession } } = await supabase.auth.getSession();
+        const accessToken = await getAccessToken();
         const triageRes = await Promise.race([
           fetch(`${supabaseUrl}/functions/v1/concierge-triage`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${authSession?.access_token}`,
+              Authorization: `Bearer ${accessToken}`,
             },
             body: JSON.stringify({
               session_id: session.id,
@@ -399,7 +406,7 @@ export function useOrchestration() {
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
     }
-  }, [user, state, dispatch, logAudit, buildTieredContext, callAgent]);
+  }, [user, state, dispatch, logAudit, buildTieredContext, callAgent, getAccessToken]);
 
   const triggerConcierge = useCallback(async (
     phase: ConciergePhase,
@@ -425,8 +432,7 @@ export function useOrchestration() {
     }
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const { data: { session } } = await supabase.auth.getSession();
-    const accessToken = session?.access_token ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const accessToken = await getAccessToken();
 
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/concierge`, {
@@ -477,7 +483,7 @@ export function useOrchestration() {
     } catch (err) {
       console.error('Concierge call failed:', err);
     }
-  }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit]);
+  }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit, getAccessToken]);
 
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;
@@ -493,13 +499,10 @@ export function useOrchestration() {
       .join('\n\n---\n\n');
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/synthesize`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${supabaseKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ responses: combinedContent }),
