@@ -11,6 +11,7 @@ interface FileManifestEntry {
   path: string;
   content: string | null;
   operation: "upsert" | "delete";
+  content_hash?: string;
 }
 
 interface AgentPatch {
@@ -67,6 +68,9 @@ function validateManifestEntry(entry: FileManifestEntry): { ok: true } | { ok: f
   if (entry.path.startsWith("/") || entry.path.includes("..")) {
     return { ok: false, reason: "invalid path (absolute or traversal)" };
   }
+  if (entry.path.includes("\\") || entry.path.trim() !== entry.path || entry.path.length > 240) {
+    return { ok: false, reason: "invalid path formatting" };
+  }
   // Sprint A · B7 — ARCHITECT.md is generated via the architect edge function
   // and stored in sessions.architect_md. It must never be written from a
   // manifest, regardless of casing or directory.
@@ -83,6 +87,12 @@ function validateManifestEntry(entry: FileManifestEntry): { ok: true } | { ok: f
   if (entry.operation === "upsert") {
     if (typeof entry.content !== "string") {
       return { ok: false, reason: "upsert entry has null/non-string content" };
+    }
+    if (entry.content.length === 0) {
+      return { ok: false, reason: "upsert entry has empty content" };
+    }
+    if (entry.content.length > 750_000) {
+      return { ok: false, reason: "file content exceeds 750KB safety limit" };
     }
     if (looksTruncated(entry.content)) {
       return { ok: false, reason: "content contains truncation placeholder (// ... existing code etc)" };

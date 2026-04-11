@@ -173,6 +173,18 @@ export function useOrchestration() {
       const result = await response.json();
       const artifacts: ResponseArtifact[] = Array.isArray(result.artifacts) ? result.artifacts : [];
       const fileManifest: FileManifestEntry[] = Array.isArray(result.file_manifest) ? result.file_manifest : [];
+      const manifestErrors = Array.isArray(result.manifest_errors) ? result.manifest_errors : [];
+      const signals = {
+        ...(result.signals ?? {}),
+        ...(mode === 'build' ? {
+          artifact_protocol: result.artifact_protocol ?? 'maestro.build.legacy',
+          build_complete: result.complete === false ? 'false' : 'true',
+          manifest_errors: manifestErrors.length > 0
+            ? manifestErrors.map((e: { path?: string; reason?: string }) => `${e.path ?? '<unknown>'}: ${e.reason ?? 'invalid'}`).join('; ')
+            : undefined,
+          continuation_prompt: result.continuation_prompt || undefined,
+        } : {}),
+      };
 
       const { data: rawResponse } = await supabase
         .from('responses')
@@ -187,7 +199,7 @@ export function useOrchestration() {
           model: agent.model,
           content: result.content ?? result.text ?? '',
           title: result.title ?? '',
-          signals: result.signals ?? {},
+          signals,
           artifacts: artifacts as unknown as never,
           file_manifest: fileManifest as unknown as never,
           is_flagged: false,

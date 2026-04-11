@@ -49,6 +49,7 @@ interface FileManifestEntry {
   path: string;
   content: string | null;
   operation: "upsert" | "delete";
+  content_hash?: string;
 }
 
 interface OrchestrateResult {
@@ -57,6 +58,10 @@ interface OrchestrateResult {
   signals: SignalMap;
   artifacts?: ArtifactResult[];
   file_manifest?: FileManifestEntry[];
+  artifact_protocol?: string;
+  complete?: boolean;
+  continuation_prompt?: string;
+  manifest_errors?: Array<{ path: string; reason: string }>;
 }
 
 const PROVIDER_MAP: Record<string, string> = {
@@ -65,6 +70,40 @@ const PROVIDER_MAP: Record<string, string> = {
   google: "google",
   openrouter: "openrouter",
 };
+
+interface ModelCapabilities {
+  buildOutputTokens: number;
+  defaultOutputTokens: number;
+  jsonMode: boolean;
+}
+
+const DEFAULT_CAPABILITIES: ModelCapabilities = {
+  buildOutputTokens: 12000,
+  defaultOutputTokens: 4096,
+  jsonMode: false,
+};
+
+function capabilitiesFor(provider: string, model: string): ModelCapabilities {
+  if (provider === "openai") {
+    if (model === "gpt-5.4") return { buildOutputTokens: 24000, defaultOutputTokens: 8192, jsonMode: true };
+    if (model.startsWith("gpt-5.4-mini")) return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: true };
+    return { buildOutputTokens: 12000, defaultOutputTokens: 4096, jsonMode: true };
+  }
+  if (provider === "anthropic") {
+    if (model.includes("sonnet") || model.includes("opus")) return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: false };
+    return { buildOutputTokens: 8192, defaultOutputTokens: 4096, jsonMode: false };
+  }
+  if (provider === "google") {
+    return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: true };
+  }
+  if (provider === "openrouter") {
+    if (model.includes("gpt-5.4") || model.includes("claude-sonnet")) {
+      return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: false };
+    }
+    return { buildOutputTokens: 8192, defaultOutputTokens: 4096, jsonMode: false };
+  }
+  return DEFAULT_CAPABILITIES;
+}
 
 async function fetchFileContent(
   userId: string,
@@ -145,10 +184,11 @@ function buildSystemPrompt(
   prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.\n\n`;
 
   if (mode === "build") {
-    prompt += `You are in BUILD mode. Output concrete file changes as a file_manifest. Maestro will write these files directly to the user's repository at the exact paths you specify.
+    prompt += `You are in BUILD mode. Output concrete file changes as a Maestro build artifact. Maestro will validate and write file_manifest entries directly to the user's repository at the exact paths you specify.
 
 Return your response as JSON with this EXACT structure:
 {
+  "artifact_protocol": "maestro.build.v2",
   "title": "short title under 12 words",
   "content": "1-2 paragraphs of rationale only — NO code in this field",
   "signals": {
@@ -158,20 +198,23 @@ Return your response as JSON with this EXACT structure:
   },
   "artifacts": [],
   "file_manifest": [
-    { "path": "src/components/Foo.tsx", "content": "<COMPLETE new file content as a string>", "operation": "upsert" },
-    { "path": "src/old/Dead.tsx", "content": null, "operation": "delete" }
-  ]
+    { "path": "src/components/Foo.tsx", "content": "<COMPLETE new file content as a string>", "operation": "upsert", "content_hash": "optional sha256 if you can compute it" },
+    { "path": "src/old/Dead.tsx", "content": null, "operation": "delete", "content_hash": null }
+  ],
+  "complete": true,
+  "continuation_prompt": ""
 }
 
 NON-NEGOTIABLE RULES:
 - file_manifest must contain every file you are creating, modifying, or deleting
 - For "upsert" entries, content MUST be the COMPLETE new file content. Not a diff. Not a snippet. Not "// ... existing code ...". The full file, top to bottom, as it should exist after your change.
 - NEVER use placeholders like "// ... rest of file", "// existing imports", "// unchanged", "...", or "// previous code". These will be REJECTED and the entry will be skipped.
-- If you cannot output the full file, do not include that file in the manifest.
+- If the full change set is too large, include only complete files, set "complete": false, and put a concise continuation_prompt describing exactly which remaining files still need to be generated.
 - For "delete" entries, content must be null.
 - path must be the exact repo-relative path (no leading slash)
 - Never put code in the "content" rationale field — code goes in file_manifest entries only
-- file_manifest may be empty [] if no file changes are needed`;
+- file_manifest may be empty [] if no file changes are needed
+- Prefer a few complete high-value files over many incomplete files`;
   } else if (mode === "artifact") {
     prompt += `You are in ARTIFACT mode. Produce a single downloadable file that fulfills the request.
 
@@ -240,34 +283,190 @@ Only include artifacts when file generation is clearly requested or would be gen
   return prompt;
 }
 
+const TRUNCATION_PATTERNS = [
+  /\/\/\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /\/\*\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /#\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /<!--\s*\.{2,}\s*(existing|rest|previous|unchanged|other|same|original|prior|above|below|remaining|implementation)/i,
+  /\/\/\s*(keep|preserve)\s+(existing|original|previous)/i,
+  /\b(TODO|stub|placeholder)\b.*\b(implement|fill|replace)\b/i,
+];
+
+function stripFence(value: string): string {
+  const text = value.trim();
+  const fenced = text.match(/^```(?:json|text)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced?.[1] ?? text).trim();
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonCandidate(rawText: string): string | null {
+  const text = stripFence(rawText);
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+
+  return text.slice(start);
+}
+
+function coerceString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function looksTruncated(content: string): boolean {
+  return TRUNCATION_PATTERNS.some((p) => p.test(content));
+}
+
+function normalizeManifestEntry(entry: unknown): FileManifestEntry | null {
+  if (!entry || typeof entry !== "object") return null;
+  const e = entry as Record<string, unknown>;
+  const path = coerceString(e.path).replace(/\\/g, "/").replace(/^\.\/+/, "").trim();
+  if (!path) return null;
+
+  const operation = e.operation === "delete" ? "delete" : "upsert";
+  const content = operation === "delete"
+    ? null
+    : typeof e.content === "string"
+      ? e.content
+      : null;
+
+  return {
+    path,
+    content,
+    operation,
+    content_hash: typeof e.content_hash === "string" ? e.content_hash : undefined,
+  };
+}
+
+function validateManifestEntry(entry: FileManifestEntry): { ok: true } | { ok: false; reason: string } {
+  if (entry.path.startsWith("/") || entry.path.includes("..")) {
+    return { ok: false, reason: "invalid path (absolute or traversal)" };
+  }
+  if (entry.path.split("/").pop()?.toLowerCase() === "architect.md") {
+    return { ok: false, reason: "ARCHITECT.md is generated by Maestro and cannot be written by build agents" };
+  }
+  if (entry.operation === "delete") {
+    return entry.content === null ? { ok: true } : { ok: false, reason: "delete entry has non-null content" };
+  }
+  if (typeof entry.content !== "string" || entry.content.length === 0) {
+    return { ok: false, reason: "upsert entry has empty/non-string content" };
+  }
+  if (entry.content.length > 750_000) {
+    return { ok: false, reason: "file content exceeds 750KB safety limit" };
+  }
+  if (looksTruncated(entry.content)) {
+    return { ok: false, reason: "content contains truncation/placeholder marker" };
+  }
+  return { ok: true };
+}
+
+function parseDelimitedManifest(rawText: string): FileManifestEntry[] {
+  const entries: FileManifestEntry[] = [];
+  const filePattern = /FILE\s+path=([^\s]+)\s+action=(upsert|delete)\s*\n---CONTENT---\n([\s\S]*?)\n---END_FILE---/g;
+  let match: RegExpExecArray | null;
+  while ((match = filePattern.exec(rawText)) !== null) {
+    entries.push({
+      path: match[1].replace(/\\/g, "/").replace(/^\.\/+/, ""),
+      operation: match[2] === "delete" ? "delete" : "upsert",
+      content: match[2] === "delete" ? null : match[3],
+    });
+  }
+  return entries;
+}
+
+function normalizeManifest(rawManifest: unknown, rawText: string): {
+  file_manifest: FileManifestEntry[];
+  manifest_errors: Array<{ path: string; reason: string }>;
+} {
+  const candidates = Array.isArray(rawManifest)
+    ? rawManifest.map(normalizeManifestEntry).filter((e): e is FileManifestEntry => e !== null)
+    : parseDelimitedManifest(rawText);
+
+  const file_manifest: FileManifestEntry[] = [];
+  const manifest_errors: Array<{ path: string; reason: string }> = [];
+  for (const entry of candidates) {
+    const validation = validateManifestEntry(entry);
+    if (validation.ok) {
+      file_manifest.push(entry);
+    } else {
+      manifest_errors.push({ path: entry.path || "<unknown>", reason: validation.reason });
+    }
+  }
+  return { file_manifest, manifest_errors };
+}
+
 function parseResult(rawText: string, agentName: string): OrchestrateResult {
   try {
-    // Strip code fences (```json ... ``` or ``` ... ```) before extracting JSON.
-    // Many models wrap their JSON response in a fenced block.
-    const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const searchText = fencedMatch ? fencedMatch[1].trim() : rawText;
-
-    const jsonMatch = searchText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const manifestRaw = Array.isArray(parsed.file_manifest) ? parsed.file_manifest : [];
-      const file_manifest: FileManifestEntry[] = manifestRaw
-        .filter((e: unknown): e is Record<string, unknown> => typeof e === "object" && e !== null)
-        .map((e: Record<string, unknown>) => ({
-          path: String(e.path ?? ""),
-          content: e.content === null ? null : (typeof e.content === "string" ? e.content : null),
-          operation: e.operation === "delete" ? "delete" as const : "upsert" as const,
-        }))
-        .filter((e: FileManifestEntry) => e.path.length > 0);
+    const jsonCandidate = extractJsonCandidate(rawText);
+    const parsed = jsonCandidate ? tryParseJson(jsonCandidate) : null;
+    if (parsed && typeof parsed === "object") {
+      const p = parsed as Record<string, unknown>;
+      const { file_manifest, manifest_errors } = normalizeManifest(p.file_manifest, rawText);
       return {
-        title: parsed.title || `${agentName}'s Analysis`,
-        content: parsed.content || rawText,
-        signals: parsed.signals || {},
-        artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
+        artifact_protocol: coerceString(p.artifact_protocol),
+        title: coerceString(p.title, `${agentName}'s Analysis`),
+        content: coerceString(p.content, rawText),
+        signals: (p.signals && typeof p.signals === "object" ? p.signals : {}) as SignalMap,
+        artifacts: Array.isArray(p.artifacts) ? p.artifacts as ArtifactResult[] : [],
         file_manifest,
+        complete: typeof p.complete === "boolean" ? p.complete : true,
+        continuation_prompt: coerceString(p.continuation_prompt),
+        manifest_errors,
       };
     }
   } catch { /* fall through */ }
+
+  const { file_manifest, manifest_errors } = normalizeManifest(null, rawText);
+  if (file_manifest.length > 0 || manifest_errors.length > 0) {
+    return {
+      artifact_protocol: "maestro.build.delimited",
+      title: `${agentName}'s Build Artifact`,
+      content: "Recovered a build artifact from delimiter-framed output. Review recovered files before execution.",
+      signals: {
+        risk: manifest_errors.length > 0 ? "Some manifest entries failed validation" : "Recovered from non-JSON output",
+        confidence: file_manifest.length > 0 ? "Medium" : "Low",
+      },
+      artifacts: [],
+      file_manifest,
+      complete: !/complete=false|END_ARTIFACT\s+complete=false/i.test(rawText),
+      continuation_prompt: "",
+      manifest_errors,
+    };
+  }
+
   // Fallback: well-formed text but no parseable JSON. Never return empty
   // signals — frontend treats {} as "No structured signals returned".
   const firstLine = rawText.split('\n').find((l) => l.trim()) || `${agentName}'s Response`;
@@ -380,8 +579,17 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    let result: OrchestrateResult = { title: '', content: '', signals: {}, artifacts: [] };
-    const maxOutputTokens = orchestrationMode === "build" ? 8192 : 4096;
+    let result: OrchestrateResult = { title: '', content: '', signals: {}, artifacts: [], file_manifest: [] };
+    const effectiveModel = model || (
+      provider === "anthropic" ? "claude-sonnet-4-6"
+        : provider === "openai" ? "gpt-5.4-mini"
+          : provider === "google" ? "gemini-2.5-flash"
+            : "auto"
+    );
+    const capabilities = capabilitiesFor(provider, effectiveModel);
+    const maxOutputTokens = orchestrationMode === "build"
+      ? capabilities.buildOutputTokens
+      : capabilities.defaultOutputTokens;
 
     if (provider === 'anthropic') {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -392,7 +600,7 @@ Deno.serve(async (req: Request) => {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: model || 'claude-sonnet-4-5',
+          model: effectiveModel,
           max_tokens: maxOutputTokens,
           system: systemPrompt,
           messages: [{ role: 'user', content: prompt }],
@@ -413,9 +621,9 @@ Deno.serve(async (req: Request) => {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: model || 'gpt-5.4-mini',
+          model: effectiveModel,
           max_completion_tokens: maxOutputTokens,
-          response_format: { type: 'json_object' },
+          ...(capabilities.jsonMode ? { response_format: { type: 'json_object' } } : {}),
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
@@ -430,7 +638,7 @@ Deno.serve(async (req: Request) => {
       result = parseResult(rawText, agentName);
 
     } else if (provider === 'google') {
-      const geminiModel = model || 'gemini-2.5-flash';
+      const geminiModel = effectiveModel;
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`,
         {
@@ -460,7 +668,7 @@ Deno.serve(async (req: Request) => {
           'X-Title': 'Maestro Orchestration',
         },
         body: JSON.stringify({
-          model: model || 'auto',
+          model: effectiveModel,
           max_tokens: maxOutputTokens,
           // No response_format: not all OpenRouter models (esp. :free) honor JSON mode.
           // parseResult() handles non-JSON via regex fallback.

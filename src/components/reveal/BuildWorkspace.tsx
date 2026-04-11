@@ -103,6 +103,12 @@ function hasWriteManifest(response: Response): boolean {
   return Array.isArray(response.file_manifest) && response.file_manifest.length > 0;
 }
 
+function hasExecutableManifest(response: Response): boolean {
+  return hasWriteManifest(response)
+    && response.signals?.build_complete !== 'false'
+    && !response.signals?.manifest_errors;
+}
+
 /* ── Component ─────────────────────────────────────────────── */
 
 export default function BuildWorkspace() {
@@ -406,7 +412,7 @@ export default function BuildWorkspace() {
           ? roundResponses.filter(r => r.agent_id && resolvedBuilderAgentIds.includes(r.agent_id))
           : [];
         if (eligibleResponses.length > 0) {
-          setApprovedResponseIds(new Set(eligibleResponses.map(r => r.id)));
+          setApprovedResponseIds(new Set(eligibleResponses.filter(hasExecutableManifest).map(r => r.id)));
           setStage('reviewing');
         }
       }
@@ -432,7 +438,7 @@ export default function BuildWorkspace() {
     );
     const builderCount = lanes.filter(l => l.role === 'builder').length || 1;
     if (roundResponses.length >= builderCount) {
-      setApprovedResponseIds(new Set(roundResponses.map(r => r.id)));
+      setApprovedResponseIds(new Set(roundResponses.filter(hasExecutableManifest).map(r => r.id)));
       setStage('reviewing');
     }
   }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds]);
@@ -494,10 +500,10 @@ export default function BuildWorkspace() {
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
       }
-      if (!approved.some(hasWriteManifest)) {
+      if (!approved.some(hasExecutableManifest)) {
         throw new Error('No selected builder response included a file_manifest. Re-run Build; agents must return complete file contents before GitHub can be written.');
       }
-      const patches = approved.map(r => {
+      const patches = approved.filter(hasExecutableManifest).map(r => {
         // Match by agent_id first (reliable), fall back to name match
         const lane = lanes.find(l => l.agent_id === r.agent_id)
           || lanes.find(l => l.agent_name === r.agent_name)
@@ -892,14 +898,18 @@ export default function BuildWorkspace() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {buildResponses.map(resp => {
                   const approved = approvedResponseIds.has(resp.id);
+                  const executable = hasExecutableManifest(resp);
+                  const manifestIssue = resp.signals?.manifest_errors
+                    || (resp.signals?.build_complete === 'false' ? 'Response marked incomplete; re-broadcast or continue before execution.' : '');
                   return (
                     <div
                       key={resp.id}
-                      onClick={() => toggleResponseApproval(resp.id)}
+                      onClick={() => executable && toggleResponseApproval(resp.id)}
                       style={{
-                        padding: '16px 20px', borderRadius: '12px', cursor: 'pointer',
+                        padding: '16px 20px', borderRadius: '12px', cursor: executable ? 'pointer' : 'not-allowed',
                         background: approved ? 'rgba(90,184,142,0.04)' : 'rgba(255,255,255,0.02)',
-                        border: `1px solid ${approved ? 'rgba(90,184,142,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                        border: `1px solid ${manifestIssue ? 'rgba(224,90,90,0.22)' : approved ? 'rgba(90,184,142,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                        opacity: executable ? 1 : 0.78,
                         transition: 'all 0.2s',
                       }}
                     >
@@ -930,11 +940,28 @@ export default function BuildWorkspace() {
                               {resp.file_manifest.length} files
                             </span>
                           )}
+                          {manifestIssue && (
+                            <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--risk)' }}>
+                              blocked
+                            </span>
+                          )}
                           <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
                             {resp.tokens_used.toLocaleString()} tok
                           </span>
                         </div>
                       </div>
+                      {manifestIssue && (
+                        <div style={{
+                          marginBottom: '10px', padding: '8px 10px', borderRadius: '8px',
+                          background: 'rgba(224,90,90,0.06)', color: 'var(--risk)',
+                          fontSize: '11px', lineHeight: 1.5,
+                        }}>
+                          {manifestIssue}
+                          {resp.signals?.continuation_prompt && (
+                            <span style={{ color: 'var(--text-muted)' }}> Continue with: {resp.signals.continuation_prompt}</span>
+                          )}
+                        </div>
+                      )}
                       <pre style={{
                         fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5,
                         whiteSpace: 'pre-wrap', wordBreak: 'break-word',

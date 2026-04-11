@@ -95,6 +95,7 @@ export interface FileManifestEntry {
   path: string;
   content: string | null; // null = delete
   operation: 'upsert' | 'delete';
+  content_hash?: string;
 }
 
 export interface Response {
@@ -111,6 +112,10 @@ export interface Response {
   signals: ResponseSignals;
   artifacts: ResponseArtifact[];
   file_manifest?: FileManifestEntry[];
+  artifact_protocol?: string;
+  complete?: boolean;
+  continuation_prompt?: string;
+  manifest_errors?: Array<{ path: string; reason: string }>;
   is_flagged: boolean;
   is_lead: boolean;
   is_pinned?: boolean;
@@ -310,7 +315,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 
   // ─── OpenAI ─────────────────────────────────────────────────────
   { name: 'GPT-5.4 Mini', display_name: 'GPT-5.4 Mini', role: 'Fast drafting · Summarization',     provider: 'openai', model: 'gpt-5.4-mini', color: '#5ab88e', is_active: true,  slot_index: 0, provider_group: 'openai', stability_tier: 'stable' },
-  { name: 'GPT-5.4 (PM)',         display_name: 'GPT-5.4 (PM)',         role: 'PM · Policy · Scope enforcement', provider: 'openai', model: 'gpt-5.4', color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai', stability_tier: 'stable' },
+  { name: 'GPT-5.4 Builder',      display_name: 'GPT-5.4 Builder',      role: 'Build lead · Code generation',     provider: 'openai', model: 'gpt-5.4', color: '#5ab88e', is_active: false, slot_index: 1, provider_group: 'openai', stability_tier: 'stable' },
   { name: 'GPT-5.4 (Reasoning)',  display_name: 'GPT-5.4 (Reasoning)',  role: 'Reasoning · Complex analysis',    provider: 'openai', model: 'gpt-5.4', color: '#5ab88e', is_active: false, slot_index: 2, provider_group: 'openai', stability_tier: 'stable' },
 
   // ─── Google Gemini ──────────────────────────────────────────────
@@ -325,7 +330,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
 
   // ─── OpenRouter B — Premium row (all OFF by default) ────────────
   { name: 'Sonnet 4.6 (OR)', display_name: 'Sonnet 4.6 (OR)', role: 'Premium · Build lead',              provider: 'openrouter', model: 'anthropic/claude-sonnet-4-6',     color: '#8a8ae0', is_active: false, slot_index: 0, provider_group: 'openrouter_b', stability_tier: 'stable' },
-  { name: 'GPT-5.4 (OR)',    display_name: 'GPT-5.4 (OR)',    role: 'Premium · Policy · PM',             provider: 'openrouter', model: 'openai/gpt-5.4',                  color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_b', stability_tier: 'stable' },
+  { name: 'GPT-5.4 Builder (OR)', display_name: 'GPT-5.4 Builder (OR)', role: 'Premium · Build lead',     provider: 'openrouter', model: 'openai/gpt-5.4',                  color: '#8a8ae0', is_active: false, slot_index: 1, provider_group: 'openrouter_b', stability_tier: 'stable' },
   // Kimi K2 — Moonshot rotates slugs (e.g. moonshotai/kimi-k2-0905). If
   // broadcasts to this slot 404, update to whatever OpenRouter currently lists.
   { name: 'Kimi K2',         display_name: 'Kimi K2',         role: 'Premium · Long context · Reasoning', provider: 'openrouter', model: 'moonshotai/kimi-k2',              color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_b', stability_tier: 'stable' },
