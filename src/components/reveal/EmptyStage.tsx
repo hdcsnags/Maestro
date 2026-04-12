@@ -1,81 +1,56 @@
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { Eye } from 'lucide-react';
+import type { OrbState } from '../../lib/orbState';
 
 /**
  * Empty stage — the Maestro orb. Shown as the resting state OR when
  * the carousel toggle is off (even if responses exist).
  *
- * Four animation modes driven by context state:
- *   idle         — slow 3s pulse (default)
- *   broadcasting — faster 1.5s pulse, intensified glow
- *   synthesizing — breathing expand/contract + expanding ring
- *   concierge    — steady glow, no animation
+ * Orb state is derived upstream from Maestro state and rendered here.
  */
-
-type OrbMode = 'idle' | 'broadcasting' | 'synthesizing' | 'concierge';
-
-const BROADCAST_MESSAGES = [
-  'Consulting the council…',
-  'Weighing perspectives…',
-  'Agents are thinking…',
-  'Synthesizing views…',
-  'Reading the room…',
-];
-
-const SYNTH_MESSAGES = [
-  'Synthesizing…',
-  'Finding alignment…',
-  'Resolving tensions…',
-];
-
-function getOrbMode(isBroadcasting: boolean, isSynthesizing: boolean, conciergeVisible: boolean): OrbMode {
-  if (conciergeVisible) return 'concierge';
-  if (isSynthesizing) return 'synthesizing';
-  if (isBroadcasting) return 'broadcasting';
-  return 'idle';
+interface EmptyStageProps {
+  orbState: OrbState;
 }
 
-const ORB_ANIMATION: Record<OrbMode, string> = {
-  idle: 'maestro-orb-idle 3s ease-in-out infinite',
-  broadcasting: 'maestro-orb-broadcast 1.5s ease-in-out infinite',
-  synthesizing: 'maestro-orb-synthesize 2.5s ease-in-out infinite',
-  concierge: 'none',
+const ORB_STATUS: Record<OrbState, string> = {
+  idle: 'Council standing by',
+  broadcasting: 'Dispatching to council',
+  streaming: 'Voices arriving',
+  conflict: 'Tension detected',
+  building: 'Writing to repository',
+  concierge: 'Concierge engaged',
+  done: 'Round complete',
 };
 
-const ORB_GLOW: Record<OrbMode, string> = {
-  idle: '0 0 60px 10px rgba(201,168,76,0.35), 0 0 140px 30px rgba(201,168,76,0.18), inset 0 0 40px rgba(255,224,150,0.25)',
-  broadcasting: '0 0 80px 16px rgba(201,168,76,0.50), 0 0 180px 40px rgba(201,168,76,0.28), inset 0 0 50px rgba(255,224,150,0.35)',
-  synthesizing: '0 0 70px 14px rgba(201,168,76,0.42), 0 0 160px 35px rgba(201,168,76,0.22), inset 0 0 45px rgba(255,224,150,0.30)',
-  concierge: '0 0 50px 8px rgba(201,168,76,0.30), 0 0 120px 25px rgba(201,168,76,0.15), inset 0 0 35px rgba(255,224,150,0.20)',
+const ORB_CONFIG: Record<OrbState, { glowColor: string; animationDuration: string; animation: string }> = {
+  idle: { glowColor: '#c9a84c', animationDuration: '3.2s', animation: 'maestro-orb-idle' },
+  broadcasting: { glowColor: '#e0c25a', animationDuration: '1.3s', animation: 'maestro-orb-broadcast' },
+  streaming: { glowColor: '#e0c25a', animationDuration: '1.1s', animation: 'maestro-orb-stream' },
+  conflict: { glowColor: '#e05a5a', animationDuration: '0.8s', animation: 'maestro-orb-conflict' },
+  building: { glowColor: '#5ab88e', animationDuration: '1.6s', animation: 'maestro-orb-building' },
+  concierge: { glowColor: '#d4c9a8', animationDuration: '2.4s', animation: 'maestro-orb-concierge' },
+  done: { glowColor: '#4ebb7f', animationDuration: '4s', animation: 'maestro-orb-done' },
 };
 
-export default function EmptyStage() {
+function hexToRgb(hex: string): string {
+  const normalized = hex.replace('#', '');
+  const value = normalized.length === 3
+    ? normalized.split('').map((c) => c + c).join('')
+    : normalized;
+  const int = Number.parseInt(value, 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `${r},${g},${b}`;
+}
+
+export default function EmptyStage({ orbState }: EmptyStageProps) {
   const { state, dispatch } = useMaestro();
   const activeCount = state.agents.filter(a => a.is_active).length;
-  const mode = getOrbMode(state.isBroadcasting, state.isSynthesizing, state.conciergeVisible);
-
-  // Cycling ambient text for broadcasting / synthesizing
-  const [msgIndex, setMsgIndex] = useState(0);
-  useEffect(() => {
-    if (mode !== 'broadcasting' && mode !== 'synthesizing') {
-      setMsgIndex(0);
-      return;
-    }
-    const interval = setInterval(() => {
-      const pool = mode === 'broadcasting' ? BROADCAST_MESSAGES : SYNTH_MESSAGES;
-      setMsgIndex(prev => (prev + 1) % pool.length);
-    }, 3500);
-    return () => clearInterval(interval);
-  }, [mode]);
-
-  const statusText = mode === 'broadcasting'
-    ? BROADCAST_MESSAGES[msgIndex % BROADCAST_MESSAGES.length]
-    : mode === 'synthesizing'
-    ? SYNTH_MESSAGES[msgIndex % SYNTH_MESSAGES.length]
-    : mode === 'concierge'
-    ? 'Concierge ready'
-    : '';
+  const orbConfig = ORB_CONFIG[orbState];
+  const glowRgb = useMemo(() => hexToRgb(orbConfig.glowColor), [orbConfig.glowColor]);
+  const statusText = ORB_STATUS[orbState];
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
   const responseCount = latestRound
@@ -91,15 +66,16 @@ export default function EmptyStage() {
       <div className="text-center" style={{ pointerEvents: 'none' }}>
         {/* Orb container — holds ring + orb */}
         <div className="mx-auto" style={{ position: 'relative', width: '180px', height: '180px' }}>
-          {/* Expanding ring (synthesis only) */}
-          {mode === 'synthesizing' && (
+          {/* Secondary halo for streaming cadence */}
+          {orbState === 'streaming' && (
             <div
               style={{
                 position: 'absolute',
                 inset: 0,
                 borderRadius: '50%',
-                border: '1px solid rgba(201,168,76,0.35)',
-                animation: 'maestro-orb-ring 3s ease-out infinite',
+                border: `1px solid rgba(${glowRgb}, 0.28)`,
+                animation: 'maestro-orb-stream-secondary 1.8s ease-in-out infinite',
+                animationDelay: '0.35s',
               }}
             />
           )}
@@ -112,8 +88,8 @@ export default function EmptyStage() {
               borderRadius: '50%',
               background:
                 'radial-gradient(circle at 35% 30%, rgba(255,224,150,0.95) 0%, rgba(201,168,76,0.85) 28%, rgba(140,108,40,0.55) 62%, rgba(60,42,12,0.15) 88%, transparent 100%)',
-              boxShadow: ORB_GLOW[mode],
-              animation: ORB_ANIMATION[mode],
+              boxShadow: `0 0 60px 10px rgba(${glowRgb}, 0.35), 0 0 140px 30px rgba(${glowRgb}, 0.18), inset 0 0 40px rgba(255,224,150,0.25)`,
+              animation: `${orbConfig.animation} ${orbConfig.animationDuration} ease-in-out infinite`,
               transition: 'box-shadow 0.6s ease',
             }}
           />
@@ -185,25 +161,85 @@ export default function EmptyStage() {
           }
         }
 
-        @keyframes maestro-orb-synthesize {
+        @keyframes maestro-orb-stream {
           0%, 100% {
             transform: scale(1);
             filter: brightness(1);
           }
           50% {
-            transform: scale(1.08);
-            filter: brightness(1.14);
+            transform: scale(1.05);
+            filter: brightness(1.16);
           }
         }
 
-        @keyframes maestro-orb-ring {
-          0% {
+        @keyframes maestro-orb-stream-secondary {
+          0%, 100% {
             transform: scale(1);
+            opacity: 0.25;
+          }
+          50% {
+            transform: scale(1.08);
             opacity: 0.6;
           }
+        }
+
+        @keyframes maestro-orb-conflict {
+          0%, 100% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+          20% {
+            transform: scale(1.06);
+            filter: brightness(1.18);
+          }
+          40% {
+            transform: scale(0.99);
+            filter: brightness(0.96);
+          }
+          60% {
+            transform: scale(1.05);
+            filter: brightness(1.14);
+          }
+          80% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+        }
+
+        @keyframes maestro-orb-building {
+          0%, 100% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+          50% {
+            transform: scale(1.045);
+            filter: brightness(1.12);
+          }
+        }
+
+        @keyframes maestro-orb-concierge {
+          0%, 100% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+          50% {
+            transform: scale(1.025);
+            filter: brightness(1.06);
+          }
+        }
+
+        @keyframes maestro-orb-done {
+          0% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+          50% {
+            transform: scale(1.035);
+            filter: brightness(1.08);
+          }
           100% {
-            transform: scale(2.5);
-            opacity: 0;
+            transform: scale(1);
+            filter: brightness(1);
           }
         }
       `}</style>

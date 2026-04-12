@@ -23,6 +23,7 @@ import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
+import { deriveOrbState } from '../lib/orbState';
 
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
@@ -41,6 +42,8 @@ export default function WorkspacePage() {
     : [];
   const totalFolioItems = latestResponses.length + streamingAgents.length;
   const hasContent = totalFolioItems > 0 || state.isBroadcasting;
+  const activeAgentCount = state.agents.filter(a => a.is_active).length;
+  const orbState = deriveOrbState(state, latestResponses, activeAgentCount);
 
   // Auto-show carousel when broadcast finishes and responses exist
   const wasBroadcasting = useRef(false);
@@ -226,7 +229,7 @@ export default function WorkspacePage() {
         {hasContent && state.carouselVisible ? (
           <FolioCarousel />
         ) : (
-          <EmptyStage />
+          <EmptyStage orbState={orbState} />
         )}
 
         {!state.focusMode && <RevealComposer onBroadcast={handleBroadcast} />}

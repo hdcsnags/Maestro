@@ -10,7 +10,7 @@ import {
 export type ViewMode = 'stacked' | 'carousel';
 export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | 'pre-build' | null;
 
-interface MaestroState {
+export interface MaestroState {
   workspace: Workspace | null;
   initError: string | null;
   agents: Agent[];
