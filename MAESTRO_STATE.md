@@ -136,7 +136,7 @@ Legacy (unused): agent_skills, flags
 | Pre-Build flow exists in code (intake, Architect.md, build spec lock, lane assignment) | 2026-04-12 (code verified) |
 | Build phase broadcast + response review UI exists in code | 2026-04-12 (code verified) |
 | Execute Build with patches wired in BuildWorkspace.tsx | 2026-04-12 |
-| Orb state machine derivation wired into EmptyStage/WorkspacePage | 2026-04-12 (`npm run typecheck`) |
+| Orb state machine derivation wired into EmptyStage/WorkspacePage and committed | 2026-04-12 (`npm run typecheck`, commit `4fb823c`) |
 | Bouncer security review gate post-build exists in code | 2026-04-12 (code verified) |
 | Tiered context system (synthesis > recent rounds > pinned > filename refs) | 2026-04-12 (code verified) |
 | Build artifact protocol hardening (`artifact_protocol`, `complete`, `continuation_prompt`, manifest validation) | 2026-04-12 (`npm run typecheck`) |
@@ -210,11 +210,11 @@ These areas change often and should be re-verified after any significant work se
 
 ### 2026-04-12 — OpenAI Codex
 
-**What was done**: Orb state machine implementation completed. Added `deriveOrbState()` in `src/lib/orbState.ts`, refactored `EmptyStage.tsx` into a pure renderer, and wired the derived orb state through `WorkspacePage.tsx`.
+**What was done**: Orb state machine implementation completed and committed. Added `deriveOrbState()` in `src/lib/orbState.ts`, refactored `EmptyStage.tsx` into a pure renderer, and wired the derived orb state through `WorkspacePage.tsx`.
 
 **Files touched**: `src/lib/orbState.ts`, `src/components/reveal/EmptyStage.tsx`, `src/pages/WorkspacePage.tsx`, `src/context/MaestroContext.tsx`
 
-**What didn't work**: N/A — `npm run typecheck` passed after implementation.
+**What didn't work**: N/A — `npm run typecheck` passed after implementation. Committed as `4fb823c Add derived orb state machine`.
 
 ---
 
