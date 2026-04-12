@@ -151,8 +151,17 @@ export function useOrchestration() {
       : contextFiles;
 
     try {
-      const { data: result, error: invokeError } = await supabase.functions.invoke('orchestrate', {
-        body: {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const authSession = await ensureSession();
+      const accessToken = authSession.access_token;
+
+      const orchestrateRes = await fetch(`${supabaseUrl}/functions/v1/orchestrate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           prompt: augmentedPrompt,
           provider: agent.provider,
           model: agent.model,
@@ -164,9 +173,10 @@ export function useOrchestration() {
           repo_connection_id: state.activeRepoConnection?.id,
           session_id: state.activeSession?.id,
           context_files: mergedContextFiles.length > 0 ? mergedContextFiles : undefined,
-        },
+        }),
       });
-      if (invokeError) throw invokeError;
+      if (!orchestrateRes.ok) throw new Error(`Agent call failed: ${orchestrateRes.status}`);
+      const result = await orchestrateRes.json();
       const artifacts: ResponseArtifact[] = Array.isArray(result.artifacts) ? result.artifacts : [];
       const fileManifest: FileManifestEntry[] = Array.isArray(result.file_manifest) ? result.file_manifest : [];
       const manifestErrors = Array.isArray(result.manifest_errors) ? result.manifest_errors : [];
@@ -280,10 +290,16 @@ export function useOrchestration() {
     if (!skipTriage) {
       try {
         dispatch({ type: 'SET_IS_TRIAGING', payload: true });
-        await ensureSession();
+        const authSession = await ensureSession();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const triageRes = await Promise.race([
-          supabase.functions.invoke('concierge-triage', {
-            body: {
+          fetch(`${supabaseUrl}/functions/v1/concierge-triage`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${authSession.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
               session_id: session.id,
               prompt,
               agent_count: selectedAgentIds.length,
@@ -292,8 +308,8 @@ export function useOrchestration() {
                 round_count: state.rounds.length,
                 has_build_spec: !!session.build_spec,
               },
-            },
-          }),
+            }),
+          }).then(async (r) => r.ok ? { data: await r.json(), error: null } : { data: null, error: new Error(`${r.status}`) }),
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
         ]);
 
@@ -434,25 +450,34 @@ export function useOrchestration() {
       synthesis = synth?.content ?? null;
     }
 
-    await ensureSession();
+    const authSession = await ensureSession();
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
     try {
-      const { data: result, error: invokeError } = await supabase.functions.invoke('concierge', {
-        body: {
+      const conciergeRes = await fetch(`${supabaseUrl}/functions/v1/concierge`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authSession.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           session_id: activeSessionId,
           phase,
           responses,
           synthesis,
-        },
+        }),
       });
-      if (invokeError) {
+
+      const result = await conciergeRes.json();
+
+      if (!conciergeRes.ok) {
         console.error('Concierge error:', result);
         const errDecision: ConciergeDecision = {
           session_id: activeSessionId,
           phase,
-          alignment_summary: invokeError.message ?? 'Concierge unavailable.',
+          alignment_summary: result.message ?? 'Concierge unavailable.',
           tension_points: [],
-          recommended_direction: invokeError.message?.includes('ANTHROPIC_KEY_MISSING')
+          recommended_direction: result.error === 'ANTHROPIC_KEY_MISSING'
             ? 'Add an Anthropic API key in the Provider Vault to enable Concierge guidance.'
             : 'Concierge could not produce guidance for this round.',
           model_used: null,
@@ -493,10 +518,18 @@ export function useOrchestration() {
       .join('\n\n---\n\n');
 
     try {
-      const { data: result, error: invokeError } = await supabase.functions.invoke('synthesize', {
-        body: { responses: combinedContent },
+      const authSession = await ensureSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const synthRes = await fetch(`${supabaseUrl}/functions/v1/synthesize`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authSession.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ responses: combinedContent }),
       });
-      if (invokeError) throw invokeError;
+      if (!synthRes.ok) throw new Error(`Synthesize failed: ${synthRes.status}`);
+      const result = await synthRes.json();
       const content = result.content ?? result.synthesis ?? combinedContent;
 
       const { data: rawSynth } = await supabase
@@ -524,7 +557,7 @@ export function useOrchestration() {
     } catch (err) {
       console.error('Synthesis error:', err);
     }
-  }, [user, state.responses, state.rounds, state.activeSession, dispatch, logAudit, triggerConcierge]);
+  }, [user, state.responses, state.rounds, state.activeSession, dispatch, logAudit, triggerConcierge, ensureSession]);
 
   // Keep ref current so broadcast() can call synthesize without circular deps
   synthesizeRef.current = synthesize;
