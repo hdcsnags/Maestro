@@ -115,6 +115,13 @@ function buildLanePrompt(sharedPrompt: string, instruction: string, scopedPaths:
   return `${sharedPrompt}\n\nLANE-SPECIFIC INSTRUCTION:\n${instruction}\n\nASSIGNED PATHS:\n${laneScope}\n\nFollow only this lane. Do not modify files outside these assigned paths.`;
 }
 
+/** Returns true when a lane covers multiple deep directory trees (2+ "/**" patterns),
+ *  which means the agent is likely to exceed its output token budget in one pass. */
+function laneHasDeepPaths(scoped_paths: string[]): boolean {
+  const deepPatterns = scoped_paths.filter(p => p.includes('/**'));
+  return deepPatterns.length >= 2 || (deepPatterns.length === 1 && scoped_paths.length >= 2);
+}
+
 function getBroadcastProgressState(hasRound: boolean, respondedCount: number, builderCount: number): BroadcastProgressState {
   if (!hasRound) return 'dispatching';
   if (builderCount <= 0 || respondedCount <= 0) return 'waiting';
@@ -581,6 +588,65 @@ export default function BuildWorkspace() {
     });
   }, []);
 
+  /* ── Continue build (for incomplete agents) ──────────────── */
+  const handleContinueBuild = useCallback(async () => {
+    if (!session || !normalizedBuildPlan) return;
+
+    // Collect responses where the agent signalled incomplete
+    const incompleteResponses = buildResponses.filter(
+      r => r.signals?.build_complete === 'false' && r.agent_id,
+    );
+    if (incompleteResponses.length === 0) return;
+
+    setStage('broadcasting');
+    setBuildRoundId(null); // Reset so the next round is picked up
+    setError('');
+
+    const continuationAgentIds = incompleteResponses.map(r => r.agent_id!);
+    const promptOverridesByAgentId: Record<string, string> = {};
+
+    for (const resp of incompleteResponses) {
+      if (!resp.agent_id) continue;
+      const continuationHint = resp.signals?.continuation_prompt || '';
+      const lane = lanes.find(l => l.agent_id === resp.agent_id)
+        || lanes.find(l => norm(l.agent_name) === norm(resp.agent_name ?? ''));
+      const planAgent = normalizedBuildPlan.builder_agents.find(a => a.agent_id === resp.agent_id)
+        || normalizedBuildPlan.builder_agents.find(a => norm(a.agent_name) === norm(resp.agent_name ?? ''));
+
+      const scopedPaths = planAgent?.scoped_paths.length
+        ? planAgent.scoped_paths
+        : lane?.lane_paths ?? [];
+
+      // Use agent's continuation_prompt as the base; fall back to a generic resume message
+      const basePrompt = continuationHint.trim().length > 0
+        ? `BUILD CONTINUATION — ${continuationHint}`
+        : `BUILD CONTINUATION — Continue generating the remaining files from your assigned lane. Return JSON only with complete file contents in file_manifest entries.`;
+
+      promptOverridesByAgentId[resp.agent_id] = buildLanePrompt(
+        basePrompt,
+        `Continue generating the remaining files in: ${scopedPaths.join(', ') || 'your assigned lane paths'}`,
+        scopedPaths,
+      );
+    }
+
+    try {
+      await broadcast(
+        'Build continuation — generating remaining files',
+        continuationAgentIds,
+        session,
+        {
+          modeOverride: 'build',
+          skipSynthesis: true,
+          skipTriage: true,
+          promptOverridesByAgentId,
+        },
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('reviewing');
+    }
+  }, [session, normalizedBuildPlan, buildResponses, lanes, broadcast]);
+
   /* ── Execute build ───────────────────────────────────────── */
   const handleExecute = useCallback(async () => {
     if (!session || !user) return;
@@ -831,21 +897,38 @@ export default function BuildWorkspace() {
               </button>
             )}
             {stage === 'reviewing' && buildResponses.length > 0 && (
-              <button
-                className="reveal-pill"
-                style={{
-                  height: '36px', fontSize: '12px', padding: '0 20px',
-                  background: approvedResponseIds.size > 0 ? 'var(--gold)' : 'rgba(255,255,255,0.06)',
-                  color: approvedResponseIds.size > 0 ? 'var(--void)' : 'var(--text-dim)',
-                  borderColor: 'transparent', fontWeight: 500,
-                  cursor: approvedResponseIds.size > 0 ? 'pointer' : 'not-allowed',
-                }}
-                disabled={approvedResponseIds.size === 0}
-                onClick={() => setStage('ready')}
-              >
-                <Play size={14} />
-                Approve &amp; Continue ({approvedResponseIds.size})
-              </button>
+              <div className="flex items-center gap-2">
+                {buildResponses.some(r => r.signals?.build_complete === 'false') && (
+                  <button
+                    className="reveal-pill"
+                    style={{
+                      height: '36px', fontSize: '12px', padding: '0 16px',
+                      background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                      borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                    }}
+                    onClick={handleContinueBuild}
+                    title="Re-broadcast to agents that returned complete:false, using their continuation_prompt"
+                  >
+                    <Pause size={13} />
+                    Continue Build
+                  </button>
+                )}
+                <button
+                  className="reveal-pill"
+                  style={{
+                    height: '36px', fontSize: '12px', padding: '0 20px',
+                    background: approvedResponseIds.size > 0 ? 'var(--gold)' : 'rgba(255,255,255,0.06)',
+                    color: approvedResponseIds.size > 0 ? 'var(--void)' : 'var(--text-dim)',
+                    borderColor: 'transparent', fontWeight: 500,
+                    cursor: approvedResponseIds.size > 0 ? 'pointer' : 'not-allowed',
+                  }}
+                  disabled={approvedResponseIds.size === 0}
+                  onClick={() => setStage('ready')}
+                >
+                  <Play size={14} />
+                  Approve &amp; Continue ({approvedResponseIds.size})
+                </button>
+              </div>
             )}
             {stage === 'ready' && (
               <button
@@ -926,6 +1009,18 @@ export default function BuildWorkspace() {
                     <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
                       {agent.scoped_paths.length > 0 ? agent.scoped_paths.join(' · ') : '(paths unavailable)'}
                     </div>
+                    {laneHasDeepPaths(agent.scoped_paths) && (
+                      <div style={{
+                        marginTop: '8px', padding: '8px 10px', borderRadius: '8px',
+                        background: 'rgba(212,168,67,0.06)', border: '1px solid rgba(212,168,67,0.18)',
+                        display: 'flex', alignItems: 'flex-start', gap: '8px',
+                      }}>
+                        <AlertTriangle size={11} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: '1px' }} />
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                          This lane covers multiple directory trees. If the agent cannot finish all files in one pass, it will set <code style={{ fontSize: '10px', color: 'var(--gold)', background: 'rgba(201,168,76,0.08)', padding: '0 3px', borderRadius: '3px' }}>complete: false</code> — use <strong style={{ color: 'var(--gold)' }}>Continue Build</strong> in the review step to chain the next pass.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )) : (
                   <div style={{

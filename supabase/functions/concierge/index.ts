@@ -108,15 +108,15 @@ interface BuildPlanPayload {
 
 function buildDeterministicBuildPlan(
   projectTitle: string,
-  architectMd: string,
+  _architectMd: string,
   builders: BuildLaneSummary[],
 ): BuildPlanPayload {
-  const laneSummary = builders
-    .map((builder) => `- ${builder.agent_name}: ${builder.lane_paths.join(", ") || "(lane paths unavailable)"}`)
-    .join("\n");
-
+  // NOTE: Do NOT embed architectMd in build_prompt. The orchestrate edge function
+  // already injects the full ARCHITECT.MD into the system prompt for build-mode
+  // requests (orchestrate/index.ts). Embedding it again in the user message doubles
+  // the context, producing prompts that exceed provider token budgets and 504.
   return {
-    build_prompt: `BUILD MODE — You are building ${projectTitle} as specified in the ARCHITECT.md below. Work only within your assigned lane paths, return JSON only, and include complete file contents in file_manifest entries. If you cannot finish all assigned files, set complete to false and provide a concise continuation_prompt.\n\nARCHITECT REFERENCE:\n${architectMd}\n\nBUILDER LANES:\n${laneSummary}`,
+    build_prompt: `BUILD MODE — Building ${projectTitle}.\n\nReturn JSON only. Include COMPLETE file contents in every file_manifest entry — no "// ... existing code ..." or similar placeholders. Work ONLY within your assigned lane paths.\n\nIf you cannot finish all assigned files in one response, set "complete": false and write a "continuation_prompt" describing exactly which files still need to be generated.`,
     build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length === 1 ? "" : "s"}. Each builder is scoped to lane-specific paths and must return complete file contents in file_manifest entries for conductor review before execution.`,
     builder_agents: builders.map((builder) => ({
       agent_id: builder.agent_id ?? "",
@@ -313,19 +313,24 @@ Deno.serve(async (req: Request) => {
       if (!apiKey) {
         warning = "Concierge used a deterministic build plan because no Anthropic key was available.";
       } else {
-        const buildPlanPrompt = `You are Maestro's Concierge preparing a build plan.
+        const buildPlanPrompt = `You are Maestro's Concierge preparing a build plan for builder agents.
 
-Given the ARCHITECT.md below, generate a BUILD PROMPT that will be sent to each builder agent.
-The prompt should be specific, actionable, and reference the architecture.
+IMPORTANT: Builder agents already receive the full ARCHITECT.MD in their system context — do NOT embed, quote, or summarise it in the build_prompt field. The build_prompt will be sent as the user message to each builder agent alongside their system-injected architecture.
 
-Also produce a brief build_summary for the conductor to review before approving.
+The build_prompt must be concise (under 100 words) and cover ONLY:
+- What mode they are in (BUILD MODE — building <project>)
+- Output format requirements (JSON only, complete file contents in file_manifest, no placeholders)
+- The continuation protocol (set complete:false + continuation_prompt if they cannot finish all files)
+
+Also produce a brief build_summary (2-3 sentences) for the conductor to review before approving.
+And a one-sentence per-agent instruction scoped to each agent's specific lane paths.
 
 Return JSON only:
 {
-  "build_prompt": "The complete prompt to send to builder agents. Reference the Architect.md. Tell them to produce complete file contents for their assigned paths.",
+  "build_prompt": "Concise build instructions — under 100 words. No ARCHITECT.MD content.",
   "build_summary": "2-3 sentence summary of what will be built, for conductor approval.",
   "builder_agents": [
-    { "agent_id": "...", "agent_name": "...", "scoped_paths": ["..."], "instruction": "1 sentence specific to this agent's lane" }
+    { "agent_id": "...", "agent_name": "...", "scoped_paths": ["..."], "instruction": "1 sentence specific to this agent's lane files" }
   ]
 }`;
 
