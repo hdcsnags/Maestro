@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -415,26 +415,13 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "github-execute");
+    if (auth instanceof Response) {
+      return auth;
     }
 
+    const { adminClient: supabase, authHeader, userId } = auth;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const body: ExecuteRequest = await req.json();
     const { mode, repo_connection_id, execution_run_id, session_id, synthesis_content, commit_message } = body;
@@ -468,7 +455,7 @@ Deno.serve(async (req: Request) => {
         .from("repo_connections")
         .select("*")
         .eq("id", repo_connection_id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .maybeSingle();
       repoConn = data;
     }
@@ -482,7 +469,7 @@ Deno.serve(async (req: Request) => {
         .from("sessions")
         .select("workspace_id")
         .eq("id", session_id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .maybeSingle();
       const wsId = (sessRow as { workspace_id?: string } | null)?.workspace_id;
       if (wsId) {
@@ -490,7 +477,7 @@ Deno.serve(async (req: Request) => {
           .from("repo_connections")
           .select("*")
           .eq("workspace_id", wsId)
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
           .eq("is_active", true)
           .order("created_at", { ascending: false })
           .limit(1)
@@ -513,7 +500,7 @@ Deno.serve(async (req: Request) => {
     const { data: secret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "github")
       .maybeSingle();
 
@@ -534,7 +521,7 @@ Deno.serve(async (req: Request) => {
       .from("execution_runs")
       .select("execution_mode")
       .eq("id", execution_run_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     // Sprint A · B4 — build spec freeze gate. Any non-analyze run requires the
@@ -638,7 +625,7 @@ Deno.serve(async (req: Request) => {
         .from("approval_requests")
         .select("*")
         .eq("id", body.approval_request_id)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .maybeSingle();
 
       if (!approval || approval.status !== "approved") {
@@ -733,7 +720,7 @@ Deno.serve(async (req: Request) => {
       try {
         aggregate.backup_branch = await createBackupBranch(owner, repo, defaultBranch, ghToken);
         await supabase.from("audit_events").insert({
-          user_id: user.id,
+          user_id: userId,
           session_id: session_id ?? null,
           event_type: "backup_branch_created",
           actor: "github-execute",
@@ -775,7 +762,7 @@ Deno.serve(async (req: Request) => {
     }
     if (collisions.length > 0) {
       await supabase.from("audit_events").insert({
-        user_id: user.id,
+        user_id: userId,
         session_id: session_id ?? null,
         event_type: "collision_detected",
         actor: "github-execute",
@@ -1096,3 +1083,10 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
+
+
+
+
+
+

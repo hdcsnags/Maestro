@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,31 +14,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "github-repos");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient: supabase, userId } = auth;
 
     const { data: secret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "github")
       .maybeSingle();
 
@@ -52,7 +39,7 @@ Deno.serve(async (req: Request) => {
 
     const allRawRepos: Record<string, unknown>[] = [];
     let page = 1;
-    const maxPages = 10; // safety cap: 1000 repos max
+    const maxPages = 10;
 
     while (page <= maxPages) {
       const ghResponse = await fetch(
@@ -68,14 +55,11 @@ Deno.serve(async (req: Request) => {
 
       if (!ghResponse.ok) {
         const errData = await ghResponse.json();
-        // If GitHub rejects the stored token, the row in encrypted_secrets is
-        // dead. Flip the connection row so the UI surfaces a Reconnect button
-        // instead of leaving the Vault green and the user stuck.
         if (ghResponse.status === 401) {
           await supabase
             .from("provider_connections")
             .update({ is_connected: false })
-            .eq("user_id", user.id)
+            .eq("user_id", userId)
             .eq("provider", "github");
         }
         return new Response(JSON.stringify({
@@ -91,7 +75,6 @@ Deno.serve(async (req: Request) => {
       const pageRepos = await ghResponse.json();
       allRawRepos.push(...pageRepos);
 
-      // Stop if this page returned fewer than 100 (last page)
       if (pageRepos.length < 100) break;
       page++;
     }

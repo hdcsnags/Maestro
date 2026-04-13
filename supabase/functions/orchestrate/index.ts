@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -504,27 +504,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header", title: "Error", content: "No authorization header", signals: {}, artifacts: [] }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "orchestrate");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized", title: "Error", content: "Unauthorized", signals: {}, artifacts: [] }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const { userClient: supabase, userId } = auth;
 
     const body: OrchestrationRequest = await req.json();
     const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode } = body;
@@ -532,13 +517,13 @@ Deno.serve(async (req: Request) => {
 
     // Resolve context files if provided
     let codebaseContext = "";
-    if (context_files && context_files.length > 0 && repo_connection_id && user.id) {
+    if (context_files && context_files.length > 0 && repo_connection_id && userId) {
       const resolved: string[] = [];
       for (const cf of context_files) {
         if (cf.content) {
           resolved.push(`[${cf.path}]:\n${cf.content}`);
         } else {
-          const content = await fetchFileContent(user.id, repo_connection_id, cf.path);
+          const content = await fetchFileContent(userId, repo_connection_id, cf.path);
           if (content) {
             resolved.push(`[${cf.path}]:\n${content}`);
           }
@@ -565,7 +550,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const lookupProvider = PROVIDER_MAP[provider] ?? provider;
-    const apiKey = await getUserApiKey(user.id, lookupProvider);
+    const apiKey = await getUserApiKey(userId, lookupProvider);
 
     if (!apiKey) {
       return new Response(
@@ -709,3 +694,9 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+
+
+
+
+

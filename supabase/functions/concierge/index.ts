@@ -1,10 +1,6 @@
-// Sprint A · B3 — Concierge edge function (shell)
-// Synthesizes council responses into alignment / tension / direction.
-// Full intelligence comes in Sprint B. Fail loud on missing Anthropic key.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -208,29 +204,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "concierge");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const adminClient = createClient(supabaseUrl, serviceKey);
-
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    const { adminClient, userId } = auth;
 
     const body: ConciergeRequest = await req.json();
     // pre_build_complete doesn't need responses — it reads architect_md + build_lanes directly
@@ -241,7 +220,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const apiKey = await getUserApiKey(adminClient, user.id, "anthropic");
+    const apiKey = await getUserApiKey(adminClient, userId, "anthropic");
     if (!apiKey) {
       // Fail loud — no silent provider fallback. User must add an Anthropic key.
       return new Response(
@@ -578,3 +557,7 @@ Roles: builder | reviewer | read_only | security_audit. Lane paths must not over
     );
   }
 });
+
+
+
+

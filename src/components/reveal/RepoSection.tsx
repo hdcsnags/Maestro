@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { RepoConnection } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { Github, Check, Loader2, ExternalLink, X, Plus } from 'lucide-react';
@@ -12,6 +13,30 @@ interface GHRepo {
   default_branch: string;
   private: boolean;
   description: string;
+}
+
+interface GitHubAuthStatus {
+  connected?: boolean;
+  hint?: string | null;
+}
+
+interface GitHubAuthUrlResponse {
+  auth_url?: string;
+}
+
+interface GitHubExchangeResponse {
+  success?: boolean;
+  github_user?: string;
+  connection?: unknown;
+  error?: string;
+}
+
+interface GitHubReposResponse {
+  repos?: GHRepo[];
+}
+
+interface GitHubCreateRepoResponse {
+  repo?: GHRepo;
 }
 
 export default function RepoSection() {
@@ -34,132 +59,72 @@ export default function RepoSection() {
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
   const [creatingRepo, setCreatingRepo] = useState(false);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const activeRepo = state.activeRepoConnection;
-
-  const getAuthToken = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? '';
-  }, []);
+  const sessionBoundRepo = state.activeSession?.github_repo?.trim() ?? '';
+  const activeRepo = sessionBoundRepo
+    ? state.repoConnections.find(connection => `${connection.owner}/${connection.repo}` === sessionBoundRepo) ?? null
+    : state.activeRepoConnection;
 
   useEffect(() => {
     (async () => {
       setChecking(true);
       try {
-        const token = await getAuthToken();
-        const res = await fetch(`${supabaseUrl}/functions/v1/github-auth?action=check_status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setGhConnected(data.connected);
+        const data = await invokeEdgeFunction<GitHubAuthStatus>('github-auth?action=check_status');
+        setGhConnected(!!data.connected);
         if (data.hint) setGhUser(data.hint.replace('github:', ''));
-      } catch { /* ignore */ }
+      } catch {
+        // Ignore boot-time auth probe errors.
+      }
       setChecking(false);
     })();
-  }, [supabaseUrl, getAuthToken]);
+  }, []);
 
-  const handleConnect = async () => {
-    setConnecting(true);
-    setError('');
-    try {
-      const token = await getAuthToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/github-auth?action=get_auth_url`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+  const syncActiveSessionRepo = async (repoFullName: string) => {
+    if (!state.activeSession) return;
 
-      if (!data.auth_url) {
-        setError('GitHub App not configured');
-        setConnecting(false);
-        return;
-      }
+    await supabase
+      .from('sessions')
+      .update({ github_repo: repoFullName } as never)
+      .eq('id', state.activeSession.id);
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.innerWidth - width) / 2;
-      const top = window.screenY + (window.innerHeight - height) / 2;
-      const popup = window.open(data.auth_url, 'github-auth', `width=${width},height=${height},left=${left},top=${top}`);
-
-      const interval = setInterval(async () => {
-        try {
-          if (!popup || popup.closed) {
-            clearInterval(interval);
-            const statusRes = await fetch(`${supabaseUrl}/functions/v1/github-auth?action=check_status`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const statusData = await statusRes.json();
-            setGhConnected(statusData.connected);
-            if (statusData.hint) setGhUser(statusData.hint.replace('github:', ''));
-            setConnecting(false);
-            return;
-          }
-
-          const currentUrl = popup.location?.href;
-          if (currentUrl && currentUrl.includes('code=')) {
-            const urlParams = new URL(currentUrl).searchParams;
-            const code = urlParams.get('code');
-            popup.close();
-            clearInterval(interval);
-
-            if (code) {
-              const exchangeRes = await fetch(`${supabaseUrl}/functions/v1/github-auth?action=exchange_code`, {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ code }),
-              });
-              const exchangeData = await exchangeRes.json();
-              if (exchangeData.success) {
-                setGhConnected(true);
-                setGhUser(exchangeData.github_user);
-                if (exchangeData.connection) {
-                  dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: exchangeData.connection });
-                }
-              } else {
-                setError(exchangeData.error || 'Failed to connect');
-              }
-            }
-            setConnecting(false);
-          }
-        } catch {
-          /* cross-origin, keep polling */
-        }
-      }, 500);
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connection failed');
-      setConnecting(false);
-    }
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { github_repo: repoFullName } });
+    dispatch({
+      type: 'SET_SESSIONS',
+      payload: state.sessions.map(session =>
+        session.id === state.activeSession?.id ? { ...session, github_repo: repoFullName } : session,
+      ),
+    });
   };
 
-  const handleLoadRepos = async () => {
-    setLoadingRepos(true);
-    setError('');
-    try {
-      const token = await getAuthToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/github-repos`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setRepos(data.repos || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load repos');
-    }
-    setLoadingRepos(false);
-  };
+  const persistActiveRepoConnection = async (repo: Pick<GHRepo, 'owner' | 'name' | 'default_branch'>) => {
+    if (!user || !state.workspace) return null;
 
-  const handleSaveRepo = async () => {
-    if (!user || !state.workspace || !selectedRepo) return;
-    setSaving(true);
-    setError('');
+    await supabase
+      .from('repo_connections')
+      .update({ is_active: false } as never)
+      .eq('workspace_id', state.workspace.id)
+      .eq('user_id', user.id);
 
-    const repo = repos.find(r => r.full_name === selectedRepo);
-    if (!repo) { setSaving(false); return; }
+    const existing = state.repoConnections.find(connection =>
+      connection.owner === repo.owner && connection.repo === repo.name,
+    );
 
-    try {
-      const { data: raw } = await supabase
+    let conn: RepoConnection | null = null;
+
+    if (existing) {
+      const { data: rawUpdated, error: updateError } = await supabase
+        .from('repo_connections')
+        .update({
+          default_branch: repo.default_branch,
+          is_active: true,
+        } as never)
+        .eq('id', existing.id)
+        .select()
+        .maybeSingle();
+
+      if (updateError) throw new Error(updateError.message);
+      conn = rawUpdated as RepoConnection | null;
+    } else {
+      const { data: rawCreated, error: insertError } = await supabase
         .from('repo_connections')
         .insert({
           workspace_id: state.workspace.id,
@@ -174,10 +139,119 @@ export default function RepoSection() {
         .select()
         .maybeSingle();
 
-      const conn = raw as RepoConnection | null;
-      if (conn) {
-        dispatch({ type: 'UPSERT_REPO_CONNECTION', payload: conn });
+      if (insertError) throw new Error(insertError.message);
+      conn = rawCreated as RepoConnection | null;
+    }
+
+    if (!conn) return null;
+
+    const nextConnections = [
+      ...state.repoConnections
+        .filter(connection => connection.id !== conn.id)
+        .map(connection => ({ ...connection, is_active: false })),
+      conn,
+    ];
+
+    dispatch({ type: 'SET_REPO_CONNECTIONS', payload: nextConnections });
+    dispatch({ type: 'SET_ACTIVE_REPO_CONNECTION', payload: conn });
+    await syncActiveSessionRepo(`${conn.owner}/${conn.repo}`);
+    return conn;
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setError('');
+    try {
+      const data = await invokeEdgeFunction<GitHubAuthUrlResponse>('github-auth?action=get_auth_url');
+
+      if (!data.auth_url) {
+        setError('GitHub App not configured');
+        setConnecting(false);
+        return;
       }
+
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.innerWidth - width) / 2;
+      const top = window.screenY + (window.innerHeight - height) / 2;
+      const popup = window.open(
+        data.auth_url,
+        'github-auth',
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+
+      const interval = setInterval(async () => {
+        try {
+          if (!popup || popup.closed) {
+            clearInterval(interval);
+            const statusData = await invokeEdgeFunction<GitHubAuthStatus>('github-auth?action=check_status');
+            setGhConnected(!!statusData.connected);
+            if (statusData.hint) setGhUser(statusData.hint.replace('github:', ''));
+            setConnecting(false);
+            return;
+          }
+
+          const currentUrl = popup.location?.href;
+          if (currentUrl && currentUrl.includes('code=')) {
+            const urlParams = new URL(currentUrl).searchParams;
+            const code = urlParams.get('code');
+            popup.close();
+            clearInterval(interval);
+
+            if (code) {
+              const exchangeData = await invokeEdgeFunction<GitHubExchangeResponse>(
+                'github-auth?action=exchange_code',
+                { code },
+              );
+
+              if (exchangeData.success) {
+                setGhConnected(true);
+                setGhUser(exchangeData.github_user ?? '');
+                if (exchangeData.connection) {
+                  dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: exchangeData.connection as (typeof state.providerConnections)[number] });
+                }
+              } else {
+                setError(exchangeData.error || 'Failed to connect');
+              }
+            }
+            setConnecting(false);
+          }
+        } catch {
+          // Cross-origin during OAuth popup travel is expected; keep polling.
+        }
+      }, 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connection failed');
+      setConnecting(false);
+    }
+  };
+
+  const handleLoadRepos = async () => {
+    setLoadingRepos(true);
+    setError('');
+    try {
+      const data = await invokeEdgeFunction<GitHubReposResponse>('github-repos');
+      setRepos(data.repos || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load repos');
+    }
+    setLoadingRepos(false);
+  };
+
+  const handleSaveRepo = async () => {
+    if (!user || !state.workspace || !state.activeSession || !selectedRepo) return;
+    setSaving(true);
+    setError('');
+
+    const repo = repos.find(r => r.full_name === selectedRepo);
+    if (!repo) {
+      setSaving(false);
+      return;
+    }
+
+    try {
+      await persistActiveRepoConnection(repo);
+      setSelectedRepo('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     }
@@ -185,46 +259,25 @@ export default function RepoSection() {
   };
 
   const handleCreateRepo = async () => {
-    if (!user || !state.workspace || !newRepoName.trim()) return;
+    if (!user || !state.workspace || !state.activeSession || !newRepoName.trim()) return;
     setCreatingRepo(true);
     setError('');
     try {
-      const token = await getAuthToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/github-create-repo`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newRepoName.trim(), private: newRepoPrivate }),
+      const data = await invokeEdgeFunction<GitHubCreateRepoResponse>('github-create-repo', {
+        name: newRepoName.trim(),
+        private: newRepoPrivate,
       });
-      const data = await res.json();
-      if (!res.ok || !data.repo) {
-        setError(data.error || 'Failed to create repo');
+
+      if (!data.repo) {
+        setError('Failed to create repo');
         setCreatingRepo(false);
         return;
       }
 
-      // Persist as the active repo connection for this workspace
-      const { data: raw } = await supabase
-        .from('repo_connections')
-        .insert({
-          workspace_id: state.workspace.id,
-          user_id: user.id,
-          provider: 'github',
-          owner: data.repo.owner,
-          repo: data.repo.name,
-          default_branch: data.repo.default_branch,
-          scoped_paths: [],
-          is_active: true,
-        } as never)
-        .select()
-        .maybeSingle();
-
-      const conn = raw as RepoConnection | null;
-      if (conn) {
-        dispatch({ type: 'UPSERT_REPO_CONNECTION', payload: conn });
-      }
-
+      await persistActiveRepoConnection(data.repo);
       setNewRepoName('');
       setShowCreate(false);
+      setSelectedRepo('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create repo');
     }
@@ -540,3 +593,8 @@ export default function RepoSection() {
     </div>
   );
 }
+
+
+
+
+

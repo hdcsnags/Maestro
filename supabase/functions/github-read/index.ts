@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -34,26 +34,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "github-read");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient: supabase, userId } = auth;
 
     const body: ReadRequest = await req.json();
     const { action, repo_connection_id, path, ref, recursive } = body;
@@ -62,7 +48,7 @@ Deno.serve(async (req: Request) => {
       .from("repo_connections")
       .select("*")
       .eq("id", repo_connection_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (!repoConn) {
@@ -75,7 +61,7 @@ Deno.serve(async (req: Request) => {
     const { data: secret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "github")
       .maybeSingle();
 
@@ -154,3 +140,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
+
+
+
+

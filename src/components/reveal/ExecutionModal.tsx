@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
 import { ExecutionRun, ApprovalRequest, ApprovalFileEntry, FileManifestEntry } from '../../types';
 import { X, GitBranch, GitMerge, Loader2, ExternalLink, AlertTriangle, Check } from 'lucide-react';
@@ -118,34 +119,25 @@ export default function ExecutionModal() {
       file_manifest: r.file_manifest ?? [],
     }));
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData.session?.access_token;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
-    const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mode: strategy,
-        repo_connection_id: activeRepo!.id,
-        execution_run_id: runId,
-        approval_request_id: approvalRequestId,
-        session_id: state.activeSession?.id,
-        patches,
-        conductor_approved: conductorOverride,
-        synthesis_content: latestSynthesis?.content,
-        commit_message: `[Maestro] Round ${latestRound?.round_number ?? 0} — ${strategy === 'per_agent' ? 'Society of Mind' : 'Synthesized'}`,
-      }),
+    const result = await invokeEdgeFunction<{ result?: ExecutionRun['result']; error?: string }>('github-execute', {
+      mode: strategy,
+      repo_connection_id: activeRepo!.id,
+      execution_run_id: runId,
+      approval_request_id: approvalRequestId,
+      session_id: state.activeSession?.id,
+      patches,
+      conductor_approved: conductorOverride,
+      synthesis_content: latestSynthesis?.content,
+      commit_message: `[Maestro] Round ${latestRound?.round_number ?? 0} - ${strategy === 'per_agent' ? 'Society of Mind' : 'Synthesized'}`, 
     });
 
-    const result = await res.json();
-    if (!res.ok) throw new Error(result.error || 'Execution failed');
+    const executionResult = (result.result ?? {}) as Record<string, unknown> & { prs?: string[] };
 
     const updatedRun = {
       ...(state.executionRuns.find(r => r.id === runId) as ExecutionRun),
       status: 'complete' as const,
-      result: result.result,
-      pr_url: result.result?.prs?.[0] ?? '',
+      result: executionResult,
+      pr_url: executionResult.prs?.[0] ?? '',
     };
     dispatch({ type: 'UPDATE_EXECUTION_RUN', payload: { ...updatedRun, id: runId } });
     setCompletedRun(updatedRun);
@@ -682,3 +674,9 @@ function StrategyButton({ active, icon, label, desc, onClick }: {
     </button>
   );
 }
+
+
+
+
+
+

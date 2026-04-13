@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { PROVIDER_REGISTRY, ProviderConnection, PROVIDER_COLORS } from '../../types';
-import { supabase } from '../../lib/supabase';
 import { Eye, EyeOff, Check, Loader2, Trash2, Database } from 'lucide-react';
 import RepoSection from './RepoSection';
 
@@ -28,31 +28,17 @@ export default function VaultDrawer() {
     setError('');
 
     const registry = PROVIDER_REGISTRY.find(p => p.id === providerId);
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/vault?action=save_key`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          provider: providerId,
-          display_name: registry?.name ?? providerId,
-          api_key: keyInput.trim(),
-          models: registry?.models ?? [],
-        }),
+      const data = await invokeEdgeFunction<{ connection?: ProviderConnection; error?: string }>('vault?action=save_key', {
+        provider: providerId,
+        display_name: registry?.name ?? providerId,
+        api_key: keyInput.trim(),
+        models: registry?.models ?? [],
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save key');
-
       if (data.connection) {
-        dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: data.connection as ProviderConnection });
+        dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: data.connection });
       }
 
       setEditingProvider(null);
@@ -70,26 +56,14 @@ export default function VaultDrawer() {
     setRemoving(providerId);
     setError('');
 
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/vault?action=remove_key`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ provider: providerId }),
+      const data = await invokeEdgeFunction<{ connection?: ProviderConnection; error?: string }>('vault?action=remove_key', {
+        provider: providerId,
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to remove key');
-
       if (data.connection) {
-        dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: data.connection as ProviderConnection });
+        dispatch({ type: 'UPSERT_PROVIDER_CONNECTION', payload: data.connection });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove key');
@@ -290,29 +264,19 @@ function SupabaseSection() {
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState('');
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
   // Check if Supabase project credentials are already stored
-  useState(() => {
-    (async () => {
+  useEffect(() => {
+    void (async () => {
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData.session?.access_token;
-        if (!token) { setChecking(false); return; }
-
-        // Check if supabase_project_url secret exists
-        const res = await fetch(`${supabaseUrl}/functions/v1/vault?action=list`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
+        const data = await invokeEdgeFunction<{ connections?: ProviderConnection[] }>('vault?action=list');
         const connections = data.connections ?? [];
-        const hasSupabaseUrl = connections.some((c: ProviderConnection) => c.provider === 'supabase_project_url' && c.is_connected);
-        const hasServiceKey = connections.some((c: ProviderConnection) => c.provider === 'supabase_service_role_key' && c.is_connected);
+        const hasSupabaseUrl = connections.some(c => c.provider === 'supabase_project_url' && c.is_connected);
+        const hasServiceKey = connections.some(c => c.provider === 'supabase_service_role_key' && c.is_connected);
         setConnected(hasSupabaseUrl && hasServiceKey);
       } catch { /* ignore */ }
       setChecking(false);
     })();
-  });
+  }, []);
 
   const handleSave = async () => {
     if (!user) return;
@@ -320,37 +284,22 @@ function SupabaseSection() {
     setError('');
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-
-      // Save project URL
       if (projectUrl.trim()) {
-        const res1 = await fetch(`${supabaseUrl}/functions/v1/vault?action=save_key`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: 'supabase_project_url',
-            display_name: 'Supabase Project URL',
-            api_key: projectUrl.trim(),
-            models: [],
-          }),
+        await invokeEdgeFunction('vault?action=save_key', {
+          provider: 'supabase_project_url',
+          display_name: 'Supabase Project URL',
+          api_key: projectUrl.trim(),
+          models: [],
         });
-        if (!res1.ok) throw new Error('Failed to save project URL');
       }
 
-      // Save service role key
       if (serviceRoleKey.trim()) {
-        const res2 = await fetch(`${supabaseUrl}/functions/v1/vault?action=save_key`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: 'supabase_service_role_key',
-            display_name: 'Supabase Service Role Key',
-            api_key: serviceRoleKey.trim(),
-            models: [],
-          }),
+        await invokeEdgeFunction('vault?action=save_key', {
+          provider: 'supabase_service_role_key',
+          display_name: 'Supabase Service Role Key',
+          api_key: serviceRoleKey.trim(),
+          models: [],
         });
-        if (!res2.ok) throw new Error('Failed to save service role key');
       }
 
       setConnected(true);
@@ -475,3 +424,9 @@ function SupabaseSection() {
     </div>
   );
 }
+
+
+
+
+
+

@@ -1,23 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
-/**
- * github-create-repo
- *
- * Creates a new repository on the user's GitHub account using their stored
- * PAT, then immediately seeds it with a single README so the default
- * branch exists and can be cloned/PR'd against. Returns the parsed repo
- * shape the client uses elsewhere (full_name, owner, name, default_branch).
- *
- * Body: { name: string, description?: string, private?: boolean }
- *
- * Auth: same pattern as github-repos. Verifies the caller via
- * supabase.auth.getUser(token), then loads their PAT from
- * encrypted_secrets where provider='github'.
- *
- * Deploy:  npx supabase functions deploy github-create-repo --no-verify-jwt
- */
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -30,26 +13,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "github-create-repo");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient: supabase, userId } = auth;
 
     const body = await req.json().catch(() => ({}));
     const repoName = (body.name ?? "").trim();
@@ -66,7 +35,7 @@ Deno.serve(async (req: Request) => {
     const { data: secret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "github")
       .maybeSingle();
 
@@ -128,3 +97,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
+
+
+
+

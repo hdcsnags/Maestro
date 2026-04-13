@@ -49,6 +49,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Build UI | `src/components/reveal/BuildWorkspace.tsx` |
 | Pre-Build UI | `src/components/reveal/PreBuildPanel.tsx` |
 | Design UI | `src/components/reveal/DesignPhase.tsx` |
+| Design role metadata | `src/lib/designRoles.ts` |
 | Agent picker | `src/components/reveal/OrchestraDrawer.tsx` |
 | Prompt input | `src/components/reveal/RevealComposer.tsx` |`r`n| Frontend edge invoke helper | `src/lib/functions.ts` |`r`n| Shared edge auth helper | `supabase/functions/_shared/auth.ts` |`r`n| Edge function config | `supabase/config.toml` |
 | Edge functions | `supabase/functions/*/index.ts` |
@@ -133,7 +134,7 @@ Legacy (unused): agent_skills, flags
 | Frontend protected edge-function callers migrated to `supabase.functions.invoke(...)` | 2026-04-12 (`npm run typecheck`) |
 | Multi-provider agent orchestration path exists in code (Anthropic/OpenAI/Google/OpenRouter) | 2026-04-12 (code verified) |
 | Concierge triage + concierge synthesis flow exists in code | 2026-04-12 (code verified) |
-| Design phase with multi-lane HTML mockup generation path exists in code | 2026-04-12 (code verified) |
+| Design phase with full-screen carousel UX, tiered roles (Lite/Standard/Exploration), skip-to-build path | 2026-04-14 (code verified) |
 | Pre-Build flow exists in code (intake, Architect.md, build spec lock, lane assignment) | 2026-04-12 (code verified) |
 | Build phase broadcast + response review UI exists in code | 2026-04-12 (code verified) |
 | Execute Build with patches wired in BuildWorkspace.tsx | 2026-04-12 |
@@ -146,6 +147,8 @@ Legacy (unused): agent_skills, flags
 | Scope enforcement: out-of-scope files skipped with reason logged | 2026-04-12 (code verified) |
 | Truncation guard: regex catches lazy `// ... existing code` stubs | 2026-04-12 (code verified) |
 | Ask/Build session mode split — mode picker on home screen, composer tab gating, concierge Convert to Build, session dropdown indicator | 2026-04-12 (`npm run typecheck`) |
+| New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
+| BuildWorkspace restores persisted build state before auto-planning and explains blocked builder responses in review | 2026-04-13 (code verified, `npm run typecheck`) |
 
 ## What's Broken or Incomplete
 
@@ -186,6 +189,39 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-14 — Claude Code (Opus 4.6)
+
+**What was done**: Rewrote DesignPhase.tsx from a cramped side-by-side grid into a full-screen carousel/book-style UX. Each designer gets a dedicated full-viewport slide with an iframe preview that fills the available space. Navigation via arrow buttons, keyboard arrows, and role pills across the top. Created `src/lib/designRoles.ts` as a single source of truth for role → color/label/description mapping. Skip-to-Build button preserved. Accept Design / Flag for Merge / Merge actions in a bottom action bar. Rationale shown as a collapsed one-liner in the footer with full text on hover.
+
+**Files touched**: `src/components/reveal/DesignPhase.tsx` (rewritten), `src/lib/designRoles.ts` (created), `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Full-screen overlay (`fixed inset-0`) instead of a constrained modal — mockups need real estate to be usable.
+- Carousel pattern (one slide at a time) instead of grid — even 2 designers side-by-side was too cramped for website mockup previews.
+- Role metadata extracted to `src/lib/designRoles.ts` so both DesignPhase and future components (Pre-Build context display) can reference the same colors/labels.
+- Kept all existing HTML extraction helpers (extractHtml pipeline) — they handle the fenced JSON / nested html_content / escaped HTML edge cases from various model outputs.
+- Bottom bar shows rationale as truncated one-liner (full on hover) instead of a scrollable section — keeps the preview maximized.
+
+**What didn't work**: N/A — implementation is a visual rewrite, functional logic preserved.
+
+---
+
+### 2026-04-13 — OpenAI Codex
+
+**What was done**: Fixed the new-app repo carryover path and tightened BuildWorkspace refresh recovery. New sessions no longer inherit the previously active repo, repo binding now happens explicitly through RepoSection into `sessions.github_repo`, Pre-Build no longer backfills `github_repo` from global repo state, and BuildWorkspace now restores persisted build state before auto-planning. Also added clearer blocked-response guidance in the review UI and re-ran `npm run typecheck` cleanly.
+
+**Files touched**: `src/hooks/useWorkspace.ts`, `src/components/reveal/RepoSection.tsx`, `src/components/reveal/PreBuildPanel.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treated `sessions.github_repo` as the session source of truth and derived `activeRepoConnection` from it instead of auto-seeding new sessions from the last active repo.
+- Made repo selection/create flows explicitly bind the chosen repo to the active session and clear prior workspace-active repo flags before marking the new one active.
+- Tightened BuildWorkspace hydration so persisted build rounds / completed execution runs are restored before concierge auto-plan runs; left runtime validation for a follow-up smoke test instead of claiming the UX bug resolved from code alone.
+- Logged only code-verified outcomes in Part 2 and left runtime build-flow claims unchanged.
+
+**What didn't work**: An interrupted edit left `BuildWorkspace.tsx` and the MAESTRO_STATE lock row partially malformed; both were repaired before the final clean `npm run typecheck`.
+
+---
+
 ### 2026-04-12 — Claude Code (Opus 4.6)
 
 **What was done**: Implemented Ask/Build session mode split. Added `mode` column to sessions table (migration), two-door mode picker on EmptyStage home screen, composer tab gating (Ask mode hides Build/Artifact tabs), concierge "Convert to Build" button after 2+ rounds in Ask mode, session dropdown mode indicator, and Ask mode guard on phase advancement.
@@ -219,6 +255,7 @@ These areas change often and should be re-verified after any significant work se
 **What didn't work**: The first live smoke hit older deployed code until the functions were redeployed; a few regex-based frontend edits also needed manual cleanup before `npm run typecheck` passed.
 
 ---
+
 ### 2026-04-12 — Claude Code (Opus 4.6)
 
 **What was done**: Wired patches into BuildWorkspace.tsx handleExecute so Execute Build sends approved agent responses as patches[] to github-execute. Previously the frontend never sent patches, causing a NO_PATCHES 400 every time.
@@ -309,6 +346,8 @@ These areas change often and should be re-verified after any significant work se
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
+
 
 
 

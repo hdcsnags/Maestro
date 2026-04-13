@@ -1,11 +1,6 @@
-// Sprint B · B6 — Bouncer edge function (shell)
-// Reviews build output for security/code-quality issues. Sprint B is a
-// shell — receives a file list, sends a prompt to Opus, persists findings.
-// Sprint C upgrades this to read actual file diffs from GitHub.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -113,29 +108,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "bouncer");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const adminClient = createClient(supabaseUrl, serviceKey);
-
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    const { adminClient, userId } = auth;
 
     const body: BouncerRequest = await req.json();
     if (!body.session_id || !body.trigger) {
@@ -145,7 +123,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const apiKey = await getUserApiKey(adminClient, user.id, "anthropic");
+    const apiKey = await getUserApiKey(adminClient, userId, "anthropic");
     if (!apiKey) {
       return new Response(
         JSON.stringify({
@@ -225,3 +203,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+
+
+

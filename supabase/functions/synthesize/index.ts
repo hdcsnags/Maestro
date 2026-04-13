@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -9,6 +9,11 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  const auth = await requireAuthenticatedRequest(req, corsHeaders, "synthesize");
+  if (auth instanceof Response) {
+    return auth;
   }
 
   try {
@@ -67,3 +72,5 @@ Focus on what should actually be built or decided, not meta-commentary about the
     );
   }
 });
+
+

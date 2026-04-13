@@ -1,0 +1,43 @@
+project_id = "maestro"
+
+[functions.architect]
+verify_jwt = false
+
+[functions.bouncer]
+verify_jwt = false
+
+[functions.concierge]
+verify_jwt = false
+
+[functions."concierge-triage"]
+verify_jwt = false
+
+[functions.design]
+verify_jwt = false
+
+[functions."github-auth"]
+verify_jwt = false
+
+[functions."github-create-repo"]
+verify_jwt = false
+
+[functions."github-execute"]
+verify_jwt = false
+
+[functions."github-read"]
+verify_jwt = false
+
+[functions."github-repos"]
+verify_jwt = false
+
+[functions.intake]
+verify_jwt = false
+
+[functions.orchestrate]
+verify_jwt = false
+
+[functions.synthesize]
+verify_jwt = false
+
+[functions.vault]
+verify_jwt = false

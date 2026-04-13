@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
 import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
 import {
@@ -83,12 +84,6 @@ export default function PreBuildPanel() {
   const [laneError, setLaneError] = useState('');
   const [locking, setLocking] = useState(false);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
-  const getToken = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? '';
-  }, []);
 
   useEffect(() => {
     const session = state.activeSession;
@@ -115,23 +110,16 @@ export default function PreBuildPanel() {
 
   useEffect(() => {
     const session = state.activeSession;
-    if (!session) return;
+    if (!session || session.project_type === projectType) return;
 
-    const githubRepo = state.activeRepoConnection
-      ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}`
-      : session.github_repo;
-
-    const patch: { project_type?: ProjectType; github_repo?: string } = {};
-    if (session.project_type !== projectType) patch.project_type = projectType;
-    if (githubRepo && session.github_repo !== githubRepo) patch.github_repo = githubRepo;
-    if (Object.keys(patch).length === 0) return;
+    const patch: { project_type?: ProjectType } = { project_type: projectType };
 
     void supabase
       .from('sessions')
       .update(patch as never)
       .eq('id', session.id);
     dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: patch });
-  }, [state.activeSession, state.activeRepoConnection, projectType, dispatch]);
+  }, [state.activeSession, projectType, dispatch]);
 
   /* ── B5: Lane assignment helpers ──────────────────────────── */
   const ROLE_OPTIONS: { value: BuildLaneRole; label: string }[] = [
@@ -272,29 +260,16 @@ export default function PreBuildPanel() {
     setScanResult(null);
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/intake`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: state.activeSession.id,
-          repo_connection_id: state.activeRepoConnection.id,
-        }),
+      const data = await invokeEdgeFunction<{ intake_summary?: IntakeSummary; error?: string }>('intake', {
+        session_id: state.activeSession.id,
+        repo_connection_id: state.activeRepoConnection.id,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        const code = data.error ?? '';
-        if (code === 'ANTHROPIC_KEY_MISSING') {
-          throw new Error('Add an Anthropic API key in the Vault first.');
-        }
-        throw new Error(data.message || `Scan failed (${res.status})`);
+      if (data.error === 'ANTHROPIC_KEY_MISSING') {
+        throw new Error('Add an Anthropic API key in the Vault first.');
       }
 
-      setScanResult(data.intake_summary as IntakeSummary);
+      setScanResult((data.intake_summary ?? null) as IntakeSummary | null);
 
       // Refresh session in context with updated build_spec
       if (state.activeSession) {
@@ -313,7 +288,7 @@ export default function PreBuildPanel() {
     } finally {
       setScanning(false);
     }
-  }, [state.activeSession, state.activeRepoConnection, getToken, supabaseUrl, dispatch]);
+  }, [state.activeSession, state.activeRepoConnection, dispatch]);
 
   /* ── B7: Architect generation ────────────────────────────── */
   const handleGenerate = useCallback(async () => {
@@ -323,28 +298,20 @@ export default function PreBuildPanel() {
     setArchitectMd(null);
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/architect`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: state.activeSession.id,
-        }),
+      const data = await invokeEdgeFunction<{
+        architect_md?: string;
+        build_spec_locked?: boolean;
+        lanes_assigned?: boolean;
+        error?: string;
+      }>('architect', {
+        session_id: state.activeSession.id,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        const code = data.error ?? '';
-        if (code === 'ANTHROPIC_KEY_MISSING') {
-          throw new Error('Add an Anthropic API key in the Vault first.');
-        }
-        throw new Error(data.message || `Generation failed (${res.status})`);
+      if (data.error === 'ANTHROPIC_KEY_MISSING') {
+        throw new Error('Add an Anthropic API key in the Vault first.');
       }
 
-      setArchitectMd(data.architect_md as string);
+      setArchitectMd(data.architect_md ?? null);
 
       // C1: architect now auto-assigns lanes and locks build_spec
       const autoLocked = data.build_spec_locked === true;
@@ -371,7 +338,7 @@ export default function PreBuildPanel() {
     } finally {
       setGenerating(false);
     }
-  }, [state.activeSession, getToken, supabaseUrl, dispatch]);
+  }, [state.activeSession, dispatch]);
 
   const handleCopyArchitect = useCallback(() => {
     if (!architectMd) return;
@@ -1089,3 +1056,8 @@ function IntakeSummaryCard({ summary }: { summary: IntakeSummary }) {
     </div>
   );
 }
+
+
+
+
+

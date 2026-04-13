@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,29 +15,13 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "vault");
+    if (auth instanceof Response) {
+      return auth;
     }
 
+    const { adminClient, userClient: supabase, userId } = auth;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
@@ -45,7 +30,7 @@ Deno.serve(async (req: Request) => {
       const { data: connections } = await supabase
         .from("provider_connections")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
 
       return new Response(JSON.stringify({ connections: connections ?? [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -66,13 +51,10 @@ Deno.serve(async (req: Request) => {
       const keyHint =
         api_key.substring(0, 4) + "..." + api_key.substring(api_key.length - 4);
 
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const adminClient = createClient(supabaseUrl, serviceKey);
-
       const { data: existingSecret } = await adminClient
         .from("encrypted_secrets")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("provider", provider)
         .maybeSingle();
 
@@ -87,7 +69,7 @@ Deno.serve(async (req: Request) => {
           .eq("id", existingSecret.id);
       } else {
         await adminClient.from("encrypted_secrets").insert({
-          user_id: user.id,
+          user_id: userId,
           provider,
           encrypted_key: api_key,
           key_hint: keyHint,
@@ -97,7 +79,7 @@ Deno.serve(async (req: Request) => {
       const { data: existingConn } = await supabase
         .from("provider_connections")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("provider", provider)
         .maybeSingle();
 
@@ -119,7 +101,7 @@ Deno.serve(async (req: Request) => {
         const { data } = await supabase
           .from("provider_connections")
           .insert({
-            user_id: user.id,
+            user_id: userId,
             provider,
             display_name: display_name || provider,
             is_connected: true,
@@ -140,25 +122,22 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const { provider } = body;
 
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      const adminClient = createClient(supabaseUrl, serviceKey);
-
       await adminClient
         .from("encrypted_secrets")
         .delete()
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("provider", provider);
 
       await supabase
         .from("provider_connections")
         .update({ is_connected: false, updated_at: new Date().toISOString() })
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("provider", provider);
 
       const { data: updatedConn } = await supabase
         .from("provider_connections")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("provider", provider)
         .maybeSingle();
 

@@ -1,11 +1,6 @@
-// Sprint B · B3 — Design phase edge function
-// Runs the active designer lanes for the requested design_mode in parallel,
-// each producing a self-contained HTML mockup + rationale + tradeoffs.
-// Persists one design_artifacts row per lane.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -348,29 +343,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "design");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const adminClient = createClient(supabaseUrl, serviceKey);
-
-    const { data: { user } } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    const { adminClient, userId } = auth;
 
     const body: DesignRequest = await req.json();
     if (!body.session_id || !body.design_mode || !body.brief) {
@@ -390,7 +368,7 @@ Deno.serve(async (req: Request) => {
     const lanes = activeRoles.map((r) => DESIGNER_LANES[r]);
 
     const artifacts = await Promise.all(
-      lanes.map((lane) => runLane(lane, body.brief, adminClient, user.id)),
+      lanes.map((lane) => runLane(lane, body.brief, adminClient, userId)),
     );
 
     // Persist successful artifacts
@@ -432,3 +410,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+
+
+

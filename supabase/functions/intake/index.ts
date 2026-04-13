@@ -1,10 +1,6 @@
-// Sprint A · B6 — Intake scan edge function
-// Reads a repo's surface (tree + key files), runs claude-sonnet-4-6 to
-// produce an IntakeSummary, persists into sessions.build_spec.intake_summary.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -149,26 +145,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "intake");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient: supabase, userId } = auth;
 
     const body: IntakeRequest = await req.json();
     if (!body.session_id || !body.repo_connection_id) {
@@ -182,7 +164,7 @@ Deno.serve(async (req: Request) => {
       .from("repo_connections")
       .select("*")
       .eq("id", body.repo_connection_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
     if (!repoConn) {
       return new Response(JSON.stringify({ error: "Repo connection not found" }), {
@@ -194,7 +176,7 @@ Deno.serve(async (req: Request) => {
     const { data: ghSecret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "github")
       .maybeSingle();
     if (!ghSecret) {
@@ -207,7 +189,7 @@ Deno.serve(async (req: Request) => {
     const { data: anthropicSecret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "anthropic")
       .maybeSingle();
     if (!anthropicSecret) {
@@ -328,3 +310,8 @@ ${keyFilesText || "(none of README/package.json/requirements/pyproject/Cargo/go.
     );
   }
 });
+
+
+
+
+

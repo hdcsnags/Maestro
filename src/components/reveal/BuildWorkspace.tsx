@@ -2,8 +2,9 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
-import type { BuildLaneRole, SessionPhase, Response } from '../../types';
+import type { BuildLaneRole, BuildPlan, SessionPhase, Response } from '../../types';
 import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
@@ -128,6 +129,7 @@ export default function BuildWorkspace() {
   const [buildRoundId, setBuildRoundId] = useState<string | null>(null);
   const [approvedResponseIds, setApprovedResponseIds] = useState<Set<string>>(new Set());
   const [broadcastMsgIdx, setBroadcastMsgIdx] = useState(0);
+  const [stageHydrated, setStageHydrated] = useState(false);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const preparingTriggered = useRef(false);
 
@@ -160,12 +162,24 @@ export default function BuildWorkspace() {
   const [bouncerError, setBouncerError] = useState('');
   const [findingsExpanded, setFindingsExpanded] = useState(true);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-
-  const getToken = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? '';
-  }, []);
+  useEffect(() => {
+    if (!session || !isVisible) return;
+    preparingTriggered.current = false;
+    setStage('preparing');
+    setStageHydrated(false);
+    setBuildRoundId(null);
+    setApprovedResponseIds(new Set());
+    setError('');
+    setWrittenFiles([]);
+    setSkippedFiles([]);
+    setPrUrls([]);
+    setCollisionCount(0);
+    setHandoffs([]);
+    setBackupBranch('');
+    setBouncerResult(null);
+    setBouncerError('');
+    setBouncerLoading(false);
+  }, [session?.id, isVisible]);
 
   const normalizedBuildPlan: NormalizedBuildPlan | null = useMemo(() => {
     if (!state.buildPlan) return null;
@@ -182,6 +196,10 @@ export default function BuildWorkspace() {
         : [],
     };
   }, [state.buildPlan]);
+
+  const sessionRounds = useMemo(() => (
+    session ? state.rounds.filter(round => round.session_id === session.id) : []
+  ), [session, state.rounds]);
 
   const resolveBuilderAgentIds = useCallback((plan: NormalizedBuildPlan | null) => {
     const ids = new Set<string>();
@@ -298,27 +316,61 @@ export default function BuildWorkspace() {
       });
   }, [session, isVisible]);
 
+  // Restore persisted build state before triggering a fresh concierge plan.
+  useEffect(() => {
+    if (!session || !isVisible || stageHydrated) return;
+
+    const latestRun = state.executionRuns
+      .filter(run => run.session_id === session.id)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+    if (latestRun?.status === 'complete' && latestRun.result) {
+      preparingTriggered.current = true;
+      setStageHydrated(true);
+      setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
+      return;
+    }
+
+    const buildRound = [...sessionRounds].reverse().find(round => {
+      const roundResponses = state.responses.filter(response => response.round_id === round.id);
+      if (roundResponses.some(hasWriteManifest)) return true;
+      if (resolvedBuilderAgentIds.length === 0) return false;
+      return round.target_agents.some(agentId => resolvedBuilderAgentIds.includes(agentId));
+    });
+
+    if (buildRound) {
+      const roundResponses = state.responses.filter(response => response.round_id === buildRound.id);
+      setBuildRoundId(buildRound.id);
+      if (roundResponses.length > 0) {
+        setApprovedResponseIds(new Set(roundResponses.filter(hasExecutableManifest).map(response => response.id)));
+        setStage('reviewing');
+      } else {
+        setStage('broadcasting');
+      }
+      preparingTriggered.current = true;
+      setStageHydrated(true);
+      return;
+    }
+
+    if (normalizedBuildPlan) {
+      preparingTriggered.current = true;
+      setStage('plan_review');
+      setStageHydrated(true);
+      return;
+    }
+
+    setStage('preparing');
+    setStageHydrated(true);
+  }, [session, isVisible, stageHydrated, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds]);
+
   // Sprint C · F2 — Auto-call concierge on build phase entry
   useEffect(() => {
-    if (!session || !isVisible || stage !== 'preparing' || preparingTriggered.current) return;
+    if (!session || !isVisible || !stageHydrated || stage !== 'preparing' || preparingTriggered.current) return;
     preparingTriggered.current = true;
 
     (async () => {
       try {
-        const token = await getToken();
-        const res = await fetch(`${supabaseUrl}/functions/v1/concierge`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ session_id: session.id, phase: 'pre_build_complete' }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ message: 'Concierge request failed' }));
-          console.warn('Concierge build plan failed:', err);
-          setError(err.message || err.error || 'Concierge could not prepare a build plan. Return to Pre-Build and regenerate Architect.md.');
-          setStage('plan_review');
-          return;
-        }
-        const plan = await res.json();
+        const plan = await invokeEdgeFunction<BuildPlan>('concierge', { session_id: session.id, phase: 'pre_build_complete' });
         dispatch({ type: 'SET_BUILD_PLAN', payload: plan });
         setStage('plan_review');
       } catch (err) {
@@ -327,8 +379,7 @@ export default function BuildWorkspace() {
         setStage('plan_review');
       }
     })();
-  }, [session, isVisible, stage, supabaseUrl, getToken, dispatch]);
-
+  }, [session, isVisible, stage, stageHydrated, dispatch]);
   // Approve build plan and start broadcasting
   const handleApprovePlan = useCallback(async () => {
     const buildPlan = normalizedBuildPlan;
@@ -391,33 +442,17 @@ export default function BuildWorkspace() {
     buildRoundId
       ? state.responses.filter(r =>
         r.round_id === buildRoundId
-        && resolvedBuilderAgentIds.length > 0
         && !!r.agent_id
-        && resolvedBuilderAgentIds.includes(r.agent_id)
+        && (resolvedBuilderAgentIds.length === 0 || resolvedBuilderAgentIds.includes(r.agent_id))
       )
       : []
   ), [buildRoundId, state.responses, resolvedBuilderAgentIds]);
 
-  // Auto-detect if we already have build responses (e.g. page reload)
-  useEffect(() => {
-    if (!session || !isVisible || (stage !== 'broadcast' && stage !== 'preparing')) return;
-    // If there are rounds for this session, check if the latest one looks like a build broadcast
-    const sessionRounds = state.rounds.filter(r => r.session_id === session.id);
-    const lastRound = sessionRounds[sessionRounds.length - 1];
-    if (lastRound) {
-      const roundResponses = state.responses.filter(r => r.round_id === lastRound.id);
-      if (roundResponses.length > 0) {
-        setBuildRoundId(lastRound.id);
-        const eligibleResponses = resolvedBuilderAgentIds.length > 0
-          ? roundResponses.filter(r => r.agent_id && resolvedBuilderAgentIds.includes(r.agent_id))
-          : [];
-        if (eligibleResponses.length > 0) {
-          setApprovedResponseIds(new Set(eligibleResponses.filter(hasExecutableManifest).map(r => r.id)));
-          setStage('reviewing');
-        }
-      }
-    }
-  }, [session, isVisible, resolvedBuilderAgentIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  const executableResponseCount = useMemo(
+    () => buildResponses.filter(hasExecutableManifest).length,
+    [buildResponses],
+  );
+  const blockedResponseCount = buildResponses.length - executableResponseCount;
 
   // When broadcasting, detect the new round created by broadcast()
   useEffect(() => {
@@ -463,8 +498,6 @@ export default function BuildWorkspace() {
         throw new Error('No active GitHub repo is connected. Pick or create a repo before executing the build.');
       }
 
-      const token = await getToken();
-
       // Create execution run
       const { data: runData, error: runErr } = await supabase
         .from('execution_runs')
@@ -493,9 +526,8 @@ export default function BuildWorkspace() {
       // NO_PATCHES because nothing else in the pipeline forwards them.
       const approved = buildResponses.filter(r =>
         approvedResponseIds.has(r.id)
-        && resolvedBuilderAgentIds.length > 0
         && !!r.agent_id
-        && resolvedBuilderAgentIds.includes(r.agent_id)
+        && (resolvedBuilderAgentIds.length === 0 || resolvedBuilderAgentIds.includes(r.agent_id))
       );
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
@@ -517,35 +549,31 @@ export default function BuildWorkspace() {
           conductor_approved: false,
           file_manifest: r.file_manifest ?? [],
         };
+      });      const data = await invokeEdgeFunction<{
+        success?: boolean;
+        result?: Record<string, unknown>;
+        error?: string;
+        message?: string;
+      }>('github-execute', {
+        mode: state.executionStrategy,
+        repo_connection_id: state.activeRepoConnection.id,
+        execution_run_id: run.id,
+        session_id: session.id,
+        execution_mode: state.executionMode,
+        patches,
       });
 
-      // Call github-execute
-      const res = await fetch(`${supabaseUrl}/functions/v1/github-execute`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: state.executionStrategy,
-          repo_connection_id: state.activeRepoConnection.id,
-          execution_run_id: run.id,
-          session_id: session.id,
-          execution_mode: state.executionMode,
-          patches,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        const code = data.error ?? '';
-        if (code === 'BUILD_SPEC_NOT_LOCKED') throw new Error('Build spec must be locked first. Go back to Pre-Build.');
-        if (code === 'LANES_NOT_ASSIGNED') throw new Error(data.message || 'Lane assignments required before build.');
-        throw new Error(data.message || data.error || `Execute failed (${res.status})`);
-      }
-
-      const result = data.result ?? data;
+      const result = (data.result ?? data) as Record<string, unknown> & {
+        status?: string;
+        blocked?: Array<{ agent?: string; reason?: string }>;
+        errors?: string[];
+        skipped_files?: Array<{ path?: string; reason?: string }>;
+        written_files?: string[];
+        prs?: string[];
+        collisions?: unknown[];
+        handoffs_requested?: Array<{ from_agent: string; path: string }>;
+        backup_branch?: string;
+      };
       if (data.success === false || result.status === 'failed') {
         const details = [
           ...(Array.isArray(result.blocked) ? result.blocked.map((b: { agent?: string; reason?: string }) => `${b.agent ?? 'agent'}: ${b.reason ?? 'blocked'}`) : []),
@@ -573,7 +601,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, supabaseUrl, getToken, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
+  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
@@ -590,25 +618,13 @@ export default function BuildWorkspace() {
     dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'bouncer' } });
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/bouncer`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: session.id,
-          trigger: 'end_of_build',
-          files: writtenFiles,
-        }),
+      const data = await invokeEdgeFunction<BouncerResult & { error?: string; message?: string }>('bouncer', {
+        session_id: session.id,
+        trigger: 'end_of_build',
+        files: writtenFiles,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.error === 'ANTHROPIC_KEY_MISSING') throw new Error('Add an Anthropic API key in the Vault to run bouncer review.');
-        throw new Error(data.message || data.error || 'Bouncer review failed');
-      }
+      if (data.error === 'ANTHROPIC_KEY_MISSING') throw new Error('Add an Anthropic API key in the Vault to run bouncer review.');
 
       setBouncerResult(data as BouncerResult);
       setStage('bouncer');
@@ -617,7 +633,7 @@ export default function BuildWorkspace() {
     } finally {
       setBouncerLoading(false);
     }
-  }, [session, writtenFiles, supabaseUrl, getToken, dispatch]);
+  }, [session, writtenFiles, dispatch]);
 
   /* ── Conductor decisions ─────────────────────────────────── */
   const handleConductorDecision = useCallback(async (decision: string) => {
@@ -895,6 +911,22 @@ export default function BuildWorkspace() {
               <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '12px' }}>
                 Builder Responses — select which to include in execution
               </div>
+              {(blockedResponseCount > 0 || executableResponseCount === 0) && (
+                <div style={{
+                  marginBottom: '12px',
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(224,90,90,0.18)',
+                  background: 'rgba(224,90,90,0.05)',
+                  color: 'var(--text-dim)',
+                  fontSize: '11px',
+                  lineHeight: 1.5,
+                }}>
+                  {executableResponseCount === 0
+                    ? 'No executable builder responses are ready yet. Maestro can show blocked drafts here, but execution stays disabled until at least one response includes a complete manifest.'
+                    : (blockedResponseCount + ' response' + (blockedResponseCount === 1 ? '' : 's') + ' are visible for review but blocked from execution until they include a complete manifest.')}
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {buildResponses.map(resp => {
                   const approved = approvedResponseIds.has(resp.id);
@@ -1346,3 +1378,14 @@ function StatChip({ label, value, color }: { label: string; value: number; color
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

@@ -1,13 +1,6 @@
-// Sprint A · B7 — Architect.md generation edge function
-// Reads concierge decisions + intake summary + build spec from the session,
-// asks claude-sonnet-4-6 to produce an ARCHITECT.md, persists into
-// sessions.architect_md, and returns the content for download.
-// Does NOT commit to git — github-execute enforces that ARCHITECT.md is
-// never written from a manifest.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-
+import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -173,26 +166,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "architect");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient: supabase, userId } = auth;
 
     const body: ArchitectRequest = await req.json();
     if (!body.session_id) {
@@ -219,7 +198,8 @@ Deno.serve(async (req: Request) => {
       .select("user_id")
       .eq("id", sessionRow.workspace_id)
       .maybeSingle();
-    if (!ws || ws.user_id !== user.id) {
+    if (!ws || ws.user_id !== userId) {
+      logPermissionFailure("architect", "workspace ownership mismatch", { session_id: body.session_id, user_id: userId, workspace_user_id: ws?.user_id ?? null });
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -229,7 +209,7 @@ Deno.serve(async (req: Request) => {
     const { data: anthropicSecret } = await supabase
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "anthropic")
       .maybeSingle();
     if (!anthropicSecret) {
@@ -404,3 +384,9 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     );
   }
 });
+
+
+
+
+
+

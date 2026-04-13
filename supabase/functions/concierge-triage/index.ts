@@ -1,9 +1,6 @@
-// Sprint C · C3 — Concierge Triage (pre-broadcast routing)
-// Fast classification: should this prompt go to the full orchestra or can
-// Concierge answer it directly? Uses Haiku 4.5 for speed + cost.
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -122,35 +119,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "No authorization header" }),
-        {
-          status: 401,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+    const auth = await requireAuthenticatedRequest(req, corsHeaders, "concierge-triage");
+    if (auth instanceof Response) {
+      return auth;
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const adminClient = createClient(supabaseUrl, serviceKey);
-
-    const {
-      data: { user },
-    } = await userClient.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { adminClient, userId } = auth;
 
     const body: TriageRequest = await req.json();
     if (!body.session_id || !body.prompt) {
@@ -163,7 +137,6 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Hard overrides — skip LLM call entirely
     const ctx = body.session_context ?? {
       current_phase: "analysis",
       round_count: 0,
@@ -189,16 +162,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Get Anthropic API key
     const { data: secret } = await adminClient
       .from("encrypted_secrets")
       .select("encrypted_key")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("provider", "anthropic")
       .maybeSingle();
 
     if (!secret) {
-      // No key — default to orchestra (don't block the user)
       return new Response(
         JSON.stringify({
           route: "orchestra",
@@ -239,7 +210,6 @@ Session context:
     );
 
     if (!anthropicResponse.ok) {
-      // LLM failed — default to orchestra
       return new Response(
         JSON.stringify({
           route: "orchestra",
@@ -271,7 +241,6 @@ Session context:
       );
     }
 
-    // Enforce confidence threshold
     if (result.route === "simple_ask" && result.confidence < 0.75) {
       result.route = "orchestra";
       result.reasoning += " (confidence below threshold, escalating to orchestra)";
