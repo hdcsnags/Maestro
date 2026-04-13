@@ -88,6 +88,45 @@ function buildUserMessage(req: ConciergeRequest): string {
   return lines.join("\n");
 }
 
+interface BuildLaneSummary {
+  agent_id: string | null;
+  agent_name: string;
+  lane_paths: string[];
+  role: string;
+}
+
+interface BuildPlanPayload {
+  build_prompt: string;
+  build_summary: string;
+  builder_agents: Array<{
+    agent_id: string;
+    agent_name: string;
+    scoped_paths: string[];
+    instruction: string;
+  }>;
+}
+
+function buildDeterministicBuildPlan(
+  projectTitle: string,
+  architectMd: string,
+  builders: BuildLaneSummary[],
+): BuildPlanPayload {
+  const laneSummary = builders
+    .map((builder) => `- ${builder.agent_name}: ${builder.lane_paths.join(", ") || "(lane paths unavailable)"}`)
+    .join("\n");
+
+  return {
+    build_prompt: `BUILD MODE — You are building ${projectTitle} as specified in the ARCHITECT.md below. Work only within your assigned lane paths, return JSON only, and include complete file contents in file_manifest entries. If you cannot finish all assigned files, set complete to false and provide a concise continuation_prompt.\n\nARCHITECT REFERENCE:\n${architectMd}\n\nBUILDER LANES:\n${laneSummary}`,
+    build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length === 1 ? "" : "s"}. Each builder is scoped to lane-specific paths and must return complete file contents in file_manifest entries for conductor review before execution.`,
+    builder_agents: builders.map((builder) => ({
+      agent_id: builder.agent_id ?? "",
+      agent_name: builder.agent_name,
+      scoped_paths: builder.lane_paths,
+      instruction: `Build only the files in: ${builder.lane_paths.join(", ") || "your assigned lane paths"}`,
+    })),
+  };
+}
+
 const CLASSIFY_SYSTEM_PROMPT = `You classify a user's request into a routing intent so Maestro can pick the right next phase.
 
 Return JSON only:
@@ -221,7 +260,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const apiKey = await getUserApiKey(adminClient, userId, "anthropic");
-    if (!apiKey) {
+    if (!apiKey && body.phase !== "pre_build_complete") {
       // Fail loud — no silent provider fallback. User must add an Anthropic key.
       return new Response(
         JSON.stringify({
@@ -250,13 +289,7 @@ Deno.serve(async (req: Request) => {
         .select("agent_id, agent_name, lane_paths, role")
         .eq("session_id", body.session_id);
 
-      const lanes = (laneData ?? []) as Array<{
-        agent_id: string | null;
-        agent_name: string;
-        lane_paths: string[];
-        role: string;
-      }>;
-
+      const lanes = (laneData ?? []) as BuildLaneSummary[];
       const builders = lanes.filter((l) => l.role === "builder");
 
       if (builders.length === 0 || !architectMd) {
@@ -271,10 +304,16 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      // Use Sonnet for build prompt generation — this is code-understanding work
+      const fallbackPlan = buildDeterministicBuildPlan(projectTitle, architectMd, builders);
       const buildModel = "claude-sonnet-4-6";
+      let buildPlan: BuildPlanPayload = fallbackPlan;
+      let modelUsed = "deterministic-fallback";
+      let warning: string | undefined;
 
-      const buildPlanPrompt = `You are Maestro's Concierge preparing a build plan.
+      if (!apiKey) {
+        warning = "Concierge used a deterministic build plan because no Anthropic key was available.";
+      } else {
+        const buildPlanPrompt = `You are Maestro's Concierge preparing a build plan.
 
 Given the ARCHITECT.md below, generate a BUILD PROMPT that will be sent to each builder agent.
 The prompt should be specific, actionable, and reference the architecture.
@@ -290,11 +329,11 @@ Return JSON only:
   ]
 }`;
 
-      const builderList = builders
-        .map((b) => `- ${b.agent_name} (${b.role}): ${b.lane_paths.join(", ")}`)
-        .join("\n");
+        const builderList = builders
+          .map((b) => `- ${b.agent_name} (${b.role}): ${b.lane_paths.join(", ")}`)
+          .join("\n");
 
-      const buildUserMsg = `Project: ${projectTitle}
+        const buildUserMsg = `Project: ${projectTitle}
 
 --- ARCHITECT.MD ---
 ${architectMd}
@@ -304,81 +343,76 @@ ${builderList}
 
 Generate the build plan.`;
 
-      const buildRes = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: buildModel,
-          max_tokens: 2048,
-          system: buildPlanPrompt,
-          messages: [{ role: "user", content: buildUserMsg }],
-        }),
-      });
+        try {
+          const buildRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: buildModel,
+              max_tokens: 2048,
+              system: buildPlanPrompt,
+              messages: [{ role: "user", content: buildUserMsg }],
+            }),
+          });
 
-      if (!buildRes.ok) {
-        const errText = await buildRes.text();
-        return new Response(
-          JSON.stringify({
-            error: "ANTHROPIC_REQUEST_FAILED",
-            message: `Build plan generation failed (${buildRes.status}): ${errText.slice(0, 300)}`,
-          }),
-          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+          if (!buildRes.ok) {
+            const errText = await buildRes.text();
+            console.warn("[concierge] build plan fallback after Anthropic error", {
+              status: buildRes.status,
+              body: errText.slice(0, 300),
+              session_id: body.session_id,
+            });
+            warning = `Concierge fell back to a deterministic build plan after Anthropic returned ${buildRes.status}.`;
+          } else {
+            const buildData = await buildRes.json();
+            const buildRaw: string = buildData?.content?.[0]?.text ?? "";
+            const fenced = buildRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const jsonText = fenced ? fenced[1].trim() : buildRaw;
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+
+            try {
+              const parsed = JSON.parse(jsonMatch?.[0] ?? "{}") as Partial<BuildPlanPayload>;
+              buildPlan = {
+                build_prompt: typeof parsed.build_prompt === "string" && parsed.build_prompt.trim().length > 0
+                  ? parsed.build_prompt
+                  : fallbackPlan.build_prompt,
+                build_summary: typeof parsed.build_summary === "string" && parsed.build_summary.trim().length > 0
+                  ? parsed.build_summary
+                  : fallbackPlan.build_summary,
+                builder_agents: fallbackPlan.builder_agents.map((builder) => {
+                  const planned = Array.isArray(parsed.builder_agents)
+                    ? parsed.builder_agents.find((candidate) =>
+                      candidate?.agent_name === builder.agent_name
+                      || candidate?.agent_name?.toLowerCase().includes(builder.agent_name.toLowerCase()))
+                    : null;
+                  return {
+                    agent_id: builder.agent_id,
+                    agent_name: builder.agent_name,
+                    scoped_paths: builder.scoped_paths,
+                    instruction: typeof planned?.instruction === "string" && planned.instruction.trim().length > 0
+                      ? planned.instruction
+                      : builder.instruction,
+                  };
+                }),
+              };
+              modelUsed = buildModel;
+              if (!buildPlan.build_prompt.trim()) {
+                buildPlan.build_prompt = fallbackPlan.build_prompt;
+              }
+            } catch (parseError) {
+              console.warn("[concierge] build plan fallback after parse error", { session_id: body.session_id, error: String(parseError) });
+              warning = "Concierge fell back to a deterministic build plan after returning malformed JSON.";
+            }
+          }
+        } catch (fetchError) {
+          console.warn("[concierge] build plan fallback after fetch failure", { session_id: body.session_id, error: String(fetchError) });
+          warning = "Concierge fell back to a deterministic build plan after a build-planning request failed.";
+        }
       }
-
-      const buildData = await buildRes.json();
-      const buildRaw: string = buildData?.content?.[0]?.text ?? "";
-
-      // Parse the build plan JSON
-      const fenced = buildRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      const jsonText = fenced ? fenced[1].trim() : buildRaw;
-      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-
-      let buildPlan: {
-        build_prompt: string;
-        build_summary: string;
-        builder_agents: Array<{
-          agent_id: string;
-          agent_name: string;
-          scoped_paths: string[];
-          instruction: string;
-        }>;
-      };
-
-      try {
-        buildPlan = JSON.parse(jsonMatch?.[0] ?? "{}");
-      } catch {
-        // Fallback: construct from lanes directly
-        buildPlan = {
-          build_prompt: `BUILD MODE — You are building ${projectTitle} as specified in the ARCHITECT.md below.\n\nARCHITECT REFERENCE:\n${architectMd}\n\nGenerate complete file contents for every file in your assigned lane. No placeholders. No snippets. Full files.`,
-          build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length > 1 ? "s" : ""}.`,
-          builder_agents: builders.map((b) => ({
-            agent_id: b.agent_id ?? "",
-            agent_name: b.agent_name,
-            scoped_paths: b.lane_paths,
-            instruction: `Build files in: ${b.lane_paths.join(", ")}`,
-          })),
-        };
-      }
-
-      // Ensure builder_agents have real IDs from the lanes table
-      buildPlan.builder_agents = builders.map((b) => {
-        const planned = (buildPlan.builder_agents ?? []).find(
-          (pa) =>
-            pa.agent_name === b.agent_name ||
-            pa.agent_name.toLowerCase().includes(b.agent_name.toLowerCase())
-        );
-        return {
-          agent_id: b.agent_id ?? "",
-          agent_name: b.agent_name,
-          scoped_paths: b.lane_paths,
-          instruction: planned?.instruction ?? `Build files in: ${b.lane_paths.join(", ")}`,
-        };
-      });
 
       return new Response(
         JSON.stringify({
@@ -386,7 +420,8 @@ Generate the build plan.`;
           build_prompt: buildPlan.build_prompt,
           build_summary: buildPlan.build_summary,
           builder_agents: buildPlan.builder_agents,
-          model_used: buildModel,
+          model_used: modelUsed,
+          ...(warning ? { warning } : {}),
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -557,6 +592,8 @@ Roles: builder | reviewer | read_only | security_audit. Lane paths must not over
     );
   }
 });
+
+
 
 
 

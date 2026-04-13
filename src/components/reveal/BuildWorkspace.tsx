@@ -106,8 +106,7 @@ function hasWriteManifest(response: Response): boolean {
 
 function hasExecutableManifest(response: Response): boolean {
   return hasWriteManifest(response)
-    && response.signals?.build_complete !== 'false'
-    && !response.signals?.manifest_errors;
+    && response.signals?.build_complete !== 'false';
 }
 
 /* ── Component ─────────────────────────────────────────────── */
@@ -974,7 +973,7 @@ export default function BuildWorkspace() {
                           )}
                           {manifestIssue && (
                             <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--risk)' }}>
-                              blocked
+                              {executable ? 'warning' : 'blocked'}
                             </span>
                           )}
                           <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
@@ -1378,6 +1377,8 @@ function StatChip({ label, value, color }: { label: string; value: number; color
     </div>
   );
 }
+
+
 
 
 

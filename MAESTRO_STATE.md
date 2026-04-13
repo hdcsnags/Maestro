@@ -9,7 +9,7 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Build broadcast → execute flow still untested end-to-end |
-| Last verified deploy | 14 protected functions redeployed on 2026-04-12; live runtime smoke tested on deployed `vault` after deploy |
+| Last verified deploy | `concierge` redeployed on 2026-04-13; 14 protected functions previously redeployed on 2026-04-12; live runtime smoke still only verified on deployed `vault` |
 | Unapplied migrations | 2 unapplied: `20260410143000_promote_gpt54_builder.sql` (verified 2026-04-12), `20260412200000_add_session_mode.sql` (new, 2026-04-12) |
 | Active locks | None |
 
@@ -151,6 +151,8 @@ Legacy (unused): agent_skills, flags
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
 | BuildWorkspace restores persisted build state before auto-planning and explains blocked builder responses in review | 2026-04-13 (code verified, `npm run typecheck`) |
+| Concierge pre-build planning falls back to a deterministic build plan when Anthropic build-plan generation fails or returns malformed JSON | 2026-04-13 (code verified, `supabase functions deploy concierge`) |
+| Build review keeps warning-bearing responses selectable when they still include a valid `file_manifest`; only truly incomplete manifests stay blocked | 2026-04-13 (code verified, `npm run typecheck`) |
 
 ## What's Broken or Incomplete
 
@@ -162,6 +164,7 @@ Legacy (unused): agent_skills, flags
 |-------|-------|-------|
 | Build broadcast → Execute flow untested end-to-end | 2026-04-12 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
+| Build lane selection can still surface weak/default builders (for example GPT-OSS) in sessions where the conductor expects a tighter builder roster | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
 | Concierge auto-trigger after build broadcast may double-fire | Pre-existing | — |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
@@ -191,6 +194,20 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-13 — OpenAI Codex
+
+**What was done**: Audited the live Build loop regression around `pre_build_complete` and review gating. Patched `concierge` so build planning no longer hard-fails when `Architect.md` and builder lanes already exist: if Anthropic build-plan generation fails, returns malformed JSON, or omits `build_prompt`, the function now returns a deterministic build plan instead of a 502 / empty prompt. Relaxed `BuildWorkspace.tsx` so responses with a valid `file_manifest` remain selectable even when some manifest entries carry warnings, then redeployed `concierge` and re-ran `npm run typecheck` cleanly.
+
+**Files touched**: `supabase/functions/concierge/index.ts`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treat `Architect.md` + `build_lanes` as sufficient to synthesize a safe deterministic build plan; concierge should enhance that plan, not be a single point of failure for entering Build.
+- Preserve warning metadata for manifest validation, but stop treating it as a hard execution block when valid `file_manifest` entries are still present.
+- Logged the weak builder-roster issue separately instead of slipping an unreviewed lane-selection change into the same hotfix.
+
+**What didn't work**: `apply_patch` and routine Windows sandbox refreshes failed again in this session, so the file edits were applied directly. The full Build flow still needs a live smoke after this push; only the `concierge` function deploy and frontend typecheck were verified here.
+
+---
 ### 2026-04-13 — OpenAI Codex
 
 **What was done**: Removed the oversized Ask/Build buttons from EmptyStage and moved session-mode control into a small composer toggle beside the existing mode chips. Fixed first-broadcast session creation so it respects the chosen Ask/Build mode, forced "Ask the council anyway" to bypass quick-answer triage, and added a synthesis fallback that reads persisted round responses when local response state is stale so concierge still receives post-round input. Re-ran `npm run typecheck` cleanly.
@@ -364,6 +381,11 @@ These areas change often and should be re-verified after any significant work se
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
+
+
+
+
 
 
 
