@@ -165,6 +165,8 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
+| **🚨 MIGRATION DRIFT — blocks lane name matching**: `20260410143000_promote_gpt54_builder.sql` unapplied. GPT-5.4 slot 1 still has old `display_name` in DB. `architect` resolves `build_lanes.agent_name` from `match.display_name`, so lane names don't match what broadcast responses report. Name fallback in both `BuildWorkspace` and `github-execute` will miss. Apply this migration before trusting GPT-5.4 builder lanes. | 2026-04-13 | Unassigned |
+| **🚨 MIGRATION PENDING**: `20260412200000_add_session_mode.sql` unapplied. `sessions.mode` column missing in remote DB; `activeSession.mode === 'build'` checks silently return `undefined`. | 2026-04-12 | Unassigned |
 | Build broadcast → Execute flow untested end-to-end (504 root cause fixed; needs live smoke) | 2026-04-12 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
