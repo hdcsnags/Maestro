@@ -1,12 +1,14 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
+import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
+import { ROLE_META } from '../../lib/designRoles';
 import {
   DesignerRole, DesignMode, DESIGNER_LANES, DESIGN_MODE_LANES,
 } from '../../types';
 import {
   Palette, Play, Star, GitMerge, ExternalLink, Download,
-  Loader2, AlertTriangle, SkipForward,
+  Loader2, AlertTriangle, SkipForward, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
 /* ── Types for local state ─────────────────────────────────── */
@@ -23,7 +25,7 @@ interface DesignArtifact {
 
 type ArtifactStatus = 'idle' | 'loading' | 'done' | 'error';
 
-/* ── Helpers ────────────────────────────────────────────────── */
+/* ── HTML extraction helpers ───────────────────────────────── */
 
 function stripFence(value: string): string {
   const text = value.trim();
@@ -33,7 +35,6 @@ function stripFence(value: string): string {
 
 function decodeEscapedHtml(value: string): string {
   let decoded = value.trim();
-
   for (let i = 0; i < 3; i += 1) {
     const next = decoded
       .replace(/\\n/g, '\n')
@@ -42,20 +43,14 @@ function decodeEscapedHtml(value: string): string {
       .replace(/\\"/g, '"')
       .replace(/\\\\/g, '\\')
       .trim();
-
     if (next === decoded) break;
     decoded = next;
   }
-
   return decoded;
 }
 
 function parseJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(value); } catch { return null; }
 }
 
 function readHtmlContent(value: unknown): string | null {
@@ -67,23 +62,17 @@ function readHtmlContent(value: unknown): string | null {
 function extractJsonStringField(source: string, key: string): string | null {
   const match = new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`).exec(source);
   if (!match) return null;
-
   const parsed = parseJson(`"${match[1]}"`);
   return typeof parsed === 'string' ? parsed : match[1];
 }
 
-/** Safely extract clean HTML from raw model output, fenced JSON, or nested html_content JSON. */
 function extractHtml(raw: string): string {
   if (!raw) return '';
   let text = stripFence(raw);
 
   for (let i = 0; i < 2; i += 1) {
     const parsed = parseJson(text);
-    if (typeof parsed === 'string') {
-      text = stripFence(parsed);
-      continue;
-    }
-
+    if (typeof parsed === 'string') { text = stripFence(parsed); continue; }
     const html = readHtmlContent(parsed);
     if (html !== null) return decodeEscapedHtml(html);
     break;
@@ -110,17 +99,10 @@ function extractHtml(raw: string): string {
 
 /* ── Constants ─────────────────────────────────────────────── */
 
-const ROLE_COLOR: Record<DesignerRole, string> = {
-  visual_spatial: '#5a8fe0',
-  structure_ux: '#e07b5a',
-  product_practical: '#5ab88e',
-  wildcard_fusion: '#8a8ae0',
-};
-
 const MODE_LABELS: Record<DesignMode, string> = {
-  lite: 'Lite',
-  standard: 'Standard',
-  exploration: 'Exploration',
+  lite: 'Lite — 1 designer',
+  standard: 'Standard — 2 designers',
+  exploration: 'Exploration — 4 designers',
 };
 
 /* ── Component ─────────────────────────────────────────────── */
@@ -144,8 +126,9 @@ export default function DesignPhase() {
   const [selected, setSelected] = useState<DesignerRole | null>(null);
   const [globalError, setGlobalError] = useState('');
   const [running, setRunning] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
 
-  // Elapsed time counter for loading state
+  // Elapsed time counter
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -160,12 +143,22 @@ export default function DesignPhase() {
   }, [running]);
 
   const isVisible = session?.current_phase === 'design';
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
-  const getToken = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? '';
-  }, []);
+  // Keyboard navigation
+  useEffect(() => {
+    if (!isVisible) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') setCurrentSlide(s => Math.max(0, s - 1));
+      if (e.key === 'ArrowRight') setCurrentSlide(s => Math.min(activeRoles.length - 1, s + 1));
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isVisible, activeRoles.length]);
+
+  // Clamp slide index when activeRoles changes
+  useEffect(() => {
+    setCurrentSlide(s => Math.min(s, Math.max(0, activeRoles.length - 1)));
+  }, [activeRoles.length]);
 
   /* ── Run designers ───────────────────────────────────────── */
   const handleRun = useCallback(async () => {
@@ -174,29 +167,20 @@ export default function DesignPhase() {
     setGlobalError('');
     setSelected(null);
     setFlagged(new Set());
+    setCurrentSlide(0);
 
-    // Set all active lanes to loading
     const newStatuses = { ...statuses };
     activeRoles.forEach(r => { newStatuses[r] = 'loading'; });
     setStatuses(newStatuses);
 
     try {
-      const token = await getToken();
-      const res = await fetch(`${supabaseUrl}/functions/v1/design`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          session_id: session.id,
-          design_mode: designMode,
-          brief,
-        }),
+      const data = await invokeEdgeFunction<{ artifacts?: DesignArtifact[]; message?: string; error?: string }>('design', {
+        session_id: session.id,
+        design_mode: designMode,
+        brief,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
+      if (data.error) {
         setGlobalError(data.message || data.error || 'Design call failed');
         const errStatuses = { ...statuses };
         activeRoles.forEach(r => { errStatuses[r] = 'error'; });
@@ -224,7 +208,7 @@ export default function DesignPhase() {
     } finally {
       setRunning(false);
     }
-  }, [session, designMode, brief, activeRoles, artifacts, statuses, supabaseUrl, getToken]);
+  }, [session, designMode, brief, activeRoles, artifacts, statuses]);
 
   /* ── Selection / merge ───────────────────────────────────── */
   const handleSelect = useCallback(async (role: DesignerRole) => {
@@ -232,21 +216,18 @@ export default function DesignPhase() {
     setSelected(role);
     setFlagged(new Set());
 
-    // Mark in DB
     await supabase
       .from('design_artifacts')
       .update({ selected_for_build: true } as never)
       .eq('session_id', session.id)
       .eq('designer_role', role);
 
-    // Advance to pre_build
     await supabase
       .from('sessions')
       .update({ current_phase: 'pre_build' } as never)
       .eq('id', session.id);
 
     dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
-
     dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
 
     const lane = DESIGNER_LANES.find(l => l.role === role);
@@ -266,7 +247,6 @@ export default function DesignPhase() {
     if (!session || flagged.size < 2) return;
     const roles = Array.from(flagged);
 
-    // Mark flagged in DB
     for (const role of roles) {
       await supabase
         .from('design_artifacts')
@@ -275,14 +255,12 @@ export default function DesignPhase() {
         .eq('designer_role', role);
     }
 
-    // Advance to pre_build
     await supabase
       .from('sessions')
       .update({ current_phase: 'pre_build' } as never)
       .eq('id', session.id);
 
     dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
-
     dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
 
     const names = roles.map(r => DESIGNER_LANES.find(l => l.role === r)?.display_name ?? r);
@@ -300,7 +278,7 @@ export default function DesignPhase() {
     dispatch({ type: 'SHOW_TOAST', payload: 'Design skipped. Moving to Pre-Build.' });
   }, [session, dispatch]);
 
-  /* ── Download HTML ───────────────────────────────────────── */
+  /* ── Download / open ────────────────────────────────────── */
   const downloadHtml = useCallback((artifact: DesignArtifact) => {
     const blob = new Blob([extractHtml(artifact.html_content)], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -322,352 +300,555 @@ export default function DesignPhase() {
 
   const allDone = activeRoles.every(r => statuses[r] === 'done');
   const anyDone = activeRoles.some(r => statuses[r] === 'done');
+  const anyLoading = activeRoles.some(r => statuses[r] === 'loading');
   const canMerge = flagged.size >= 2;
+  const currentRole = activeRoles[currentSlide];
+  const currentArtifact = currentRole ? artifacts[currentRole] : null;
+  const currentStatus = currentRole ? statuses[currentRole] : 'idle';
+  const currentMeta = currentRole ? ROLE_META[currentRole] : null;
+  const previewHtml = currentArtifact ? extractHtml(currentArtifact.html_content) : '';
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center" style={{ background: 'rgba(8,8,6,0.6)', backdropFilter: 'blur(6px)' }}>
+    <div
+      className="fixed inset-0 z-40 flex flex-col"
+      style={{ background: 'rgba(8,8,6,0.96)', backdropFilter: 'blur(12px)' }}
+    >
+      {/* ── Top bar ──────────────────────────────────────────── */}
       <div
+        className="flex items-center justify-between"
         style={{
-          width: '100%', maxWidth: 'min(1440px, calc(100vw - 48px))', maxHeight: '94vh',
-          margin: '0 24px', borderRadius: '24px',
-          border: '1px solid rgba(201,168,76,0.15)',
-          background: 'linear-gradient(180deg, rgba(18,17,14,0.99), rgba(12,11,9,0.99))',
-          boxShadow: '0 0 80px rgba(201,168,76,0.06), 0 24px 48px rgba(0,0,0,0.4)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          padding: '16px 28px',
+          borderBottom: '1px solid rgba(255,255,255,0.045)',
+          flexShrink: 0,
         }}
       >
-        {/* ── Header ───────────────────────────────────────────── */}
-        <div className="flex items-center justify-between" style={{ padding: '20px 28px', borderBottom: '1px solid rgba(255,255,255,0.045)' }}>
-          <div className="flex items-center gap-3">
-            <Palette size={16} style={{ color: 'var(--gold)' }} />
-            <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--gold)' }}>
-              Design Phase
-            </span>
-            <span className="font-mono-dm" style={{
-              fontSize: '9px', letterSpacing: '0.12em',
-              color: ROLE_COLOR.visual_spatial, padding: '2px 10px',
-              borderRadius: '6px', background: 'rgba(90,143,224,0.08)',
-              border: '1px solid rgba(90,143,224,0.15)',
-            }}>
-              {MODE_LABELS[designMode]}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              className="reveal-pill"
-              style={{ height: '34px', fontSize: '11px', padding: '0 14px', opacity: running ? 0.5 : 1 }}
-              onClick={handleSkip}
-              disabled={running}
-            >
-              <SkipForward size={12} />
-              Skip design →
-            </button>
-            <button
-              className="reveal-pill"
-              style={{
-                height: '34px', fontSize: '11px', padding: '0 16px',
-                background: running ? 'transparent' : 'var(--gold)',
-                color: running ? 'var(--text-muted)' : 'var(--void)',
-                borderColor: running ? undefined : 'transparent',
-                fontWeight: 500, cursor: running ? 'not-allowed' : 'pointer',
-              }}
-              onClick={handleRun}
-              disabled={running}
-            >
-              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={12} />}
-              {running ? 'Running…' : 'Run Designers →'}
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          <Palette size={16} style={{ color: 'var(--gold)' }} />
+          <span
+            className="font-mono-dm"
+            style={{
+              fontSize: '11px',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              color: 'var(--gold)',
+            }}
+          >
+            Design Phase
+          </span>
+          <span
+            className="font-mono-dm"
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.12em',
+              color: 'var(--text-dim)',
+              padding: '2px 10px',
+              borderRadius: '6px',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}
+          >
+            {MODE_LABELS[designMode]}
+          </span>
         </div>
 
-        {/* ── Global error ─────────────────────────────────────── */}
-        {globalError && (
-          <div className="flex items-center gap-2" style={{ padding: '12px 28px', background: 'rgba(224,90,90,0.06)', borderBottom: '1px solid rgba(224,90,90,0.12)' }}>
-            <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
-            <span style={{ fontSize: '13px', color: 'var(--risk)' }}>{globalError}</span>
+        <div className="flex items-center gap-3">
+          <button
+            className="reveal-pill"
+            style={{ height: '34px', fontSize: '11px', padding: '0 14px', opacity: running ? 0.5 : 1 }}
+            onClick={handleSkip}
+            disabled={running}
+          >
+            <SkipForward size={12} />
+            Skip to Build
+          </button>
+          <button
+            className="reveal-pill"
+            style={{
+              height: '34px',
+              fontSize: '11px',
+              padding: '0 16px',
+              background: running ? 'transparent' : 'var(--gold)',
+              color: running ? 'var(--text-muted)' : 'var(--void)',
+              borderColor: running ? undefined : 'transparent',
+              fontWeight: 500,
+              cursor: running ? 'not-allowed' : 'pointer',
+            }}
+            onClick={handleRun}
+            disabled={running}
+          >
+            {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={12} />}
+            {running ? 'Running...' : 'Run Designers'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Global error ─────────────────────────────────────── */}
+      {globalError && (
+        <div
+          className="flex items-center gap-2"
+          style={{
+            padding: '12px 28px',
+            background: 'rgba(224,90,90,0.06)',
+            borderBottom: '1px solid rgba(224,90,90,0.12)',
+            flexShrink: 0,
+          }}
+        >
+          <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
+          <span style={{ fontSize: '13px', color: 'var(--risk)' }}>{globalError}</span>
+        </div>
+      )}
+
+      {/* ── Carousel body ────────────────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+
+        {/* Slide indicators — role pills across the top */}
+        {activeRoles.length > 1 && (
+          <div
+            className="flex items-center justify-center gap-3"
+            style={{ padding: '16px 28px 8px', flexShrink: 0 }}
+          >
+            {activeRoles.map((role, i) => {
+              const meta = ROLE_META[role];
+              const isActive = i === currentSlide;
+              const isDone = statuses[role] === 'done';
+              const isFl = flagged.has(role);
+              const isSel = selected === role;
+              return (
+                <button
+                  key={role}
+                  onClick={() => setCurrentSlide(i)}
+                  className="font-mono-dm"
+                  style={{
+                    padding: '6px 16px',
+                    borderRadius: '999px',
+                    border: `1px solid ${isActive ? meta.color : isFl ? 'var(--gold)' : 'rgba(255,255,255,0.08)'}`,
+                    background: isActive
+                      ? `${meta.color}18`
+                      : isSel
+                        ? `${meta.color}10`
+                        : 'transparent',
+                    color: isActive ? meta.color : 'var(--text-muted)',
+                    fontSize: '11px',
+                    letterSpacing: '0.08em',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: isDone ? meta.color : statuses[role] === 'loading' ? meta.color : 'rgba(255,255,255,0.15)',
+                      boxShadow: isDone ? `0 0 6px ${meta.color}60` : 'none',
+                      animation: statuses[role] === 'loading' ? 'designPulse 2s ease-in-out infinite' : undefined,
+                    }}
+                  />
+                  {meta.label}
+                  {isSel && <Star size={10} style={{ color: meta.color }} />}
+                  {isFl && <GitMerge size={10} style={{ color: 'var(--gold)' }} />}
+                </button>
+              );
+            })}
           </div>
         )}
 
-        {/* ── Designer cards grid ──────────────────────────────── */}
-        <div style={{
-          padding: '24px 28px', overflowY: 'auto', flex: 1,
-          display: 'grid',
-          gridTemplateColumns: activeRoles.length === 1 ? 'minmax(0, 920px)' : 'repeat(auto-fit, minmax(min(520px, 100%), 1fr))',
-          gap: '20px',
-          justifyContent: 'center',
-        }}>
-          {activeRoles.map(role => {
-            const lane = DESIGNER_LANES.find(l => l.role === role)!;
-            const artifact = artifacts[role];
-            const status = statuses[role];
-            const isFlagged = flagged.has(role);
-            const isSelected = selected === role;
-            const color = ROLE_COLOR[role];
+        {/* Main slide area */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'stretch', overflow: 'hidden', position: 'relative' }}>
 
-            return (
-              <DesignerCard
-                key={role}
-                lane={lane}
-                artifact={artifact}
-                status={status}
-                color={color}
-                isFlagged={isFlagged}
-                isSelected={isSelected}
-                allDone={allDone}
-                elapsed={elapsed}
-                onSelect={() => handleSelect(role)}
-                onToggleFlag={() => toggleFlag(role)}
-                onDownload={() => artifact && downloadHtml(artifact)}
-                onOpenTab={() => artifact && openInTab(artifact)}
-              />
-            );
-          })}
-        </div>
+          {/* Left arrow */}
+          {activeRoles.length > 1 && currentSlide > 0 && (
+            <button
+              onClick={() => setCurrentSlide(s => s - 1)}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10,
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(8px)',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
 
-        {/* ── Footer actions ───────────────────────────────────── */}
-        {anyDone && (
-          <div className="flex items-center justify-between" style={{ padding: '16px 28px', borderTop: '1px solid rgba(255,255,255,0.045)' }}>
-            <div className="flex items-center gap-3">
-              {canMerge && (
-                <button
-                  className="reveal-pill"
+          {/* Right arrow */}
+          {activeRoles.length > 1 && currentSlide < activeRoles.length - 1 && (
+            <button
+              onClick={() => setCurrentSlide(s => s + 1)}
+              style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10,
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(8px)',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <ChevronRight size={18} />
+            </button>
+          )}
+
+          {/* Current slide content */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0 60px', overflow: 'hidden' }}>
+
+            {/* Role header */}
+            {currentMeta && (
+              <div
+                className="flex items-center gap-3"
+                style={{ padding: '12px 0 8px', flexShrink: 0 }}
+              >
+                <div
                   style={{
-                    height: '36px', fontSize: '12px', padding: '0 18px',
-                    background: 'var(--gold)', color: 'var(--void)',
-                    borderColor: 'transparent', fontWeight: 500,
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: currentMeta.color,
+                    boxShadow: `0 0 10px ${currentMeta.color}60`,
                   }}
-                  onClick={handleMerge}
+                />
+                <span
+                  className="font-mono-dm"
+                  style={{
+                    fontSize: '13px',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    color: currentMeta.color,
+                    fontWeight: 500,
+                  }}
                 >
-                  <GitMerge size={14} />
-                  Merge {flagged.size} flagged →
-                </button>
+                  {currentMeta.label}
+                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>
+                  {currentMeta.description}
+                </span>
+                {currentArtifact?.model_used && (
+                  <span
+                    className="font-mono-dm"
+                    style={{
+                      fontSize: '9px',
+                      color: 'var(--text-dim)',
+                      marginLeft: 'auto',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      background: 'rgba(255,255,255,0.03)',
+                    }}
+                  >
+                    {currentArtifact.model_used}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Preview / loading / idle states */}
+            <div style={{ flex: 1, overflow: 'hidden', borderRadius: '12px', position: 'relative' }}>
+              {currentStatus === 'idle' && (
+                <div
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '16px',
+                  }}
+                >
+                  <Palette size={36} style={{ color: 'var(--text-dim)', opacity: 0.4 }} />
+                  <p
+                    className="font-mono-dm"
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--text-dim)',
+                      letterSpacing: '0.1em',
+                      textAlign: 'center',
+                      maxWidth: '320px',
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Click "Run Designers" to generate mockups.
+                    {brief && (
+                      <span style={{ display: 'block', marginTop: '12px', fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Brief: {brief.length > 120 ? brief.slice(0, 120) + '...' : brief}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {currentStatus === 'loading' && (
+                <div
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '16px',
+                  }}
+                >
+                  <Loader2
+                    size={32}
+                    className="animate-spin"
+                    style={{ color: currentMeta?.color ?? 'var(--gold)' }}
+                  />
+                  <p
+                    className="font-mono-dm"
+                    style={{
+                      fontSize: '13px',
+                      color: currentMeta?.color ?? 'var(--gold)',
+                      letterSpacing: '0.1em',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {currentMeta?.label} is designing... ({elapsed}s)
+                  </p>
+                  <p
+                    className="font-mono-dm"
+                    style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.08em' }}
+                  >
+                    This may take 30-60 seconds
+                  </p>
+                </div>
+              )}
+
+              {currentStatus === 'error' && currentArtifact?.error && (
+                <div
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '12px',
+                    padding: '40px',
+                  }}
+                >
+                  <AlertTriangle size={28} style={{ color: 'var(--risk)' }} />
+                  <span style={{ fontSize: '14px', color: 'var(--risk)', fontWeight: 500 }}>
+                    Design generation failed
+                  </span>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '480px', wordBreak: 'break-word' }}>
+                    {currentArtifact.error}
+                  </p>
+                </div>
+              )}
+
+              {currentStatus === 'done' && currentArtifact && (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  {/* Full-screen iframe preview */}
+                  <div
+                    style={{
+                      flex: 1,
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      background: '#fff',
+                      position: 'relative',
+                    }}
+                  >
+                    {previewHtml.trimStart()[0] === '<' ? (
+                      <iframe
+                        srcDoc={previewHtml}
+                        sandbox="allow-scripts"
+                        title={`${currentMeta?.label} mockup`}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          border: 'none',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '16px',
+                          background: 'rgba(8,8,6,0.95)',
+                        }}
+                      >
+                        <AlertTriangle size={24} style={{ color: 'var(--text-dim)' }} />
+                        <p className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                          Preview unavailable — open in a new tab instead
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <button
+                            className="reveal-pill"
+                            style={{ height: '34px', fontSize: '11px', padding: '0 16px' }}
+                            onClick={() => openInTab(currentArtifact)}
+                          >
+                            <ExternalLink size={12} /> Open in new tab
+                          </button>
+                          <button
+                            className="reveal-pill"
+                            style={{ height: '34px', fontSize: '11px', padding: '0 16px' }}
+                            onClick={() => downloadHtml(currentArtifact)}
+                          >
+                            <Download size={12} /> Download HTML
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-            <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
-              {allDone ? 'Select a winner or flag two+ to merge' : 'Waiting for all designers…'}
-            </span>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── DesignerCard sub-component ───────────────────────────── */
-
-interface DesignerCardProps {
-  lane: { role: DesignerRole; display_name: string; description: string };
-  artifact: DesignArtifact | null;
-  status: ArtifactStatus;
-  color: string;
-  isFlagged: boolean;
-  isSelected: boolean;
-  allDone: boolean;
-  elapsed: number;
-  onSelect: () => void;
-  onToggleFlag: () => void;
-  onDownload: () => void;
-  onOpenTab: () => void;
-}
-
-function DesignerCard({
-  lane, artifact, status, color,
-  isFlagged, isSelected, allDone, elapsed,
-  onSelect, onToggleFlag, onDownload, onOpenTab,
-}: DesignerCardProps) {
-  const [previewExpanded, setPreviewExpanded] = useState(false);
-  const [previewFailed, setPreviewFailed] = useState(false);
-  const previewHtml = artifact ? extractHtml(artifact.html_content) : '';
-  const previewUnavailable = previewFailed || (status === 'done' && previewHtml.trimStart()[0] !== '<');
-
-  useEffect(() => {
-    setPreviewFailed(false);
-  }, [artifact?.html_content]);
-
-  const handleIframeLoad = useCallback((e: React.SyntheticEvent<HTMLIFrameElement>) => {
-    try {
-      const doc = (e.target as HTMLIFrameElement).contentDocument;
-      const body = doc?.body;
-      if (!body || body.innerHTML.trim().length < 20) setPreviewFailed(true);
-    } catch {
-      // Cross-origin or empty — treat as failed
-      setPreviewFailed(true);
-    }
-  }, []);
-
-  return (
-    <div style={{
-      borderRadius: '16px',
-      border: `1px solid ${isSelected ? color : isFlagged ? 'rgba(201,168,76,0.35)' : status === 'loading' ? `${color}50` : 'rgba(255,255,255,0.06)'}`,
-      background: isSelected ? `${color}08` : isFlagged ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
-      overflow: 'hidden',
-      transition: 'border-color 0.2s, background 0.2s',
-      animation: status === 'loading' ? 'designPulse 2s ease-in-out infinite' : undefined,
-    }}>
-      {/* Card header */}
-      <div className="flex items-center gap-3" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: color, boxShadow: `0 0 8px ${color}60` }} />
-        <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.15em', textTransform: 'uppercase', color }}>
-          {lane.display_name}
-        </span>
-        {artifact?.model_used && (
-          <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginLeft: 'auto' }}>
-            {artifact.model_used}
-          </span>
-        )}
+        </div>
       </div>
 
-      {/* Card body */}
-      <div style={{ padding: '16px 20px' }}>
-        {status === 'idle' && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Palette size={24} style={{ color: 'var(--text-dim)', margin: '0 auto 12px', display: 'block' }} />
-            <p className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.12em' }}>
-              {lane.description}
-            </p>
-          </div>
-        )}
-
-        {status === 'loading' && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Loader2 size={24} className="animate-spin" style={{ color, margin: '0 auto 12px', display: 'block' }} />
-            <p className="font-mono-dm" style={{ fontSize: '11px', color, letterSpacing: '0.1em', fontWeight: 500 }}>
-              {lane.display_name} is designing… ({elapsed}s)
-            </p>
-            <p className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', marginTop: '6px' }}>
-              This may take 30–60 seconds
-            </p>
-          </div>
-        )}
-
-        {status === 'error' && artifact?.error && (
-          <div style={{ padding: '20px 0' }}>
-            <div className="flex items-center gap-2" style={{ marginBottom: '8px' }}>
-              <AlertTriangle size={14} style={{ color: 'var(--risk)' }} />
-              <span style={{ fontSize: '12px', color: 'var(--risk)', fontWeight: 500 }}>Failed</span>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0, wordBreak: 'break-word' }}>
-              {artifact.error}
-            </p>
-          </div>
-        )}
-
-        {status === 'done' && artifact && (
-          <>
-            {/* HTML preview or fallback */}
-            {previewUnavailable ? (
-              <div style={{
-                borderRadius: '10px', padding: '32px 20px', textAlign: 'center',
-                border: '1px dashed rgba(255,255,255,0.1)',
-                marginBottom: '16px', background: 'rgba(255,255,255,0.01)',
-              }}>
-                <AlertTriangle size={20} style={{ color: 'var(--text-dim)', margin: '0 auto 12px', display: 'block' }} />
-                <p className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-dim)', marginBottom: '16px' }}>
-                  Preview unavailable
-                </p>
-                <div className="flex items-center justify-center gap-3">
-                  <button className="reveal-pill" style={{
-                    height: '34px', fontSize: '11px', padding: '0 16px',
-                    background: 'rgba(201,168,76,0.1)', borderColor: 'rgba(201,168,76,0.25)',
-                  }} onClick={onOpenTab}>
-                    <ExternalLink size={12} /> Open in new tab ↗
-                  </button>
-                  <button className="reveal-pill" style={{
-                    height: '34px', fontSize: '11px', padding: '0 16px',
-                    background: 'rgba(201,168,76,0.1)', borderColor: 'rgba(201,168,76,0.25)',
-                  }} onClick={onDownload}>
-                    <Download size={12} /> Download HTML
-                  </button>
-                </div>
-              </div>
-            ) : (
-            <div
-              style={{
-                borderRadius: '10px', overflow: 'hidden',
-                border: '1px solid rgba(255,255,255,0.06)',
-                marginBottom: '16px', cursor: 'pointer',
-                height: previewExpanded ? 'min(72vh, 760px)' : '420px',
-                transition: 'height 0.3s ease',
-              }}
-              onClick={() => setPreviewExpanded(!previewExpanded)}
-            >
-              <iframe
-                srcDoc={previewHtml}
-                sandbox="allow-scripts"
-                title={`${lane.display_name} mockup`}
-                style={{ width: '100%', height: '100%', border: 'none', pointerEvents: previewExpanded ? 'auto' : 'none' }}
-                onLoad={handleIframeLoad}
-              />
-            </div>
-            )}
-
-            {/* Action row */}
-            <div className="flex items-center gap-2" style={{ marginBottom: '16px' }}>
-              <button className="reveal-pill" style={{ height: '30px', fontSize: '10px', padding: '0 12px' }} onClick={onOpenTab}>
-                <ExternalLink size={10} /> Open ↗
+      {/* ── Bottom action bar ────────────────────────────────── */}
+      <div
+        className="flex items-center justify-between"
+        style={{
+          padding: '14px 28px',
+          borderTop: '1px solid rgba(255,255,255,0.045)',
+          flexShrink: 0,
+          background: 'rgba(8,8,6,0.8)',
+        }}
+      >
+        <div className="flex items-center gap-3">
+          {/* Rationale / tradeoffs (collapsed summary for current slide) */}
+          {currentStatus === 'done' && currentArtifact && (
+            <>
+              {currentArtifact.rationale && (
+                <span
+                  style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '400px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={currentArtifact.rationale}
+                >
+                  {currentArtifact.rationale}
+                </span>
+              )}
+              <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.08)' }} />
+              <button
+                className="reveal-pill"
+                style={{ height: '30px', fontSize: '10px', padding: '0 10px' }}
+                onClick={() => openInTab(currentArtifact)}
+              >
+                <ExternalLink size={10} /> Open
               </button>
-              <button className="reveal-pill" style={{ height: '30px', fontSize: '10px', padding: '0 12px' }} onClick={onDownload}>
+              <button
+                className="reveal-pill"
+                style={{ height: '30px', fontSize: '10px', padding: '0 10px' }}
+                onClick={() => downloadHtml(currentArtifact)}
+              >
                 <Download size={10} /> HTML
               </button>
-            </div>
+            </>
+          )}
+        </div>
 
-            {/* Rationale */}
-            {artifact.rationale && (
-              <section style={{ marginBottom: '12px' }}>
-                <div className="font-mono-dm" style={{ fontSize: '8px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '6px' }}>
-                  Rationale
-                </div>
-                <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'rgba(232,230,224,0.82)', margin: 0, fontWeight: 300 }}>
-                  {artifact.rationale}
-                </p>
-              </section>
-            )}
+        <div className="flex items-center gap-3">
+          {/* Slide counter */}
+          {activeRoles.length > 1 && (
+            <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
+              {currentSlide + 1} / {activeRoles.length}
+            </span>
+          )}
 
-            {/* Tradeoffs */}
-            {artifact.tradeoffs && (
-              <section style={{ marginBottom: '16px' }}>
-                <div className="font-mono-dm" style={{ fontSize: '8px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '6px' }}>
-                  Tradeoffs
-                </div>
-                <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'rgba(232,230,224,0.72)', margin: 0, fontWeight: 300 }}>
-                  {artifact.tradeoffs}
-                </p>
-              </section>
-            )}
+          {/* Flag for merge */}
+          {allDone && currentRole && activeRoles.length > 1 && (
+            <button
+              className="reveal-pill"
+              style={{
+                height: '36px',
+                fontSize: '11px',
+                padding: '0 14px',
+                background: flagged.has(currentRole) ? 'rgba(201,168,76,0.12)' : 'transparent',
+                borderColor: flagged.has(currentRole) ? 'var(--gold)' : undefined,
+              }}
+              onClick={() => toggleFlag(currentRole)}
+            >
+              <GitMerge size={12} />
+              {flagged.has(currentRole) ? 'Flagged' : 'Flag for merge'}
+            </button>
+          )}
 
-            {/* Select / Flag buttons */}
-            {allDone && (
-              <div className="flex items-center gap-2">
-                <button
-                  className="reveal-pill"
-                  style={{
-                    height: '32px', fontSize: '11px', padding: '0 14px',
-                    background: isSelected ? color : 'transparent',
-                    color: isSelected ? 'var(--void)' : color,
-                    borderColor: isSelected ? 'transparent' : `${color}40`,
-                    fontWeight: isSelected ? 600 : 400,
-                  }}
-                  onClick={onSelect}
-                >
-                  <Star size={12} />
-                  {isSelected ? 'Selected' : 'Select this'}
-                </button>
-                <button
-                  className="reveal-pill"
-                  style={{
-                    height: '32px', fontSize: '11px', padding: '0 14px',
-                    background: isFlagged ? 'rgba(201,168,76,0.12)' : 'transparent',
-                    borderColor: isFlagged ? 'var(--gold)' : undefined,
-                  }}
-                  onClick={onToggleFlag}
-                >
-                  <GitMerge size={12} />
-                  {isFlagged ? 'Flagged' : 'Flag for merge'}
-                </button>
-              </div>
-            )}
-          </>
-        )}
+          {/* Merge button */}
+          {canMerge && (
+            <button
+              className="reveal-pill"
+              style={{
+                height: '36px',
+                fontSize: '12px',
+                padding: '0 18px',
+                background: 'var(--gold)',
+                color: 'var(--void)',
+                borderColor: 'transparent',
+                fontWeight: 500,
+              }}
+              onClick={handleMerge}
+            >
+              <GitMerge size={14} />
+              Merge {flagged.size} designs
+            </button>
+          )}
+
+          {/* Accept design (select winner) */}
+          {allDone && currentRole && !canMerge && (
+            <button
+              className="reveal-pill"
+              style={{
+                height: '36px',
+                fontSize: '12px',
+                padding: '0 18px',
+                background: selected === currentRole ? (currentMeta?.color ?? 'var(--gold)') : 'var(--gold)',
+                color: 'var(--void)',
+                borderColor: 'transparent',
+                fontWeight: 500,
+              }}
+              onClick={() => handleSelect(currentRole)}
+            >
+              <Star size={14} />
+              {selected === currentRole ? 'Selected' : 'Accept Design'}
+            </button>
+          )}
+
+          {/* Status text */}
+          {anyLoading && (
+            <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
+              Generating designs...
+            </span>
+          )}
+          {anyDone && !allDone && !anyLoading && (
+            <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
+              Some designers still pending
+            </span>
+          )}
+          {allDone && !canMerge && activeRoles.length > 1 && (
+            <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
+              Accept a design or flag 2+ to merge
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
