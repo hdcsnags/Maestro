@@ -156,6 +156,10 @@ export default function BuildWorkspace() {
   const [approvedResponseIds, setApprovedResponseIds] = useState<Set<string>>(new Set());
   const [broadcastMsgIdx, setBroadcastMsgIdx] = useState(0);
   const [stageHydrated, setStageHydrated] = useState(false);
+  // Tracks whether the build_lanes DB query has returned (empty or not).
+  // Hydration must wait for this before deciding whether to fire concierge —
+  // otherwise it fires concierge on every remount before lanes load from DB.
+  const [lanesLoaded, setLanesLoaded] = useState(false);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const preparingTriggered = useRef(false);
 
@@ -384,7 +388,7 @@ export default function BuildWorkspace() {
     if (resolvedBuilderAgentIds.length > 0) return resolvedBuilderAgentIds.includes(agentId);
     return lockedBuilderAgentIds.length === 0;
   }, [resolvedBuilderAgentIds, lockedBuilderAgentIds]);
-  // Load lanes on mount
+  // Load lanes on mount — always signal lanesLoaded so the hydration effect can proceed.
   useEffect(() => {
     if (!session || !isVisible) return;
     supabase
@@ -398,6 +402,8 @@ export default function BuildWorkspace() {
             lane_paths: safeStringArray(lane.lane_paths),
           })));
         }
+        // Signal ready whether or not rows exist — hydration gate depends on this.
+        setLanesLoaded(true);
       });
   }, [session, isVisible]);
 
@@ -415,6 +421,11 @@ export default function BuildWorkspace() {
       setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
       return;
     }
+
+    // Wait for the lanes DB query to return before checking build round / plan state.
+    // Without this gate, the concierge auto-trigger fires before we know whether
+    // lanes already exist in DB, causing a re-fire on every remount.
+    if (!lanesLoaded) return;
 
     const buildRound = [...sessionRounds].reverse().find(round => {
       const roundResponses = state.responses.filter(response => response.round_id === round.id);
@@ -436,6 +447,15 @@ export default function BuildWorkspace() {
       return;
     }
 
+    // Builder lanes already exist in DB → concierge already ran for this session.
+    // Skip re-calling concierge; jump straight to plan_review with existing lanes.
+    if (lanes.some(l => l.role === 'builder')) {
+      preparingTriggered.current = true;
+      setStage('plan_review');
+      setStageHydrated(true);
+      return;
+    }
+
     if (normalizedBuildPlan) {
       preparingTriggered.current = true;
       setStage('plan_review');
@@ -445,7 +465,7 @@ export default function BuildWorkspace() {
 
     setStage('preparing');
     setStageHydrated(true);
-  }, [session, isVisible, stageHydrated, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
+  }, [session, isVisible, stageHydrated, lanesLoaded, lanes, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
 
   // Sprint C · F2 — Auto-call concierge on build phase entry
   useEffect(() => {

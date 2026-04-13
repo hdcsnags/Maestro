@@ -148,9 +148,17 @@ function assignAgentToLane(
   usedAgentIds: Set<string>,
   lockedBuilderIds: Set<string>,
 ): AgentRow | null {
-  const candidates = lane.role === "builder" && lockedBuilderIds.size > 0
+  let candidates = lane.role === "builder" && lockedBuilderIds.size > 0
     ? agents.filter((agent) => lockedBuilderIds.has(agent.id))
     : agents;
+
+  // Locked builder IDs don't match any agents in the workspace (stale IDs or unapplied
+  // migration). Fall back to the full pool rather than returning null — a null agent_id
+  // produces LANES_NOT_ASSIGNED on every build attempt.
+  if (candidates.length === 0 && lockedBuilderIds.size > 0 && lane.role === "builder") {
+    candidates = agents;
+  }
+
   if (candidates.length === 0) return null;
 
   const exact = candidates.find(
@@ -165,7 +173,17 @@ function assignAgentToLane(
 
   if (fuzzy && fuzzy.score > 0) return fuzzy.agent;
 
-  return candidates.find((agent) => !usedAgentIds.has(agent.id)) ?? candidates[0] ?? null;
+  // Last resort: for builder lanes never assign a free/weak model — they reliably 504 or
+  // return stubs. Only use them if there is literally no other option.
+  const unused = candidates.filter((a) => !usedAgentIds.has(a.id));
+  if (lane.role === "builder") {
+    const capable = unused.filter((a) => {
+      const n = norm(`${a.display_name} ${a.name}`);
+      return !n.includes("gpt oss") && !n.includes("gemma") && !n.includes("gemma 4");
+    });
+    if (capable.length > 0) return capable[0];
+  }
+  return unused[0] ?? candidates[0] ?? null;
 }
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
