@@ -246,6 +246,59 @@ async function createBranch(owner: string, repo: string, branchName: string, bas
   });
 }
 
+function isEmptyRepoError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /repository is empty/i.test(message);
+}
+
+async function ensureDefaultBranchSha(
+  owner: string,
+  repo: string,
+  defaultBranch: string,
+  token: string,
+): Promise<string> {
+  try {
+    const ref = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, token) as { object?: { sha?: string } };
+    const sha = ref?.object?.sha;
+    if (!sha) throw new Error(`Default branch ${defaultBranch} is missing a commit SHA.`);
+    return sha;
+  } catch (err) {
+    if (!isEmptyRepoError(err)) throw err;
+
+    const tree = await ghApi(`/repos/${owner}/${repo}/git/trees`, token, {
+      method: "POST",
+      body: JSON.stringify({ tree: [] }),
+    }) as { sha?: string };
+
+    const rootCommit = await ghApi(`/repos/${owner}/${repo}/git/commits`, token, {
+      method: "POST",
+      body: JSON.stringify({
+        message: "[Maestro] Initialize repository",
+        tree: tree.sha,
+        parents: [],
+      }),
+    }) as { sha?: string };
+
+    if (!tree?.sha || !rootCommit?.sha) {
+      throw new Error("Failed to initialize the default branch for an empty repository.");
+    }
+
+    try {
+      await ghApi(`/repos/${owner}/${repo}/git/refs`, token, {
+        method: "POST",
+        body: JSON.stringify({ ref: `refs/heads/${defaultBranch}`, sha: rootCommit.sha }),
+      });
+    } catch (createErr) {
+      const message = createErr instanceof Error ? createErr.message : String(createErr);
+      if (!/reference already exists/i.test(message)) throw createErr;
+    }
+
+    const ref = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, token) as { object?: { sha?: string } };
+    const sha = ref?.object?.sha;
+    if (!sha) throw new Error(`Default branch ${defaultBranch} could not be initialized.`);
+    return sha;
+  }
+}
 // Sprint A · B5 — automatic backup branch. Snapshots default branch HEAD
 // before any write to an existing repo. Once per execution run, never
 // skippable, no override flag. Returns the branch name.
@@ -1083,6 +1136,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
 
 
 

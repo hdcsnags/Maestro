@@ -102,7 +102,7 @@ export function useOrchestration() {
     }
   }, [user, state.activeSession, state.executionMode, dispatch]);
 
-  const buildTieredContext = useCallback((prompt: string) => {
+  const buildTieredContext = useCallback((prompt: string, mode: OrchestrationMode = 'analysis') => {
     const sessionId = state.activeSession?.id;
     if (!sessionId) return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
 
@@ -145,18 +145,30 @@ export function useOrchestration() {
     }
 
     const contextFiles: { path: string }[] = [];
-    const filePattern = /(?:^|\s|[`'"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[\w.-]+\.\w{1,8})(?:[`'"\s.,;!?]|$)/g;
-    const seen = new Set<string>();
-    let match: RegExpExecArray | null;
-    while ((match = filePattern.exec(prompt)) !== null) {
-      const path = match[1];
-      if (path.length < 3 || seen.has(path)) continue;
-      if (!/[./]/.test(path)) continue;
-      seen.add(path);
-      contextFiles.push({ path });
-    }
-    if (contextFiles.length > 0) {
-      indicator.push(contextFiles.map(f => f.path).slice(0, 2).join(' · '));
+    if (mode !== 'build') {
+      const filePattern = /(?:^|\s|[`'"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[.\w-]+\.\w{1,8})(?:[`'"\s.,;!?]|$)/g;
+      const seen = new Set<string>();
+      const allowedExtensions = new Set(['js', 'jsx', 'ts', 'tsx', 'json', 'md', 'sql', 'sh', 'css', 'scss', 'html', 'ejs', 'yml', 'yaml', 'toml', 'txt', 'env']);
+      const isUsefulPath = (value: string) => {
+        if (value.length < 3 || value.length > 120) return false;
+        if (!/[./]/.test(value) || !/[A-Za-z]/.test(value)) return false;
+        if (/^\d+(?:\.\d+)+$/.test(value) || /^\d+\.\d+\.\d+\.\d+$/.test(value)) return false;
+        const extMatch = value.match(/\.([A-Za-z0-9]{1,8})$/);
+        if (!extMatch) return false;
+        return allowedExtensions.has(extMatch[1].toLowerCase());
+      };
+
+      let match: RegExpExecArray | null;
+      while ((match = filePattern.exec(prompt)) !== null) {
+        const path = match[1];
+        if (seen.has(path) || !isUsefulPath(path)) continue;
+        seen.add(path);
+        contextFiles.push({ path });
+        if (contextFiles.length >= 12) break;
+      }
+      if (contextFiles.length > 0) {
+        indicator.push(contextFiles.map(f => f.path).slice(0, 2).join(' · '));
+      }
     }
 
     const contextText = parts.length > 0 ? parts.join('\n\n---\n\n') : '';
@@ -416,7 +428,7 @@ export function useOrchestration() {
 
       const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
       const roundId = roundData.id as string;
-      const tiered = buildTieredContext(prompt);
+      const tiered = buildTieredContext(prompt, broadcastMode);
 
       await Promise.all(
         targetAgents.map(agent => callAgent(agent, prompt, roundId, broadcastMode, tiered.contextText, tiered.contextFiles)),
@@ -577,4 +589,5 @@ export function useOrchestration() {
 
   return { broadcast, synthesize, logAudit, newRound, buildTieredContext, triggerConcierge };
 }
+
 
