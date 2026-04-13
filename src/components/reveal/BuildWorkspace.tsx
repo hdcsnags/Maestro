@@ -695,21 +695,28 @@ export default function BuildWorkspace() {
       if (!approved.some(hasExecutableManifest)) {
         throw new Error('No selected builder response included a file_manifest. Re-run Build; agents must return complete file contents before GitHub can be written.');
       }
-      const patches = approved.filter(hasExecutableManifest).map(r => {
-        // Match by agent_id first (reliable), fall back to name match
+      // Only include patches that have a matching builder lane.
+      // Agents without a lane (non-builders, substitutes, extras) are silently
+      // skipped here — github-execute would reject them with LANES_NOT_ASSIGNED
+      // anyway since they have no scoped_paths. Fixes the "6 agents, 2 lanes" 400.
+      const patches = approved.filter(hasExecutableManifest).flatMap(r => {
         const lane = lanes.find(l => l.agent_id === r.agent_id)
           || lanes.find(l => l.agent_name === r.agent_name)
           || lanes.find(l => l.agent_name.toLowerCase().includes((r.agent_name ?? '').toLowerCase()));
-        return {
-          agent_name: lane?.agent_name ?? r.agent_name,
+        if (!lane) return [];
+        return [{
+          agent_name: lane.agent_name,
           agent_id: r.agent_id,
           content: r.content,
-          scoped_paths: lane?.lane_paths ?? [],
-          commit_message: `${lane?.agent_name ?? r.agent_name}: build patch`,
+          scoped_paths: lane.lane_paths ?? [],
+          commit_message: `${lane.agent_name}: build patch`,
           conductor_approved: false,
           file_manifest: r.file_manifest ?? [],
-        };
-      });      const data = await invokeEdgeFunction<{
+        }];
+      });
+      if (patches.length === 0) {
+        throw new Error('None of the approved responses matched a builder lane. Ensure the correct builder agents ran in Build mode and that Architect.md lane assignments are up to date.');
+      }const data = await invokeEdgeFunction<{
         success?: boolean;
         result?: Record<string, unknown>;
         error?: string;
