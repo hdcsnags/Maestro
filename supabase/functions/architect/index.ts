@@ -115,11 +115,15 @@ function scoreAgentForLane(agent: AgentRow, lane: SuggestedLane): number {
   if (role.includes(label) || label.includes(role)) score += 30;
 
   if (lane.role === "builder") {
-    if (role.includes("build") || role.includes("code") || role.includes("generation")) score += 45;
+    if (role.includes("build") || role.includes("build lead") || role.includes("code") || role.includes("generation")) score += 50;
+    if (name.includes("builder")) score += 22;
     if (name.includes("sonnet")) score += 35;
     if (name.includes("gpt 5 4") || name.includes("gpt 5")) score += 25;
     if (norm(agent.provider_group).includes("anthropic")) score += 12;
     if (norm(agent.provider_group).includes("openai")) score += 10;
+    if (role.includes("triage") || role.includes("summarization") || role.includes("general purpose")) score -= 18;
+    if (role.includes("free") || name.includes("gpt oss") || name.includes("gemma")) score -= 24;
+    if (norm(agent.provider_group).includes("openrouter a")) score -= 10;
     if (paths.includes("component") || paths.includes("page") || paths.includes("style") || paths.includes("ui")) {
       if (role.includes("ui") || role.includes("design") || role.includes("spatial") || role.includes("frontend")) score += 22;
     }
@@ -315,7 +319,7 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     // proper agent_id references instead of display-name-only rows.
     let lanesAssigned = false;
     if (suggestedLanes.length > 0) {
-      const agentList = allAgents;
+      const agentList = activeAgents.length > 0 ? activeAgents : allAgents;
       const usedAgentIds = new Set<string>();
 
       const laneRows = suggestedLanes
@@ -384,6 +388,7 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     );
   }
 });
+
 
 
 

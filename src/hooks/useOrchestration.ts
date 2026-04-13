@@ -21,6 +21,7 @@ interface BroadcastOptions {
   modeOverride?: OrchestrationMode;
   skipSynthesis?: boolean;
   skipTriage?: boolean;
+  promptOverridesByAgentId?: Record<string, string>;
 }
 
 interface AgentInvokeResult {
@@ -105,6 +106,7 @@ export function useOrchestration() {
   const buildTieredContext = useCallback((prompt: string, mode: OrchestrationMode = 'analysis') => {
     const sessionId = state.activeSession?.id;
     if (!sessionId) return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
+    if (mode === 'build') return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
 
     const sessionRounds = state.rounds
       .filter(r => r.session_id === sessionId)
@@ -145,32 +147,29 @@ export function useOrchestration() {
     }
 
     const contextFiles: { path: string }[] = [];
-    if (mode !== 'build') {
-      const filePattern = /(?:^|\s|[`'"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[.\w-]+\.\w{1,8})(?:[`'"\s.,;!?]|$)/g;
-      const seen = new Set<string>();
-      const allowedExtensions = new Set(['js', 'jsx', 'ts', 'tsx', 'json', 'md', 'sql', 'sh', 'css', 'scss', 'html', 'ejs', 'yml', 'yaml', 'toml', 'txt', 'env']);
-      const isUsefulPath = (value: string) => {
-        if (value.length < 3 || value.length > 120) return false;
-        if (!/[./]/.test(value) || !/[A-Za-z]/.test(value)) return false;
-        if (/^\d+(?:\.\d+)+$/.test(value) || /^\d+\.\d+\.\d+\.\d+$/.test(value)) return false;
-        const extMatch = value.match(/\.([A-Za-z0-9]{1,8})$/);
-        if (!extMatch) return false;
-        return allowedExtensions.has(extMatch[1].toLowerCase());
-      };
+    const filePattern = /(?:^|\s|[`'\"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[.\w-]+\.\w{1,8})(?:[`'\"\s.,;!?]|$)/g;
+    const seen = new Set<string>();
+    const allowedExtensions = new Set(['js', 'jsx', 'ts', 'tsx', 'json', 'md', 'sql', 'sh', 'css', 'scss', 'html', 'ejs', 'yml', 'yaml', 'toml', 'txt', 'env']);
+    const isUsefulPath = (value: string) => {
+      if (value.length < 3 || value.length > 120) return false;
+      if (!/[./]/.test(value) || !/[A-Za-z]/.test(value)) return false;
+      if (/^\d+(?:\.\d+)+$/.test(value) || /^\d+\.\d+\.\d+\.\d+$/.test(value)) return false;
+      const extMatch = value.match(/\.([A-Za-z0-9]{1,8})$/);
+      if (!extMatch) return false;
+      return allowedExtensions.has(extMatch[1].toLowerCase());
+    };
 
-      let match: RegExpExecArray | null;
-      while ((match = filePattern.exec(prompt)) !== null) {
-        const path = match[1];
-        if (seen.has(path) || !isUsefulPath(path)) continue;
-        seen.add(path);
-        contextFiles.push({ path });
-        if (contextFiles.length >= 12) break;
-      }
-      if (contextFiles.length > 0) {
-        indicator.push(contextFiles.map(f => f.path).slice(0, 2).join(' · '));
-      }
+    let match: RegExpExecArray | null;
+    while ((match = filePattern.exec(prompt)) !== null) {
+      const path = match[1];
+      if (seen.has(path) || !isUsefulPath(path)) continue;
+      seen.add(path);
+      contextFiles.push({ path });
+      if (contextFiles.length >= 12) break;
     }
-
+    if (contextFiles.length > 0) {
+      indicator.push(contextFiles.map(f => f.path).slice(0, 2).join(' · '));
+    }
     const contextText = parts.length > 0 ? parts.join('\n\n---\n\n') : '';
     return { contextText, indicator, contextFiles };
   }, [state.activeSession, state.rounds, state.syntheses, state.responses]);
@@ -283,6 +282,14 @@ export function useOrchestration() {
     } catch (err) {
       console.error(`Error calling ${agent.name}:`, err);
 
+      const rawMessage = err instanceof Error ? err.message : 'Provider request failed.';
+      const errorMessage = rawMessage.trim().slice(0, 240) || 'Provider request failed.';
+      const isAuthIssue = /api key|unauthorized|forbidden|auth|authentication/i.test(errorMessage);
+      const title = isAuthIssue ? 'Connection error' : 'Provider error';
+      const content = isAuthIssue
+        ? `Error: ${agent.name} could not run because ${agent.provider} is not authenticated for this workspace. Add or refresh the ${agent.provider} key in the Provider Vault.`
+        : `Error: ${agent.name} could not complete the request. ${errorMessage}`;
+
       const { data: rawErrResponse } = await supabase
         .from('responses')
         .insert({
@@ -294,9 +301,9 @@ export function useOrchestration() {
           agent_color: agent.color,
           provider: agent.provider,
           model: agent.model,
-          content: `Error: Could not reach ${agent.name}. Please verify your API key for ${agent.provider} in the Provider Vault.`,
-          title: 'Connection error',
-          signals: { status: 'error', note: 'API key may not be configured' },
+          content,
+          title,
+          signals: { status: 'error', note: errorMessage },
           artifacts: [] as unknown as never,
           is_flagged: false,
           is_lead: false,
@@ -428,10 +435,13 @@ export function useOrchestration() {
 
       const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
       const roundId = roundData.id as string;
-      const tiered = buildTieredContext(prompt, broadcastMode);
 
       await Promise.all(
-        targetAgents.map(agent => callAgent(agent, prompt, roundId, broadcastMode, tiered.contextText, tiered.contextFiles)),
+        targetAgents.map(agent => {
+          const promptForAgent = options.promptOverridesByAgentId?.[agent.id] ?? prompt;
+          const tiered = buildTieredContext(promptForAgent, broadcastMode);
+          return callAgent(agent, promptForAgent, roundId, broadcastMode, tiered.contextText, tiered.contextFiles);
+        }),
       );
 
       await supabase
@@ -589,5 +599,7 @@ export function useOrchestration() {
 
   return { broadcast, synthesize, logAudit, newRound, buildTieredContext, triggerConcierge };
 }
+
+
 
 

@@ -153,7 +153,9 @@ Legacy (unused): agent_skills, flags
 | BuildWorkspace restores persisted build state before auto-planning and explains blocked builder responses in review | 2026-04-13 (code verified, `npm run typecheck`) |
 | Concierge pre-build planning falls back to a deterministic build plan when Anthropic build-plan generation fails or returns malformed JSON | 2026-04-13 (code verified, `supabase functions deploy concierge`) |
 | Build review keeps warning-bearing responses selectable when they still include a valid `file_manifest`; only truly incomplete manifests stay blocked | 2026-04-13 (code verified, `npm run typecheck`) |
-| Build-mode broadcasts no longer scrape prompt text for `context_files`; `ARCHITECT.md` remains the build source of truth and build-mode context refs are capped/sanitized outside build mode | 2026-04-13 (code verified, `npm run typecheck`) |
+| Build-mode broadcasts now skip prior-round baggage, no longer scrape prompt text for `context_files`, and inject lane-specific instructions per builder; `ARCHITECT.md` remains the build source of truth | 2026-04-13 (code verified, `npm run typecheck`) |
+| Builder fallback recovery now prefers active build-capable agents and de-prioritizes weak free/general-purpose defaults in both `architect` and `BuildWorkspace` | 2026-04-13 (code verified, `npm run typecheck`) |
+| BuildWorkspace now surfaces dispatching, waiting-on-provider, partial-results, GitHub-write, and bouncer-running states during build review/execution | 2026-04-13 (code verified, `npm run typecheck`) |
 | `github-execute` bootstraps a default branch for empty repositories before Maestro branches/PRs, allowing first-build execution into a new repo | 2026-04-13 (code verified, `supabase functions deploy github-execute`) |
 
 ## What's Broken or Incomplete
@@ -166,7 +168,8 @@ Legacy (unused): agent_skills, flags
 |-------|-------|-------|
 | Build broadcast → Execute flow untested end-to-end | 2026-04-12 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
-| Build lane selection can still surface weak/default builders (for example GPT-OSS) in sessions where the conductor expects a tighter builder roster | 2026-04-13 | Unassigned |
+| Builder roster sizing and provider-health-aware failover are still not concierge-driven; stronger builders are preferred now, but lane count/reroute logic is still static | 2026-04-13 | Unassigned |
+| Build orchestration is still synchronous end-to-end; UI status is clearer now, but provider retries/reroutes are not yet queued mid-flight | 2026-04-13 | Unassigned |
 | Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
 | Concierge auto-trigger after build broadcast may double-fire | Pre-existing | — |
@@ -197,6 +200,20 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-13 — OpenAI Codex
+
+**What was done**: Turned the `smoketestaudit.md` findings into a targeted build-path hardening pass. `useOrchestration` now strips prior-round context out of build-mode broadcasts, routes concierge lane instructions into per-builder prompts, and records provider errors with the actual failure reason instead of always blaming missing API keys. `BuildWorkspace` now prefers active build-capable agents when recovering generic builder lanes, shows dispatch / waiting / partial / GitHub-write / bouncer-running states, and updates lane bars from live response state. `architect` now prefers active strong builders over weak free defaults when auto-assigning generic builder lanes. Re-ran `npm run typecheck` cleanly.
+
+**Files touched**: `src/hooks/useOrchestration.ts`, `src/components/reveal/BuildWorkspace.tsx`, `supabase/functions/architect/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept concierge's shared build prompt, but overlayed lane-specific instructions at broadcast time instead of redesigning the build-plan schema.
+- Preferred active agents first and penalized free/general-purpose fallbacks instead of hardcoding a brittle builder allowlist.
+- Improved build-state truthfulness in the UI without trying to rewrite orchestration into an async job queue in the same pass.
+
+**What didn't work**: This pass did not make build orchestration asynchronous, add live provider-health rerouting, or run a deployed end-to-end smoke. Verification here is limited to code review and `npm run typecheck`.
+
+---
 ### 2026-04-13 — OpenAI Codex
 
 **What was done**: Patched two live build blockers discovered in smoke testing. First, `buildTieredContext()` no longer scrapes the generated build prompt for `context_files`, which had been sending nonsense entries like `127.0.0.1`, semver strings, and every filename from `ARCHITECT.md` into provider calls and likely contributing to build-time 504s. Second, `github-execute` now bootstraps the default branch for an empty repository by creating an initial root commit before Maestro creates per-agent branches, so new-project builds can execute into an intentionally empty GitHub repo. Re-ran `npm run typecheck` cleanly and redeployed `github-execute`.
@@ -259,6 +276,19 @@ These areas change often and should be re-verified after any significant work se
 ---
 
 ### 2026-04-13 — OpenAI Codex
+
+**What was done**: Turned the `smoketestaudit.md` findings into a targeted build-path hardening pass. `useOrchestration` now strips prior-round context out of build-mode broadcasts, routes concierge lane instructions into per-builder prompts, and records provider errors with the actual failure reason instead of always blaming missing API keys. `BuildWorkspace` now prefers active build-capable agents when recovering generic builder lanes, shows dispatch / waiting / partial / GitHub-write / bouncer-running states, and updates lane bars from live response state. `architect` now prefers active strong builders over weak free defaults when auto-assigning generic builder lanes. Re-ran `npm run typecheck` cleanly.
+
+**Files touched**: `src/hooks/useOrchestration.ts`, `src/components/reveal/BuildWorkspace.tsx`, `supabase/functions/architect/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept concierge's shared build prompt, but overlayed lane-specific instructions at broadcast time instead of redesigning the build-plan schema.
+- Preferred active agents first and penalized free/general-purpose fallbacks instead of hardcoding a brittle builder allowlist.
+- Improved build-state truthfulness in the UI without trying to rewrite orchestration into an async job queue in the same pass.
+
+**What didn't work**: This pass did not make build orchestration asynchronous, add live provider-health rerouting, or run a deployed end-to-end smoke. Verification here is limited to code review and `npm run typecheck`.
+
+---### 2026-04-13 — OpenAI Codex
 
 **What was done**: Fixed the new-app repo carryover path and tightened BuildWorkspace refresh recovery. New sessions no longer inherit the previously active repo, repo binding now happens explicitly through RepoSection into `sessions.github_repo`, Pre-Build no longer backfills `github_repo` from global repo state, and BuildWorkspace now restores persisted build state before auto-planning. Also added clearer blocked-response guidance in the review UI and re-ran `npm run typecheck` cleanly.
 
@@ -398,6 +428,8 @@ These areas change often and should be re-verified after any significant work se
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
+
 
 
 

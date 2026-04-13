@@ -36,6 +36,7 @@ interface BouncerResult {
 }
 
 type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
+type BroadcastProgressState = 'dispatching' | 'waiting' | 'partial' | 'ready';
 
 interface NormalizedBuilderAgent {
   agent_id: string;
@@ -107,6 +108,25 @@ function hasWriteManifest(response: Response): boolean {
 function hasExecutableManifest(response: Response): boolean {
   return hasWriteManifest(response)
     && response.signals?.build_complete !== 'false';
+}
+
+function buildLanePrompt(sharedPrompt: string, instruction: string, scopedPaths: string[]): string {
+  const laneScope = scopedPaths.length > 0 ? scopedPaths.join(', ') : 'your assigned lane paths';
+  return `${sharedPrompt}\n\nLANE-SPECIFIC INSTRUCTION:\n${instruction}\n\nASSIGNED PATHS:\n${laneScope}\n\nFollow only this lane. Do not modify files outside these assigned paths.`;
+}
+
+function getBroadcastProgressState(hasRound: boolean, respondedCount: number, builderCount: number): BroadcastProgressState {
+  if (!hasRound) return 'dispatching';
+  if (builderCount <= 0 || respondedCount <= 0) return 'waiting';
+  if (respondedCount < builderCount) return 'partial';
+  return 'ready';
+}
+
+function laneMatchesResponse(lane: LaneRow, response: Response): boolean {
+  if (lane.agent_id && response.agent_id === lane.agent_id) return true;
+  const laneName = norm(lane.agent_name);
+  const responseName = norm(response.agent_name ?? '');
+  return laneName.length > 0 && responseName.length > 0 && (laneName === responseName || laneName.includes(responseName) || responseName.includes(laneName));
 }
 
 /* ── Component ─────────────────────────────────────────────── */
@@ -208,6 +228,10 @@ export default function BuildWorkspace() {
 
     if (ids.size > 0) return { ids: [...ids], warning: '' };
 
+    const activeAgentPool = agents.some(agent => agent.is_active)
+      ? agents.filter(agent => agent.is_active)
+      : agents;
+
     const scoreAgentForLane = (agent: typeof agents[number], lane: LaneRow, index: number): number => {
       const label = norm(lane.agent_name);
       const role = norm(agent.role);
@@ -220,11 +244,15 @@ export default function BuildWorkspace() {
       if (name.includes(label) || label.includes(name)) score += 80;
       if (role.includes(label) || label.includes(role)) score += 25;
 
-      if (role.includes('build') || role.includes('code generation')) score += 45;
+      if (role.includes('build') || role.includes('build lead') || role.includes('code generation')) score += 50;
+      if (name.includes('builder')) score += 22;
       if (name.includes('sonnet')) score += 35;
       if (name.includes('gpt 5 4') || name.includes('gpt 5')) score += 25;
       if (provider.includes('anthropic')) score += 18;
       if (provider.includes('openai')) score += 14;
+      if (role.includes('triage') || role.includes('summarization') || role.includes('general purpose')) score -= 18;
+      if (role.includes('free') || name.includes('gpt oss') || name.includes('gemma')) score -= 24;
+      if (provider.includes('openrouter a')) score -= 10;
 
       if (paths.includes('component') || paths.includes('page') || paths.includes('style') || paths.includes('ui')) {
         if (role.includes('design') || role.includes('spatial') || role.includes('ui')) score += 12;
@@ -241,8 +269,8 @@ export default function BuildWorkspace() {
     };
 
     const pickFallbackAgent = (lane: LaneRow, index: number) => {
-      const available = agents.filter(a => !ids.has(a.id));
-      const candidates = available.length > 0 ? available : agents;
+      const available = activeAgentPool.filter(a => !ids.has(a.id));
+      const candidates = available.length > 0 ? available : activeAgentPool;
       return candidates
         .map(agent => ({ agent, score: scoreAgentForLane(agent, lane, index) }))
         .sort((a, b) => b.score - a.score)[0]?.agent ?? null;
@@ -255,7 +283,7 @@ export default function BuildWorkspace() {
         continue;
       }
       const laneName = norm(lane.agent_name);
-      const match = agents.find(a => {
+      const match = activeAgentPool.find(a => {
         const name = norm(a.name);
         const display = norm(a.display_name);
         const role = norm(a.role);
@@ -405,11 +433,30 @@ export default function BuildWorkspace() {
       dispatch({ type: 'SHOW_TOAST', payload: resolved.warning });
     }
 
+    const promptOverridesByAgentId = builderAgentIds.reduce<Record<string, string>>((acc, agentId) => {
+      const matchedAgent = agents.find(agent => agent.id === agentId);
+      const matchedLane = lanes.find(lane => lane.agent_id === agentId)
+        || lanes.find(lane => matchedAgent ? norm(lane.agent_name) === norm(matchedAgent.display_name) : false)
+        || lanes.find(lane => matchedAgent ? norm(lane.agent_name) === norm(matchedAgent.name) : false);
+      const matchedPlanAgent = buildPlan.builder_agents.find(agent => agent.agent_id === agentId)
+        || buildPlan.builder_agents.find(agent => matchedLane ? norm(agent.agent_name) === norm(matchedLane.agent_name) : false)
+        || buildPlan.builder_agents.find(agent => matchedAgent ? norm(agent.agent_name) === norm(matchedAgent.display_name) : false);
+      const scopedPaths = matchedPlanAgent?.scoped_paths.length
+        ? matchedPlanAgent.scoped_paths
+        : matchedLane?.lane_paths ?? [];
+      const instruction = matchedPlanAgent?.instruction?.trim().length
+        ? matchedPlanAgent.instruction
+        : `Build only the files in: ${scopedPaths.join(', ') || 'your assigned lane paths'}`;
+      acc[agentId] = buildLanePrompt(buildPlan.build_prompt, instruction, scopedPaths);
+      return acc;
+    }, {});
+
     try {
       await broadcast(buildPlan.build_prompt, builderAgentIds, session, {
         modeOverride: 'build',
         skipSynthesis: true,
         skipTriage: true,
+        promptOverridesByAgentId,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -684,6 +731,24 @@ export default function BuildWorkspace() {
 
   const builders = lanes.filter(l => l.role === 'builder');
   const reviewers = lanes.filter(l => l.role !== 'builder');
+  const builderCount = builders.length || normalizedBuildPlan?.builder_agents.length || resolvedBuilderAgentIds.length || 1;
+  const broadcastProgress = getBroadcastProgressState(!!buildRoundId, buildResponses.length, builderCount);
+  const headerLabel = stage === 'preparing' ? 'Build — Preparing Plan'
+    : stage === 'plan_review' ? 'Build — Review Plan'
+    : stage === 'broadcast' ? 'Build — Broadcast to Agents'
+    : stage === 'broadcasting' ? (broadcastProgress === 'dispatching'
+      ? 'Build — Dispatching Builders'
+      : broadcastProgress === 'waiting'
+        ? 'Build — Waiting on Providers'
+        : broadcastProgress === 'partial'
+          ? 'Build — Partial Results'
+          : 'Build — Ready for Review')
+    : stage === 'reviewing' ? 'Build — Review Responses'
+    : stage === 'ready' ? 'Build — Execute to GitHub'
+    : stage === 'executing' ? 'Build — Writing to GitHub'
+    : stage === 'bouncer' ? 'Bouncer Review'
+    : stage === 'done' ? 'Build Complete'
+    : 'Build in Progress';
   const hasCritical = bouncerResult?.findings.some(f => f.severity === 'critical_pause') ?? false;
 
   return (
@@ -700,14 +765,7 @@ export default function BuildWorkspace() {
             <div className="flex items-center gap-3">
               <Hammer size={18} style={{ color: 'var(--gold)' }} />
               <span className="font-mono-dm" style={{ fontSize: '13px', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--gold)' }}>
-                {stage === 'preparing' ? 'Build — Preparing Plan'
-                  : stage === 'plan_review' ? 'Build — Review Plan'
-                  : stage === 'broadcast' ? 'Build — Broadcast to Agents'
-                  : stage === 'broadcasting' ? 'Build — Agents Working'
-                  : stage === 'reviewing' ? 'Build — Review Responses'
-                  : stage === 'bouncer' ? 'Bouncer Review'
-                  : stage === 'done' ? 'Build Complete'
-                  : 'Build in Progress'}
+                {headerLabel}
               </span>
             </div>
             {stage === 'plan_review' && normalizedBuildPlan && (
@@ -896,14 +954,28 @@ export default function BuildWorkspace() {
             <div className="flex flex-col items-center" style={{ padding: '48px 0' }}>
               <Loader2 size={32} className="animate-spin" style={{ color: 'var(--gold)', marginBottom: '16px' }} />
               <span className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.12em', color: 'var(--gold)', marginBottom: '8px' }}>
-                {BUILD_BROADCAST_MESSAGES[broadcastMsgIdx]}
+                {broadcastProgress === 'dispatching'
+                  ? 'Dispatching builder requests…'
+                  : broadcastProgress === 'waiting'
+                    ? 'Waiting on provider responses…'
+                    : broadcastProgress === 'partial'
+                      ? 'Partial results landed…'
+                      : 'Preparing review state…'}
               </span>
-              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', color: 'var(--text-dim)' }}>
-                {buildResponses.length} / {lanes.filter(l => l.role === 'builder').length} agents responded
+              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', color: 'var(--text-dim)', marginBottom: '10px' }}>
+                {buildResponses.length} / {builderCount} builders responded
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', maxWidth: '520px', lineHeight: 1.6 }}>
+                {broadcastProgress === 'dispatching'
+                  ? 'Maestro created the build round and is fanning requests out to each builder lane.'
+                  : broadcastProgress === 'waiting'
+                    ? 'No builder has landed a valid response yet. Providers may still be generating or retrying.'
+                    : broadcastProgress === 'partial'
+                      ? 'At least one builder finished. Remaining lanes are still running, so review will unlock when enough responses land.'
+                      : 'All builder responses are in. Maestro is unlocking the review step.'}
               </span>
             </div>
           )}
-
           {/* ── Reviewing: agent responses ───────────────────── */}
           {stage === 'reviewing' && buildResponses.length > 0 && (
             <section style={{ marginBottom: '28px' }}>
@@ -1015,10 +1087,10 @@ export default function BuildWorkspace() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {builders.map(lane => (
-                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} />
+                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} buildResponses={buildResponses} bouncerLoading={bouncerLoading} />
               ))}
               {reviewers.map(lane => (
-                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} />
+                <LaneBar key={lane.id} lane={lane} stage={stage} writtenFiles={writtenFiles} buildResponses={buildResponses} bouncerLoading={bouncerLoading} />
               ))}
               {lanes.length === 0 && (
                 <p style={{ fontSize: '12px', color: 'var(--text-dim)', fontStyle: 'italic' }}>No lanes assigned</p>
@@ -1030,12 +1102,26 @@ export default function BuildWorkspace() {
           {stage === 'executing' && (
             <div className="flex flex-col items-center" style={{ padding: '48px 0' }}>
               <Loader2 size={32} className="animate-spin" style={{ color: 'var(--gold)', marginBottom: '16px' }} />
-              <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.15em', color: 'var(--text-dim)' }}>
+              <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.15em', color: 'var(--text-dim)', marginBottom: '8px' }}>
                 Writing files to GitHub…
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Maestro is creating execution artifacts, branches, and pull requests from the approved builder manifests.
               </span>
             </div>
           )}
 
+          {stage === 'complete' && bouncerLoading && (
+            <div className="flex flex-col items-center" style={{ padding: '16px 0 28px' }}>
+              <Loader2 size={24} className="animate-spin" style={{ color: 'var(--gold)', marginBottom: '12px' }} />
+              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--gold)', marginBottom: '6px' }}>
+                Bouncer running…
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Reviewing the written files for security and approval risks.
+              </span>
+            </div>
+          )}
           {/* ── Build results ──────────────────────────────── */}
           {(stage === 'complete' || stage === 'bouncer' || stage === 'done') && (
             <section style={{ marginBottom: '28px' }}>
@@ -1304,17 +1390,53 @@ function PhaseRail({ currentPhase }: { currentPhase: SessionPhase }) {
 
 /* ── Lane progress bar sub-component ───────────────────────── */
 
-function LaneBar({ lane, stage, writtenFiles }: { lane: LaneRow; stage: BuildStage; writtenFiles: string[] }) {
+function LaneBar({
+  lane,
+  stage,
+  writtenFiles,
+  buildResponses,
+  bouncerLoading,
+}: {
+  lane: LaneRow;
+  stage: BuildStage;
+  writtenFiles: string[];
+  buildResponses: Response[];
+  bouncerLoading: boolean;
+}) {
   const badge = ROLE_BADGE[lane.role];
   const isBuilder = lane.role === 'builder';
 
-  // Calculate progress for builders
   const laneFiles = isBuilder
     ? writtenFiles.filter(f => lane.lane_paths.some(p => f.startsWith(p.replace(/\*+$/, ''))))
     : [];
   const hasProgress = stage !== 'ready' && isBuilder;
   const isDone = stage === 'complete' || stage === 'bouncer' || stage === 'done';
   const isWaiting = stage === 'executing' && !isBuilder;
+  const responseReady = buildResponses.some(response => laneMatchesResponse(lane, response));
+  const progressWidth = isDone
+    ? '100%'
+    : stage === 'executing'
+      ? (isBuilder ? '82%' : '45%')
+      : stage === 'reviewing' || stage === 'ready'
+        ? (responseReady ? '70%' : '24%')
+        : stage === 'broadcasting'
+          ? (responseReady ? '62%' : '18%')
+          : '0%';
+  const statusLabel = isDone && isBuilder
+    ? `${laneFiles.length} files`
+    : bouncerLoading
+      ? (isBuilder ? 'Built' : 'Reviewing')
+      : stage === 'executing' && isBuilder
+        ? 'Writing…'
+        : stage === 'reviewing' || stage === 'ready'
+          ? (responseReady ? 'Review' : 'Missing')
+          : stage === 'broadcasting'
+            ? (responseReady ? 'Ready' : 'Waiting')
+            : isWaiting
+              ? 'Waiting'
+              : stage === 'plan_review' || stage === 'preparing'
+                ? 'Queued'
+                : badge.label;
 
   return (
     <div className="flex items-center gap-3" style={{
@@ -1322,21 +1444,18 @@ function LaneBar({ lane, stage, writtenFiles }: { lane: LaneRow; stage: BuildSta
       background: 'rgba(255,255,255,0.02)',
       border: '1px solid rgba(255,255,255,0.05)',
     }}>
-      {/* Agent name */}
       <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text)', minWidth: '140px' }}>
         {lane.agent_name}
       </span>
 
-      {/* Paths */}
       <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', flex: 1 }}>
         {isBuilder ? lane.lane_paths.join(', ') : '(reads all)'}
       </span>
 
-      {/* Progress / status */}
       {hasProgress && (
         <div style={{ width: '80px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
           <div style={{
-            width: isDone ? '100%' : '60%',
+            width: progressWidth,
             height: '100%', borderRadius: '2px',
             background: isDone ? 'var(--ok)' : badge.color,
             transition: 'width 0.5s ease',
@@ -1344,25 +1463,18 @@ function LaneBar({ lane, stage, writtenFiles }: { lane: LaneRow; stage: BuildSta
         </div>
       )}
 
-      {/* Status label */}
       <span className="font-mono-dm" style={{
         fontSize: '9px', letterSpacing: '0.1em',
         color: isDone && isBuilder ? 'var(--ok)'
-          : stage === 'executing' ? badge.color
+          : stage === 'executing' || bouncerLoading ? badge.color
           : 'var(--text-dim)',
         minWidth: '60px', textAlign: 'right',
       }}>
-        {isDone && isBuilder ? `${laneFiles.length} files`
-          : stage === 'executing' && isBuilder ? 'Writing…'
-          : isWaiting ? 'Waiting'
-          : stage === 'ready' ? badge.label
-          : isDone ? badge.label
-          : ''}
+        {statusLabel}
       </span>
     </div>
   );
 }
-
 /* ── Stat chip sub-component ───────────────────────────────── */
 
 function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
@@ -1377,6 +1489,15 @@ function StatChip({ label, value, color }: { label: string; value: number; color
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
 
 
 
