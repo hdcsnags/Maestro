@@ -220,17 +220,45 @@ export default function BuildWorkspace() {
     session ? state.rounds.filter(round => round.session_id === session.id) : []
   ), [session, state.rounds]);
 
+  const lockedBuilderAgentIds = useMemo(
+    () => safeStringArray(session?.build_spec?.primary_builder_agent_ids),
+    [session?.build_spec],
+  );
+
   const resolveBuilderAgentIds = useCallback((plan: NormalizedBuildPlan | null) => {
+    const lockedIds = new Set(lockedBuilderAgentIds);
+    const builderLanes = lanes.filter(l => l.role === 'builder');
     const ids = new Set<string>();
+
     for (const agent of plan?.builder_agents ?? []) {
-      if (agent.agent_id) ids.add(agent.agent_id);
+      if (!agent.agent_id) continue;
+      if (lockedIds.size === 0 || lockedIds.has(agent.agent_id)) ids.add(agent.agent_id);
+    }
+
+    for (const lane of builderLanes) {
+      if (!lane.agent_id) continue;
+      if (lockedIds.size === 0 || lockedIds.has(lane.agent_id)) ids.add(lane.agent_id);
+    }
+
+    if (lockedIds.size > 0) {
+      if (ids.size > 0) return { ids: [...ids], warning: '' };
+      return {
+        ids: [],
+        warning: builderLanes.length === 0
+          ? 'No locked builder lanes were found. Return to Pre-Build and regenerate Architect.md.'
+          : 'Build is locked to the Pre-Build builder roster, but the current lanes do not map to those locked builders.',
+      };
     }
 
     if (ids.size > 0) return { ids: [...ids], warning: '' };
 
-    const activeAgentPool = agents.some(agent => agent.is_active)
-      ? agents.filter(agent => agent.is_active)
-      : agents;
+    const activeAgentPool = agents.filter(agent => agent.is_active);
+    if (activeAgentPool.length === 0) {
+      return {
+        ids: [],
+        warning: 'No active builder agents are available. Return to Pre-Build and select builders.',
+      };
+    }
 
     const scoreAgentForLane = (agent: typeof agents[number], lane: LaneRow, index: number): number => {
       const label = norm(lane.agent_name);
@@ -276,12 +304,7 @@ export default function BuildWorkspace() {
         .sort((a, b) => b.score - a.score)[0]?.agent ?? null;
     };
 
-    const builderLanes = lanes.filter(l => l.role === 'builder');
     for (const lane of builderLanes) {
-      if (lane.agent_id) {
-        ids.add(lane.agent_id);
-        continue;
-      }
       const laneName = norm(lane.agent_name);
       const match = activeAgentPool.find(a => {
         const name = norm(a.name);
@@ -298,7 +321,7 @@ export default function BuildWorkspace() {
     }
 
     if (ids.size > 0) {
-      return { ids: [...ids], warning: 'Some builder IDs were recovered from lane assignments.' };
+      return { ids: [...ids], warning: 'Some builder IDs were recovered from active lane assignments.' };
     }
 
     builderLanes.forEach((lane, index) => {
@@ -309,7 +332,7 @@ export default function BuildWorkspace() {
     if (ids.size > 0) {
       return {
         ids: [...ids],
-        warning: 'Builder lanes used generic labels, so Maestro assigned the strongest available build agents.',
+        warning: 'Builder lanes used generic labels, so Maestro recovered active builders from the current lane assignments.',
       };
     }
 
@@ -319,13 +342,17 @@ export default function BuildWorkspace() {
         ? 'No builder lanes were found. Return to Pre-Build and regenerate Architect.md.'
         : 'Builder lanes exist but could not be matched to active agents.',
     };
-  }, [lanes, agents]);
-
+  }, [lanes, agents, lockedBuilderAgentIds]);
   const resolvedBuilderAgentIds = useMemo(
     () => resolveBuilderAgentIds(normalizedBuildPlan).ids,
     [resolveBuilderAgentIds, normalizedBuildPlan],
   );
 
+  const shouldIncludeBuilderAgent = useCallback((agentId: string | null | undefined) => {
+    if (!agentId) return false;
+    if (resolvedBuilderAgentIds.length > 0) return resolvedBuilderAgentIds.includes(agentId);
+    return lockedBuilderAgentIds.length === 0;
+  }, [resolvedBuilderAgentIds, lockedBuilderAgentIds]);
   // Load lanes on mount
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -361,8 +388,7 @@ export default function BuildWorkspace() {
     const buildRound = [...sessionRounds].reverse().find(round => {
       const roundResponses = state.responses.filter(response => response.round_id === round.id);
       if (roundResponses.some(hasWriteManifest)) return true;
-      if (resolvedBuilderAgentIds.length === 0) return false;
-      return round.target_agents.some(agentId => resolvedBuilderAgentIds.includes(agentId));
+      return round.target_agents.some(agentId => shouldIncludeBuilderAgent(agentId));
     });
 
     if (buildRound) {
@@ -388,7 +414,7 @@ export default function BuildWorkspace() {
 
     setStage('preparing');
     setStageHydrated(true);
-  }, [session, isVisible, stageHydrated, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds]);
+  }, [session, isVisible, stageHydrated, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
 
   // Sprint C · F2 — Auto-call concierge on build phase entry
   useEffect(() => {
@@ -489,10 +515,10 @@ export default function BuildWorkspace() {
       ? state.responses.filter(r =>
         r.round_id === buildRoundId
         && !!r.agent_id
-        && (resolvedBuilderAgentIds.length === 0 || resolvedBuilderAgentIds.includes(r.agent_id))
+        && shouldIncludeBuilderAgent(r.agent_id)
       )
       : []
-  ), [buildRoundId, state.responses, resolvedBuilderAgentIds]);
+  ), [buildRoundId, state.responses, shouldIncludeBuilderAgent]);
 
   const executableResponseCount = useMemo(
     () => buildResponses.filter(hasExecutableManifest).length,
@@ -513,16 +539,14 @@ export default function BuildWorkspace() {
     if (stage !== 'broadcasting' || !buildRoundId) return;
     const roundResponses = state.responses.filter(r =>
       r.round_id === buildRoundId
-      && resolvedBuilderAgentIds.length > 0
-      && !!r.agent_id
-      && resolvedBuilderAgentIds.includes(r.agent_id)
+      && shouldIncludeBuilderAgent(r.agent_id)
     );
-    const builderCount = lanes.filter(l => l.role === 'builder').length || 1;
+    const builderCount = resolvedBuilderAgentIds.length || lanes.filter(l => l.role === 'builder').length || 1;
     if (roundResponses.length >= builderCount) {
       setApprovedResponseIds(new Set(roundResponses.filter(hasExecutableManifest).map(r => r.id)));
       setStage('reviewing');
     }
-  }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds]);
+  }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
 
   const toggleResponseApproval = useCallback((responseId: string) => {
     setApprovedResponseIds(prev => {
@@ -573,7 +597,7 @@ export default function BuildWorkspace() {
       const approved = buildResponses.filter(r =>
         approvedResponseIds.has(r.id)
         && !!r.agent_id
-        && (resolvedBuilderAgentIds.length === 0 || resolvedBuilderAgentIds.includes(r.agent_id))
+        && shouldIncludeBuilderAgent(r.agent_id)
       );
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
@@ -647,7 +671,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
+  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes, shouldIncludeBuilderAgent]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
@@ -1489,6 +1513,7 @@ function StatChip({ label, value, color }: { label: string; value: number; color
     </div>
   );
 }
+
 
 
 

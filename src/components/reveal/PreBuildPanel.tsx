@@ -25,6 +25,55 @@ const SCAFFOLD_MESSAGES = [
   'Generating Architect.md…',
 ];
 
+const BUILDER_COUNT_OPTIONS = [1, 2, 3, 5] as const;
+
+interface BuildAgentCandidate {
+  id: string;
+  name: string;
+  display_name: string;
+  role: string;
+  provider_group: string;
+  model: string;
+}
+
+function normBuilderValue(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function scoreBuildCandidate(agent: BuildAgentCandidate): number {
+  const role = normBuilderValue(agent.role);
+  const name = normBuilderValue(`${agent.display_name} ${agent.name}`);
+  const provider = normBuilderValue(`${agent.provider_group} ${agent.model}`);
+
+  let score = 0;
+  if (role.includes('build') || role.includes('build lead') || role.includes('code generation')) score += 50;
+  if (name.includes('builder')) score += 22;
+  if (name.includes('sonnet')) score += 35;
+  if (name.includes('gpt 5 4') || name.includes('gpt 5')) score += 25;
+  if (provider.includes('anthropic')) score += 18;
+  if (provider.includes('openai')) score += 14;
+  if (role.includes('triage') || role.includes('summarization') || role.includes('general purpose')) score -= 18;
+  if (role.includes('free') || name.includes('gpt oss') || name.includes('gemma')) score -= 24;
+  if (provider.includes('openrouter a')) score -= 10;
+  return score;
+}
+
+function normalizeBuilderSelection(currentIds: string[], targetCount: number, rankedAgents: BuildAgentCandidate[]): string[] {
+  const availableIds = new Set(rankedAgents.map(agent => agent.id));
+  const next: string[] = [];
+
+  for (const id of currentIds) {
+    if (availableIds.has(id) && !next.includes(id)) next.push(id);
+    if (next.length >= targetCount) return next;
+  }
+
+  for (const agent of rankedAgents) {
+    if (!next.includes(agent.id)) next.push(agent.id);
+    if (next.length >= targetCount) break;
+  }
+
+  return next.slice(0, targetCount);
+}
 export default function PreBuildPanel() {
   const { state, dispatch } = useMaestro();
   const isOpen = state.activeDrawer === 'pre-build';
@@ -83,7 +132,48 @@ export default function PreBuildPanel() {
   const [lanesLocked, setLanesLocked] = useState(state.activeSession?.build_spec_locked ?? false);
   const [laneError, setLaneError] = useState('');
   const [locking, setLocking] = useState(false);
-
+  const buildSpec = useMemo(
+    () => ((state.activeSession?.build_spec ?? {}) as Record<string, unknown>),
+    [state.activeSession?.build_spec],
+  );
+  const activeAgents = useMemo(
+    () => state.agents.filter(agent => agent.is_active),
+    [state.agents],
+  );
+  const rankedBuilderAgents = useMemo(
+    () => activeAgents
+      .map(agent => ({
+        id: agent.id,
+        name: agent.name,
+        display_name: agent.display_name,
+        role: agent.role,
+        provider_group: agent.provider_group,
+        model: agent.model,
+      }))
+      .sort((a, b) => scoreBuildCandidate(b) - scoreBuildCandidate(a)),
+    [activeAgents],
+  );
+  const persistedBuilderCount = useMemo(() => {
+    const raw = buildSpec.builder_count;
+    return typeof raw === 'number' && BUILDER_COUNT_OPTIONS.includes(raw as typeof BUILDER_COUNT_OPTIONS[number])
+      ? raw
+      : null;
+  }, [buildSpec]);
+  const persistedBuilderIds = useMemo(
+    () => Array.isArray(buildSpec.primary_builder_agent_ids)
+      ? buildSpec.primary_builder_agent_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+    [buildSpec],
+  );
+  const [builderCount, setBuilderCount] = useState<number>(2);
+  const [selectedBuilderIds, setSelectedBuilderIds] = useState<string[]>([]);
+  const selectedBuilderSet = useMemo(() => new Set(selectedBuilderIds), [selectedBuilderIds]);
+  const selectedBuilderAgents = useMemo(
+    () => selectedBuilderIds
+      .map(id => rankedBuilderAgents.find(agent => agent.id === id))
+      .filter((agent): agent is BuildAgentCandidate => Boolean(agent)),
+    [selectedBuilderIds, rankedBuilderAgents],
+  );
 
   useEffect(() => {
     const session = state.activeSession;
@@ -100,14 +190,37 @@ export default function PreBuildPanel() {
       setLaneError('');
       setScanError('');
       setArchitectError('');
+      const requestedBuilderCount = persistedBuilderCount ?? 2;
+      const nextBuilderCount = rankedBuilderAgents.length > 0
+        ? Math.min(Math.max(requestedBuilderCount, 1), rankedBuilderAgents.length)
+        : 1;
+      setBuilderCount(nextBuilderCount);
+      setSelectedBuilderIds(normalizeBuilderSelection(persistedBuilderIds, nextBuilderCount, rankedBuilderAgents));
     }
-  }, [state.activeSession]);
+  }, [state.activeSession, persistedBuilderCount, persistedBuilderIds, rankedBuilderAgents]);
+
+  useEffect(() => {
+    const nextBuilderCount = rankedBuilderAgents.length > 0
+      ? Math.min(Math.max(builderCount, 1), rankedBuilderAgents.length)
+      : 1;
+
+    if (nextBuilderCount !== builderCount) {
+      setBuilderCount(nextBuilderCount);
+      return;
+    }
+
+    setSelectedBuilderIds(prev => {
+      const normalized = normalizeBuilderSelection(prev, nextBuilderCount, rankedBuilderAgents);
+      return prev.length === normalized.length && prev.every((value, index) => value === normalized[index])
+        ? prev
+        : normalized;
+    });
+  }, [builderCount, rankedBuilderAgents]);
 
   const hasRepo = !!state.activeRepoConnection;
   const hasSession = !!state.activeSession;
   const canScan = hasSession && hasRepo && projectType === 'existing';
-  const canGenerate = hasSession;
-
+  const canGenerate = hasSession && selectedBuilderIds.length > 0;
   useEffect(() => {
     const session = state.activeSession;
     if (!session || session.project_type === projectType) return;
@@ -129,40 +242,68 @@ export default function PreBuildPanel() {
     { value: 'security_audit', label: 'Security Audit' },
   ];
 
+  const updateBuilderSlot = useCallback((idx: number, agentId: string) => {
+    setSelectedBuilderIds(prev => {
+      const next = normalizeBuilderSelection(prev, builderCount, rankedBuilderAgents);
+      next[idx] = agentId;
+      const unique = next.filter((value, index) => value && next.indexOf(value) === index);
+      return normalizeBuilderSelection(unique, builderCount, rankedBuilderAgents);
+    });
+  }, [builderCount, rankedBuilderAgents]);
+
+  const getAgentOptionsForRole = useCallback((role: BuildLaneRole) => (
+    role === 'builder' ? selectedBuilderAgents : activeAgents
+  ), [selectedBuilderAgents, activeAgents]);
+
+  const resolveLaneAgent = useCallback((lane: LaneEntry) => (
+    activeAgents.find(agent => agent.id === lane.agent_id)
+      ?? activeAgents.find(agent => agent.display_name === lane.agent_name || agent.name === lane.agent_name)
+      ?? null
+  ), [activeAgents]);
+
   const autoFillFromSuggestions = useCallback(() => {
     if (suggestedLanes.length === 0) return;
-    const activeAgents = state.agents.filter(a => a.is_active);
-    const entries: LaneEntry[] = suggestedLanes.map(s => {
-      const matched = activeAgents.find(a => a.display_name === s.agent_name || a.name === s.agent_name);
+    const usedAgentIds = new Set<string>();
+    const entries: LaneEntry[] = suggestedLanes.map((suggested, index) => {
+      const agentPool = suggested.role === 'builder' ? selectedBuilderAgents : activeAgents;
+      const matched = agentPool.find(agent => agent.display_name === suggested.agent_name || agent.name === suggested.agent_name)
+        ?? (suggested.role === 'builder'
+          ? selectedBuilderAgents.find(agent => !usedAgentIds.has(agent.id)) ?? selectedBuilderAgents[index] ?? selectedBuilderAgents[0]
+          : agentPool.find(agent => !usedAgentIds.has(agent.id)) ?? agentPool[0]);
+
+      if (matched?.id) usedAgentIds.add(matched.id);
       return {
-        agent_name: s.agent_name,
+        agent_name: matched?.display_name ?? suggested.agent_name,
         agent_id: matched?.id ?? '',
-        lane_paths: s.lane_paths,
-        role: s.role,
+        lane_paths: suggested.lane_paths,
+        role: suggested.role,
         editing: false,
-        pathDraft: s.lane_paths.join(', '),
+        pathDraft: suggested.lane_paths.join(', '),
       };
     });
     setLanes(entries);
     setLaneError('');
-  }, [suggestedLanes, state.agents]);
+  }, [suggestedLanes, selectedBuilderAgents, activeAgents]);
 
   const addLane = useCallback(() => {
-    const activeAgents = state.agents.filter(a => a.is_active);
-    const usedNames = new Set(lanes.map(l => l.agent_name));
-    const next = activeAgents.find(a => !usedNames.has(a.display_name));
+    const usedBuilderIds = new Set(
+      lanes
+        .filter(lane => lane.role === 'builder')
+        .map(lane => lane.agent_id)
+        .filter((value): value is string => !!value),
+    );
+    const nextBuilder = selectedBuilderAgents.find(agent => !usedBuilderIds.has(agent.id)) ?? selectedBuilderAgents[0];
     setLanes(prev => [...prev, {
-      agent_name: next?.display_name ?? 'Agent',
-      agent_id: next?.id ?? '',
+      agent_name: nextBuilder?.display_name ?? 'Builder',
+      agent_id: nextBuilder?.id ?? '',
       lane_paths: [],
       role: 'builder',
       editing: true,
       pathDraft: '',
     }]);
-  }, [state.agents, lanes]);
+  }, [selectedBuilderAgents, lanes]);
 
-  const removeLane = useCallback((idx: number) => {
-    setLanes(prev => prev.filter((_, i) => i !== idx));
+  const removeLane = useCallback((idx: number) => {    setLanes(prev => prev.filter((_, i) => i !== idx));
   }, []);
 
   const updateLane = useCallback((idx: number, patch: Partial<LaneEntry>) => {
@@ -195,17 +336,36 @@ export default function PreBuildPanel() {
   }, [lanes]);
 
   const overlaps = getOverlaps();
+  const invalidBuilderLaneIndexes = useMemo(() => {
+    const invalid = new Set<number>();
+    lanes.forEach((lane, idx) => {
+      if (lane.role !== 'builder') return;
+      const matchedAgent = resolveLaneAgent(lane);
+      if (!matchedAgent || !selectedBuilderSet.has(matchedAgent.id)) invalid.add(idx);
+    });
+    return invalid;
+  }, [lanes, resolveLaneAgent, selectedBuilderSet]);
   const hasOverlaps = overlaps.size > 0;
   const hasBuilders = lanes.some(l => l.role === 'builder');
-  const canLock = lanes.length > 0 && hasBuilders && !hasOverlaps && !lanesLocked;
-
+  const hasInvalidBuilderLanes = invalidBuilderLaneIndexes.size > 0;
+  const canLock = lanes.length > 0 && hasBuilders && !hasOverlaps && !hasInvalidBuilderLanes && !lanesLocked && selectedBuilderIds.length > 0;
   const handleLockSpec = useCallback(async () => {
     if (!state.activeSession || !canLock) return;
     setLocking(true);
     setLaneError('');
 
     try {
-      // Upsert lanes into build_lanes table
+      const invalidBuilderLane = lanes.find(lane => lane.role === 'builder' && (!lane.agent_id || !selectedBuilderSet.has(lane.agent_id)));
+      if (invalidBuilderLane) {
+        throw new Error('Builder lanes must use the locked Pre-Build builder roster.');
+      }
+
+      const nextBuildSpec = {
+        ...buildSpec,
+        builder_count: builderCount,
+        primary_builder_agent_ids: selectedBuilderIds,
+      };
+
       const rows = lanes.map(l => ({
         session_id: state.activeSession!.id,
         agent_id: l.agent_id || null,
@@ -214,7 +374,6 @@ export default function PreBuildPanel() {
         role: l.role,
       }));
 
-      // Delete old lanes for this session first
       await supabase
         .from('build_lanes')
         .delete()
@@ -226,22 +385,23 @@ export default function PreBuildPanel() {
 
       if (insertErr) throw new Error(insertErr.message);
 
-      // Lock build spec
       await supabase
         .from('sessions')
-        .update({ build_spec_locked: true } as never)
+        .update({ build_spec: nextBuildSpec, build_spec_locked: true } as never)
         .eq('id', state.activeSession.id);
 
       setLanesLocked(true);
-      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { build_spec_locked: true } });
+      dispatch({
+        type: 'UPDATE_ACTIVE_SESSION',
+        payload: { build_spec: nextBuildSpec, build_spec_locked: true },
+      });
       dispatch({ type: 'SHOW_TOAST', payload: 'Build Spec Locked ✓' });
     } catch (err) {
       setLaneError(err instanceof Error ? err.message : String(err));
     } finally {
       setLocking(false);
     }
-  }, [state.activeSession, canLock, lanes, dispatch]);
-
+  }, [state.activeSession, canLock, lanes, dispatch, buildSpec, builderCount, selectedBuilderIds, selectedBuilderSet]);
   const handleGoToBuild = useCallback(async () => {
     if (!state.activeSession) return;
     await supabase
@@ -298,10 +458,31 @@ export default function PreBuildPanel() {
     setArchitectMd(null);
 
     try {
+      if (selectedBuilderIds.length === 0) {
+        throw new Error('Select at least one active builder before generating ARCHITECT.md.');
+      }
+
+      const nextBuildSpec = {
+        ...buildSpec,
+        builder_count: builderCount,
+        primary_builder_agent_ids: selectedBuilderIds,
+      };
+
+      await supabase
+        .from('sessions')
+        .update({ build_spec: nextBuildSpec } as never)
+        .eq('id', state.activeSession.id);
+
+      dispatch({
+        type: 'UPDATE_ACTIVE_SESSION',
+        payload: { build_spec: nextBuildSpec },
+      });
+
       const data = await invokeEdgeFunction<{
         architect_md?: string;
         build_spec_locked?: boolean;
         lanes_assigned?: boolean;
+        suggested_lanes?: SuggestedLane[];
         error?: string;
       }>('architect', {
         session_id: state.activeSession.id,
@@ -313,23 +494,23 @@ export default function PreBuildPanel() {
 
       setArchitectMd(data.architect_md ?? null);
 
-      // C1: architect now auto-assigns lanes and locks build_spec
       const autoLocked = data.build_spec_locked === true;
       const lanesAssigned = data.lanes_assigned === true;
+      const refreshedBuildSpec = {
+        ...nextBuildSpec,
+        ...(Array.isArray(data.suggested_lanes) ? { suggested_lanes: data.suggested_lanes } : {}),
+      };
 
-      // Refresh session in context
-      if (state.activeSession) {
-        dispatch({
-          type: 'UPDATE_ACTIVE_SESSION',
-          payload: {
-            architect_md: data.architect_md,
-            ...(autoLocked ? { build_spec_locked: true } : {}),
-          },
-        });
-        if (autoLocked) setLanesLocked(true);
-      }
+      dispatch({
+        type: 'UPDATE_ACTIVE_SESSION',
+        payload: {
+          architect_md: data.architect_md,
+          build_spec: refreshedBuildSpec,
+          ...(autoLocked ? { build_spec_locked: true } : {}),
+        },
+      });
+      if (autoLocked) setLanesLocked(true);
 
-      // Auto-lock toast feedback
       if (lanesAssigned && autoLocked) {
         dispatch({ type: 'SHOW_TOAST', payload: 'Lanes auto-assigned and locked by Architect' });
       }
@@ -338,8 +519,7 @@ export default function PreBuildPanel() {
     } finally {
       setGenerating(false);
     }
-  }, [state.activeSession, dispatch]);
-
+  }, [state.activeSession, dispatch, buildSpec, builderCount, selectedBuilderIds]);
   const handleCopyArchitect = useCallback(() => {
     if (!architectMd) return;
     navigator.clipboard.writeText(architectMd);
@@ -459,6 +639,80 @@ export default function PreBuildPanel() {
         <RepoSection />
       </div>
 
+      <div className="reveal-label mb-3">
+        <div className="flex items-center gap-2">
+          <Users size={12} />
+          Builder roster
+        </div>
+      </div>
+      <div className="reveal-card" style={{ marginBottom: '20px' }}>
+        <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '12px', lineHeight: 1.6 }}>
+          Pre-Build locks which builders Architect and Build can use for this session. Empty repos will be initialized on first execution.
+        </div>
+        <div className="flex gap-2" style={{ marginBottom: '12px', flexWrap: 'wrap' }}>
+          {BUILDER_COUNT_OPTIONS.map(count => {
+            const disabled = rankedBuilderAgents.length === 0 || count > rankedBuilderAgents.length;
+            const active = builderCount === count;
+            return (
+              <button
+                key={count}
+                onClick={() => setBuilderCount(Math.min(count, Math.max(rankedBuilderAgents.length, 1)))}
+                disabled={disabled}
+                className="font-mono-dm"
+                style={{
+                  minWidth: '40px',
+                  height: '30px',
+                  borderRadius: '999px',
+                  border: `1px solid ${active ? 'rgba(201,168,76,0.3)' : 'rgba(255,255,255,0.08)'}`,
+                  background: active ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
+                  color: active ? 'var(--gold)' : 'var(--text-dim)',
+                  fontSize: '10px',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  opacity: disabled ? 0.35 : 1,
+                }}
+              >
+                {count}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {selectedBuilderIds.length > 0 ? selectedBuilderIds.map((agentId, idx) => (
+            <div key={`${idx}-${agentId}`} className="flex items-center gap-2">
+              <span className="font-mono-dm" style={{ width: '58px', fontSize: '10px', color: 'var(--text-dim)' }}>
+                Builder {idx + 1}
+              </span>
+              <select
+                value={agentId}
+                onChange={e => updateBuilderSlot(idx, e.target.value)}
+                className="font-mono-dm"
+                style={{
+                  flex: 1,
+                  height: '34px',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.03)',
+                  color: 'var(--text)',
+                  padding: '0 10px',
+                }}
+              >
+                {rankedBuilderAgents
+                  .filter(agent => agent.id === agentId || !selectedBuilderIds.some((selectedId, selectedIdx) => selectedIdx !== idx && selectedId === agent.id))
+                  .map(agent => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.display_name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )) : (
+            <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--risk)', lineHeight: 1.6 }}>
+              No active builders available. Re-enable Claude Sonnet or GPT builders in the Orchestra drawer before generating ARCHITECT.md.
+            </div>
+          )}
+        </div>
+      </div>
       {/* ── Supabase (collapsible) ──────────────────────────── */}
       <button
         onClick={() => setSupabaseExpanded(!supabaseExpanded)}
@@ -703,7 +957,7 @@ export default function PreBuildPanel() {
         </div>
 
         <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5, margin: '0 0 14px' }}>
-          Assign each active agent to a lane. Builders in the same session cannot write to the same paths.
+          Assign active agents to lanes. Builder lanes must use the locked Pre-Build builder roster, and builders in the same session cannot write to the same paths.
         </p>
 
         {/* Suggested lanes auto-fill */}
@@ -725,130 +979,149 @@ export default function PreBuildPanel() {
 
         {/* Lane cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {lanes.map((lane, idx) => (
-            <div
-              key={idx}
-              style={{
-                borderRadius: '12px',
-                border: `1px solid ${overlaps.has(idx) ? 'rgba(224,90,90,0.3)' : 'rgba(255,255,255,0.06)'}`,
-                background: overlaps.has(idx) ? 'rgba(224,90,90,0.04)' : 'rgba(255,255,255,0.02)',
-                padding: '12px 14px',
-              }}
-            >
-              <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
-                {/* Agent name (select from active agents) */}
-                <select
-                  value={lane.agent_name}
-                  disabled={lanesLocked}
-                  onChange={e => {
-                    const agent = state.agents.find(a => a.display_name === e.target.value);
-                    updateLane(idx, {
-                      agent_name: e.target.value,
-                      agent_id: agent?.id ?? '',
-                    });
-                  }}
-                  className="font-mono-dm"
-                  style={{
-                    fontSize: '11px', background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
-                    color: 'var(--text)', padding: '4px 8px', cursor: lanesLocked ? 'default' : 'pointer',
-                  }}
-                >
-                  {state.agents.filter(a => a.is_active).map(a => (
-                    <option key={a.id} value={a.display_name}>{a.display_name}</option>
-                  ))}
-                  {/* Keep current value if not in active agents */}
-                  {!state.agents.find(a => a.is_active && a.display_name === lane.agent_name) && (
-                    <option value={lane.agent_name}>{lane.agent_name}</option>
-                  )}
-                </select>
+          {lanes.map((lane, idx) => {
+            const agentOptions = getAgentOptionsForRole(lane.role);
+            const builderMismatch = invalidBuilderLaneIndexes.has(idx);
 
-                <div className="flex items-center gap-2">
-                  {/* Role select */}
+            return (
+              <div
+                key={idx}
+                style={{
+                  borderRadius: '12px',
+                  border: `1px solid ${overlaps.has(idx) || builderMismatch ? 'rgba(224,90,90,0.3)' : 'rgba(255,255,255,0.06)'}`,
+                  background: overlaps.has(idx) || builderMismatch ? 'rgba(224,90,90,0.04)' : 'rgba(255,255,255,0.02)',
+                  padding: '12px 14px',
+                }}
+              >
+                <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
                   <select
-                    value={lane.role}
+                    value={lane.agent_name}
                     disabled={lanesLocked}
-                    onChange={e => updateLane(idx, { role: e.target.value as BuildLaneRole })}
+                    onChange={e => {
+                      const agent = agentOptions.find(option => option.display_name === e.target.value || option.name === e.target.value);
+                      updateLane(idx, {
+                        agent_name: e.target.value,
+                        agent_id: agent?.id ?? '',
+                      });
+                    }}
                     className="font-mono-dm"
                     style={{
-                      fontSize: '10px', background: 'rgba(255,255,255,0.04)',
+                      fontSize: '11px', background: 'rgba(255,255,255,0.04)',
                       border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
-                      color: 'var(--text-muted)', padding: '3px 6px', cursor: lanesLocked ? 'default' : 'pointer',
+                      color: 'var(--text)', padding: '4px 8px', cursor: lanesLocked ? 'default' : 'pointer',
                     }}
                   >
-                    {ROLE_OPTIONS.map(r => (
-                      <option key={r.value} value={r.value}>{r.label}</option>
+                    {agentOptions.map(agent => (
+                      <option key={agent.id} value={agent.display_name}>{agent.display_name}</option>
                     ))}
+                    {!agentOptions.find(agent => agent.display_name === lane.agent_name || agent.name === lane.agent_name) && (
+                      <option value={lane.agent_name}>{lane.agent_name}</option>
+                    )}
                   </select>
 
-                  {!lanesLocked && (
-                    <button
-                      onClick={() => removeLane(idx)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px' }}
-                      title="Remove lane"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Path display / edit */}
-              <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
-                <span style={{ opacity: 0.6, marginRight: '6px' }}>Paths:</span>
-                {lane.role === 'read_only' || lane.role === 'security_audit' ? (
-                  <span style={{ fontStyle: 'italic', opacity: 0.5 }}>(reads all, writes none)</span>
-                ) : lane.editing && !lanesLocked ? (
-                  <div className="flex items-center gap-1" style={{ marginTop: '4px' }}>
-                    <input
-                      type="text"
-                      value={lane.pathDraft}
-                      onChange={e => updateLane(idx, { pathDraft: e.target.value })}
-                      onKeyDown={e => { if (e.key === 'Enter') commitPathEdit(idx); }}
-                      placeholder="src/components/**, src/hooks/**"
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={lane.role}
+                      disabled={lanesLocked}
+                      onChange={e => {
+                        const nextRole = e.target.value as BuildLaneRole;
+                        const nextOptions = getAgentOptionsForRole(nextRole);
+                        const matchedAgent = nextOptions.find(agent => agent.id === lane.agent_id)
+                          ?? nextOptions.find(agent => agent.display_name === lane.agent_name || agent.name === lane.agent_name)
+                          ?? nextOptions[0];
+                        updateLane(idx, {
+                          role: nextRole,
+                          agent_name: matchedAgent?.display_name ?? lane.agent_name,
+                          agent_id: matchedAgent?.id ?? '',
+                        });
+                      }}
                       className="font-mono-dm"
                       style={{
-                        flex: 1, fontSize: '10px', padding: '4px 8px',
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '4px', color: 'var(--text)',
-                        outline: 'none',
+                        fontSize: '10px', background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px',
+                        color: 'var(--text-muted)', padding: '3px 6px', cursor: lanesLocked ? 'default' : 'pointer',
                       }}
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => commitPathEdit(idx)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ok)', padding: '2px' }}
                     >
-                      <Check size={12} />
-                    </button>
+                      {ROLE_OPTIONS.map(r => (
+                        <option key={r.value} value={r.value}>{r.label}</option>
+                      ))}
+                    </select>
+
+                    {!lanesLocked && (
+                      <button
+                        onClick={() => removeLane(idx)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', padding: '2px' }}
+                        title="Remove lane"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
-                ) : (
-                  <span
-                    className="flex items-center gap-1"
-                    style={{ cursor: lanesLocked ? 'default' : 'pointer' }}
-                    onClick={() => !lanesLocked && updateLane(idx, { editing: true, pathDraft: lane.lane_paths.join(', ') })}
-                  >
-                    {lane.lane_paths.length > 0
-                      ? lane.lane_paths.join(', ')
-                      : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>click to set paths</span>
-                    }
-                    {!lanesLocked && <Pencil size={9} style={{ opacity: 0.4, marginLeft: '4px' }} />}
-                  </span>
+                </div>
+
+                <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                  <span style={{ opacity: 0.6, marginRight: '6px' }}>Paths:</span>
+                  {lane.role === 'read_only' || lane.role === 'security_audit' ? (
+                    <span style={{ fontStyle: 'italic', opacity: 0.5 }}>(reads all, writes none)</span>
+                  ) : lane.editing && !lanesLocked ? (
+                    <div className="flex items-center gap-1" style={{ marginTop: '4px' }}>
+                      <input
+                        type="text"
+                        value={lane.pathDraft}
+                        onChange={e => updateLane(idx, { pathDraft: e.target.value })}
+                        onKeyDown={e => { if (e.key === 'Enter') commitPathEdit(idx); }}
+                        placeholder="src/components/**, src/hooks/**"
+                        className="font-mono-dm"
+                        style={{
+                          flex: 1, fontSize: '10px', padding: '4px 8px',
+                          background: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '4px', color: 'var(--text)',
+                          outline: 'none',
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => commitPathEdit(idx)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ok)', padding: '2px' }}
+                      >
+                        <Check size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <span
+                      className="flex items-center gap-1"
+                      style={{ cursor: lanesLocked ? 'default' : 'pointer' }}
+                      onClick={() => !lanesLocked && updateLane(idx, { editing: true, pathDraft: lane.lane_paths.join(', ') })}
+                    >
+                      {lane.lane_paths.length > 0
+                        ? lane.lane_paths.join(', ')
+                        : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>click to set paths</span>
+                      }
+                      {!lanesLocked && <Pencil size={9} style={{ opacity: 0.4, marginLeft: '4px' }} />}
+                    </span>
+                  )}
+                </div>
+
+                {overlaps.has(idx) && (
+                  <div className="flex items-center gap-1" style={{ marginTop: '6px' }}>
+                    <AlertTriangle size={10} style={{ color: 'var(--risk)' }} />
+                    <span style={{ fontSize: '9px', color: 'var(--risk)' }}>
+                      {overlaps.get(idx)}
+                    </span>
+                  </div>
+                )}
+                {builderMismatch && (
+                  <div className="flex items-center gap-1" style={{ marginTop: '6px' }}>
+                    <AlertTriangle size={10} style={{ color: 'var(--risk)' }} />
+                    <span style={{ fontSize: '9px', color: 'var(--risk)' }}>
+                      Builder lanes must use one of the locked builders selected above.
+                    </span>
+                  </div>
                 )}
               </div>
-
-              {/* Overlap warning */}
-              {overlaps.has(idx) && (
-                <div className="flex items-center gap-1" style={{ marginTop: '6px' }}>
-                  <AlertTriangle size={10} style={{ color: 'var(--risk)' }} />
-                  <span style={{ fontSize: '9px', color: 'var(--risk)' }}>
-                    {overlaps.get(idx)}
-                  </span>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Add lane + lock buttons */}
@@ -1056,6 +1329,10 @@ function IntakeSummaryCard({ summary }: { summary: IntakeSummary }) {
     </div>
   );
 }
+
+
+
+
 
 
 

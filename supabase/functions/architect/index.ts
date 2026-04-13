@@ -146,8 +146,12 @@ function assignAgentToLane(
   lane: SuggestedLane,
   agents: AgentRow[],
   usedAgentIds: Set<string>,
+  lockedBuilderIds: Set<string>,
 ): AgentRow | null {
-  const candidates = agents;
+  const candidates = lane.role === "builder" && lockedBuilderIds.size > 0
+    ? agents.filter((agent) => lockedBuilderIds.has(agent.id))
+    : agents;
+  if (candidates.length === 0) return null;
 
   const exact = candidates.find(
     (agent) => norm(agent.display_name) === norm(lane.agent_name) || norm(agent.name) === norm(lane.agent_name),
@@ -163,7 +167,6 @@ function assignAgentToLane(
 
   return candidates.find((agent) => !usedAgentIds.has(agent.id)) ?? candidates[0] ?? null;
 }
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -234,7 +237,11 @@ Deno.serve(async (req: Request) => {
 
     const buildSpec = (sessionRow.build_spec as Record<string, unknown> | null) ?? {};
     const intakeSummary = buildSpec.intake_summary ?? null;
-
+    const lockedBuilderIds = new Set(
+      Array.isArray(buildSpec.primary_builder_agent_ids)
+        ? buildSpec.primary_builder_agent_ids.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [],
+    );
     const decisionsText = (decisions ?? [])
       .map((d) => {
         const tension = Array.isArray(d.tension_points) ? d.tension_points.join("; ") : "";
@@ -249,9 +256,21 @@ Deno.serve(async (req: Request) => {
       .order("provider_group", { ascending: true })
       .order("slot_index", { ascending: true });
 
-    const allAgents = (activeAgentRows ?? []) as AgentRow[];
-    const activeAgents = allAgents.filter((agent) => agent.is_active);
-    const agentRosterText = (activeAgents.length > 0 ? activeAgents : allAgents)
+    const activeAgents = ((activeAgentRows ?? []) as AgentRow[]).filter((agent) => agent.is_active);
+    const activeOrAllAgents = activeAgents;
+    const lockedBuilderRoster = lockedBuilderIds.size > 0
+      ? activeOrAllAgents.filter((agent) => lockedBuilderIds.has(agent.id))
+      : [];
+    const generalRoster = lockedBuilderRoster.length > 0
+      ? [
+          ...lockedBuilderRoster,
+          ...activeOrAllAgents.filter((agent) => !lockedBuilderIds.has(agent.id)),
+        ]
+      : activeOrAllAgents;
+    const agentRosterText = generalRoster
+      .map((agent) => `- ${agent.display_name} | role: ${agent.role} | provider_group: ${agent.provider_group}`)
+      .join("\n");
+    const lockedBuilderText = lockedBuilderRoster
       .map((agent) => `- ${agent.display_name} | role: ${agent.role} | provider_group: ${agent.provider_group}`)
       .join("\n");
 
@@ -261,6 +280,10 @@ Deno.serve(async (req: Request) => {
 Use exact display names from this list in the Agent Lane Assignments table.
 ${agentRosterText || "(no active agents found)"}
 
+--- Locked Builder Roster ---
+Builder lanes MUST use only these agents when this section is populated.
+${lockedBuilderText || "(none locked; architect may choose from the active roster)"}
+
 --- Intake Summary ---
 ${intakeSummary ? JSON.stringify(intakeSummary, null, 2) : "(no intake scan run yet)"}
 
@@ -269,7 +292,6 @@ ${JSON.stringify(buildSpec, null, 2)}
 
 --- Concierge Decisions ---
 ${decisionsText || "(no concierge decisions yet)"}`;
-
     const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -319,12 +341,12 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     // proper agent_id references instead of display-name-only rows.
     let lanesAssigned = false;
     if (suggestedLanes.length > 0) {
-      const agentList = activeAgents.length > 0 ? activeAgents : allAgents;
+      const agentList = generalRoster;
       const usedAgentIds = new Set<string>();
 
       const laneRows = suggestedLanes
         .map((lane) => {
-          const match = assignAgentToLane(lane, agentList, usedAgentIds);
+          const match = assignAgentToLane(lane, agentList, usedAgentIds, lockedBuilderIds);
           if (match) usedAgentIds.add(match.id);
           return {
             session_id: body.session_id,
@@ -388,6 +410,12 @@ ${decisionsText || "(no concierge decisions yet)"}`;
     );
   }
 });
+
+
+
+
+
+
 
 
 

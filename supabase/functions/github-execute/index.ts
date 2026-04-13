@@ -256,12 +256,12 @@ async function ensureDefaultBranchSha(
   repo: string,
   defaultBranch: string,
   token: string,
-): Promise<string> {
+): Promise<{ sha: string; initialized: boolean }> {
   try {
     const ref = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, token) as { object?: { sha?: string } };
     const sha = ref?.object?.sha;
     if (!sha) throw new Error(`Default branch ${defaultBranch} is missing a commit SHA.`);
-    return sha;
+    return { sha, initialized: false };
   } catch (err) {
     if (!isEmptyRepoError(err)) throw err;
 
@@ -296,10 +296,9 @@ async function ensureDefaultBranchSha(
     const ref = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, token) as { object?: { sha?: string } };
     const sha = ref?.object?.sha;
     if (!sha) throw new Error(`Default branch ${defaultBranch} could not be initialized.`);
-    return sha;
+    return { sha, initialized: true };
   }
-}
-// Sprint A · B5 — automatic backup branch. Snapshots default branch HEAD
+}// Sprint A · B5 — automatic backup branch. Snapshots default branch HEAD
 // before any write to an existing repo. Once per execution run, never
 // skippable, no override flag. Returns the branch name.
 async function createBackupBranch(
@@ -730,8 +729,7 @@ Deno.serve(async (req: Request) => {
       .update({ status: "running" })
       .eq("id", execution_run_id);
 
-    const baseRef = await ghApi(`/repos/${owner}/${repo}/git/ref/heads/${defaultBranch}`, ghToken);
-    const baseSha = baseRef.object.sha;
+    const { sha: baseSha, initialized: initializedDefaultBranch } = await ensureDefaultBranchSha(owner, repo, defaultBranch, ghToken);
 
     const globalApproval = body.conductor_approved ?? false;
 
@@ -769,7 +767,7 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       projectType = (ptRow?.project_type as string | null) ?? null;
     }
-    if (projectType !== "new") {
+    if (projectType !== "new" && !initializedDefaultBranch) {
       try {
         aggregate.backup_branch = await createBackupBranch(owner, repo, defaultBranch, ghToken);
         await supabase.from("audit_events").insert({
@@ -1136,6 +1134,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 });
+
+
+
 
 
 
