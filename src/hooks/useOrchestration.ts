@@ -318,7 +318,7 @@ export function useOrchestration() {
     const broadcastMode = options.modeOverride ?? state.orchestrationMode;
 
     const phase = activeSession.current_phase;
-    const skipTriage = options.skipTriage || broadcastMode === 'build' || phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
+    const skipTriage = options.skipTriage || activeSession.mode === 'build' || broadcastMode === 'build' || phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
 
     if (!skipTriage) {
       try {
@@ -516,7 +516,16 @@ export function useOrchestration() {
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;
 
-    const roundResponses = state.responses.filter(r => r.round_id === roundId);
+    let roundResponses = state.responses.filter(r => r.round_id === roundId);
+    if (roundResponses.length === 0) {
+      const { data: rawResponses } = await supabase
+        .from('responses')
+        .select('*')
+        .eq('round_id', roundId)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
+      roundResponses = (rawResponses ?? []) as Response[];
+    }
     const flagged = roundResponses.filter(r => r.is_flagged);
     const toSynthesize = flagged.length > 0 ? flagged : roundResponses;
 
@@ -568,3 +577,4 @@ export function useOrchestration() {
 
   return { broadcast, synthesize, logAudit, newRound, buildTieredContext, triggerConcierge };
 }
+

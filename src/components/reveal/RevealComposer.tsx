@@ -1,12 +1,13 @@
-import { useState, useRef, useMemo, KeyboardEvent } from 'react';
+import { useState, useRef, useMemo, useEffect, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
+import { supabase } from '../../lib/supabase';
 import { Send, Music, AlertTriangle } from 'lucide-react';
-import { OrchestrationMode } from '../../types';
+import { OrchestrationMode, SessionMode } from '../../types';
 import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
 
 interface Props {
-  onBroadcast: (prompt: string, selectedAgentIds: string[]) => Promise<void>;
+  onBroadcast: (prompt: string, selectedAgentIds: string[], requestedMode?: SessionMode) => Promise<void>;
 }
 
 export default function RevealComposer({ onBroadcast }: Props) {
@@ -17,9 +18,18 @@ export default function RevealComposer({ onBroadcast }: Props) {
     state.agents.filter(a => a.is_active).map(a => a.id)
   );
   const [elevatedCapAck, setElevatedCapAck] = useState(false);
+  const [pendingSessionMode, setPendingSessionMode] = useState<SessionMode>('ask');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeAgents = state.agents.filter(a => a.is_active);
+
+  useEffect(() => {
+    if (state.activeSession?.mode) {
+      setPendingSessionMode(state.activeSession.mode);
+    }
+  }, [state.activeSession?.id, state.activeSession?.mode]);
+
+  const sessionMode = state.activeSession?.mode ?? pendingSessionMode;
 
   // P10 — cost estimate (local only, never calls an API)
   const selectedAgents = useMemo(
@@ -49,6 +59,29 @@ export default function RevealComposer({ onBroadcast }: Props) {
   const fillPct = Math.min((estimatedTokens / contextLimit) * 100, 100);
   const fillColor = fillPct > 80 ? 'var(--risk)' : fillPct > 55 ? 'var(--warn)' : 'var(--ok)';
 
+  const handleSessionModeChange = async (mode: SessionMode) => {
+    setPendingSessionMode(mode);
+
+    if (mode === 'ask' && state.orchestrationMode !== 'analysis') {
+      dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: 'analysis' });
+    }
+
+    if (!state.activeSession) return;
+
+    await supabase
+      .from('sessions')
+      .update({ mode } as never)
+      .eq('id', state.activeSession.id);
+
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { mode } });
+    dispatch({
+      type: 'SET_SESSIONS',
+      payload: state.sessions.map(session =>
+        session.id === state.activeSession?.id ? { ...session, mode } : session,
+      ),
+    });
+  };
+
   const handleBroadcast = async () => {
     if (!canSend) return;
     const ids = selectedIds.length > 0 ? selectedIds : activeAgents.map(a => a.id);
@@ -56,7 +89,7 @@ export default function RevealComposer({ onBroadcast }: Props) {
     setPrompt('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
-    await onBroadcast(text, ids);
+    await onBroadcast(text, ids, sessionMode);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -246,14 +279,12 @@ export default function RevealComposer({ onBroadcast }: Props) {
               background: 'rgba(255,255,255,0.02)',
             }}
           >
-            {(['analysis', 'build', 'artifact'] as OrchestrationMode[])
-            .filter(m => state.activeSession?.mode === 'ask' ? m === 'analysis' : true)
-            .map(m => {
-              const active = state.orchestrationMode === m;
+            {(['ask', 'build'] as SessionMode[]).map(mode => {
+              const active = sessionMode === mode;
               return (
                 <button
-                  key={m}
-                  onClick={() => dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: m })}
+                  key={mode}
+                  onClick={() => { void handleSessionModeChange(mode); }}
                   style={{
                     height: '28px',
                     padding: '0 12px',
@@ -268,12 +299,51 @@ export default function RevealComposer({ onBroadcast }: Props) {
                     fontWeight: active ? 500 : 400,
                     transition: 'all 0.15s ease',
                   }}
-                  title={`${m.charAt(0).toUpperCase() + m.slice(1)} mode`}
+                  title={`${mode.charAt(0).toUpperCase() + mode.slice(1)} session`}
                 >
-                  {m}
+                  {mode}
                 </button>
               );
             })}
+          </div>
+
+          <div
+            className="flex items-center"
+            style={{
+              padding: '3px',
+              borderRadius: '999px',
+              border: '1px solid rgba(255,255,255,0.07)',
+              background: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            {(['analysis', 'build', 'artifact'] as OrchestrationMode[])
+              .filter(m => sessionMode === 'ask' ? m === 'analysis' : true)
+              .map(m => {
+                const active = state.orchestrationMode === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: m })}
+                    style={{
+                      height: '28px',
+                      padding: '0 12px',
+                      borderRadius: '999px',
+                      border: 'none',
+                      background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
+                      color: active ? 'var(--gold)' : 'var(--text-dim)',
+                      fontSize: '11px',
+                      letterSpacing: '0.06em',
+                      textTransform: 'capitalize' as const,
+                      cursor: 'pointer',
+                      fontWeight: active ? 500 : 400,
+                      transition: 'all 0.15s ease',
+                    }}
+                    title={`${m.charAt(0).toUpperCase() + m.slice(1)} mode`}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
           </div>
 
           <button

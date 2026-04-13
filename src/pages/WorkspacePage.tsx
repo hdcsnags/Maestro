@@ -24,6 +24,7 @@ import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
 import { deriveOrbState } from '../lib/orbState';
+import type { SessionMode } from '../types';
 
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
@@ -58,13 +59,13 @@ export default function WorkspacePage() {
     }
   }, [state.isBroadcasting, latestResponses.length, state.autoShowCarousel, dispatch]);
 
-  const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[]) => {
+  const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[], requestedMode?: SessionMode) => {
     // Option A — lazy session creation. If the user lands fresh and broadcasts,
     // create a new session on demand and pass it directly to broadcast
     // (state.activeSession hasn't updated yet in this render cycle).
     let sessionForBroadcast = state.activeSession;
     if (!sessionForBroadcast && state.workspace) {
-      const created = await createSession(state.workspace.id);
+      const created = await createSession(state.workspace.id, requestedMode ?? 'ask');
       if (!created) return;
       sessionForBroadcast = created;
     }
@@ -251,3 +252,4 @@ export default function WorkspacePage() {
     </div>
   );
 }
+

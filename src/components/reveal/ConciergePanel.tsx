@@ -156,7 +156,7 @@ export default function ConciergePanel() {
     dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: false });
     if (triagePrompt) {
       const activeAgentIds = state.agents.filter(a => a.is_active).map(a => a.id);
-      broadcast(triagePrompt, activeAgentIds);
+      void broadcast(triagePrompt, activeAgentIds, state.activeSession, { skipTriage: true });
     }
   }, [state.triageResult, state.agents, dispatch, broadcast]);
 
@@ -448,3 +448,4 @@ export default function ConciergePanel() {
     </div>
   );
 }
+
