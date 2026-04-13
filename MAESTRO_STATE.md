@@ -159,7 +159,8 @@ Legacy (unused): agent_skills, flags
 | `github-execute` now routes execution through empty-repo default-branch bootstrap before Maestro branches/PRs, allowing first-build execution into a new repo | 2026-04-13 (code verified, `npm run typecheck`) |
 | 504 root cause resolved: `concierge` `buildDeterministicBuildPlan()` no longer double-injects ARCHITECT.MD into `build_prompt` (already in system prompt via `orchestrate`); `build_prompt` is now ~80 tokens | 2026-04-13 (`supabase functions deploy concierge`, commit `71da7a9`) |
 | Continuation chain wired: `BuildWorkspace` reads `complete:false`/`continuation_prompt` from `signals`, shows "Continue Build" in reviewing stage for incomplete agents | 2026-04-13 (code verified, `npm run typecheck`) |
-| Lane depth warning: `laneHasDeepPaths()` in `BuildWorkspace` warns conductors in plan_review when assigned paths span 2+ deep wildcards | 2026-04-13 (code verified, `npm run typecheck`) |
+| #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
+| #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 
 ## What's Broken or Incomplete
 
@@ -173,7 +174,7 @@ Legacy (unused): agent_skills, flags
 | Build orchestration is still synchronous end-to-end; UI status is clearer now, but provider retries/reroutes are not yet queued mid-flight | 2026-04-13 | Unassigned |
 | Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
-| Concierge auto-trigger after build broadcast may double-fire | Pre-existing | — |
+| Concierge auto-trigger after build broadcast may double-fire | ~~Pre-existing~~ Fixed `41fa2dd` | — |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
 | GitHub App install UX still manual — backend capability exists, in-app detection/prompt does not | Pre-existing | — |
 | No markdown rendering in FolioCard response content | Pre-existing | — |
@@ -203,7 +204,27 @@ These areas change often and should be re-verified after any significant work se
 
 ### 2026-04-13 — GitHub Copilot (Sonnet 4.6)
 
-**What was done**: Identified and fixed the root cause of build-mode 504 Gateway Timeouts. `orchestrate/index.ts` already injects ARCHITECT.MD into the **system prompt** for every build-mode call, but `concierge/buildDeterministicBuildPlan()` was also embedding the full `architectMd` string in the **user-message `build_prompt`**, causing double-injection (~4,000 extra tokens per request). Each agent was then expected to output 20–30 complete files in one shot under a 60s edge function timeout — impossible for any provider. Fix: rewrote `buildDeterministicBuildPlan()` to emit a ~80-token build_prompt referencing ARCHITECT.MD without embedding it, and updated the Anthropic-driven `buildPlanPrompt` to explicitly forbid embedding. Also wired the continuation chain (Layer 3): `BuildWorkspace` now reads `complete:false` + `continuation_prompt` from `signals` and surfaces a "Continue Build" button for incomplete agents. Added lane depth warning (Layer 2): `laneHasDeepPaths()` helper warns conductors in plan_review when a lane spans 2+ deep wildcard paths. Redeployed `concierge`, ran `npm run typecheck` clean, committed and pushed.
+**What was done**: Implemented audit items #10 and #12 from the build-reliability sprint.
+
+**#10 — Concierge re-fire on remount**: Added `lanesLoaded` state to `BuildWorkspace`. The lanes DB query now calls `setLanesLoaded(true)` whether or not rows exist. The hydration effect waits for `lanesLoaded` before proceeding past the execution-run check — this prevents the concierge auto-trigger from firing before we know whether build_lanes already exist for the session. Added a new early-return in hydration: if builder lanes exist in DB, advance directly to `plan_review` and set `preparingTriggered.current = true`, bypassing any concierge call. Verified that the existing `preparingTriggered.current` guard still handles the simple remount case; `lanesLoaded` handles the case where `state.buildPlan` was cleared (session switch) but lanes persist in DB.
+
+**#12 — Weak agent fallback in architect**: Fixed `assignAgentToLane` in `architect/index.ts`. Two changes: (1) If `lockedBuilderIds` is non-empty but none of those IDs exist in the workspace agents table (stale IDs from unapplied migration or a deleted agent), the function now falls back to the full agent pool instead of returning `null` — `null` was guaranteeing a LANES_NOT_ASSIGNED 400 on every build. (2) The last-resort fallback (when all scored candidates have score ≤ 0) now filters out GPT-OSS and Gemma models for builder lanes, since both reliably 504 or return stubs. Only if no capable agent remains does it fall through to any unused agent.
+
+Ran `npm run typecheck` clean. Deployed `architect`. Committed and pushed `41fa2dd`. Updated MAESTRO_STATE.md What's Working rows and resolved the concierge re-fire entry in What's Broken.
+
+**Files touched**: `src/components/reveal/BuildWorkspace.tsx`, `supabase/functions/architect/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- `lanesLoaded` as React state (not a ref) so the hydration effect re-runs when the DB query resolves, even if that happens after the initial mount cycle.
+- Hydration effect still processes execution-run restore BEFORE the `lanesLoaded` gate — the complete-run restore is fast (in-memory state) and shouldn't be blocked by a DB query.
+- Locked ID → full-pool fallback is intentional: the conductor's intent was to use specific agents; if those agents don't exist in DB, using any capable agent is better than blocking the entire build.
+- GPT-OSS and Gemma exclusion in last-resort is by name match, not by `provider_group`, so it doesn't accidentally exclude other capable openrouter_a agents (e.g., Llama 4 Maverick).
+
+**What didn't work**: Build flow still needs a live end-to-end smoke. The 2 unapplied migrations (`promote_gpt54_builder`, `add_session_mode`) remain pending.
+
+---
+
+`orchestrate/index.ts` already injects ARCHITECT.MD into the **system prompt** for every build-mode call, but `concierge/buildDeterministicBuildPlan()` was also embedding the full `architectMd` string in the **user-message `build_prompt`**, causing double-injection (~4,000 extra tokens per request). Each agent was then expected to output 20–30 complete files in one shot under a 60s edge function timeout — impossible for any provider. Fix: rewrote `buildDeterministicBuildPlan()` to emit a ~80-token build_prompt referencing ARCHITECT.MD without embedding it, and updated the Anthropic-driven `buildPlanPrompt` to explicitly forbid embedding. Also wired the continuation chain (Layer 3): `BuildWorkspace` now reads `complete:false` + `continuation_prompt` from `signals` and surfaces a "Continue Build" button for incomplete agents. Added lane depth warning (Layer 2): `laneHasDeepPaths()` helper warns conductors in plan_review when a lane spans 2+ deep wildcard paths. Redeployed `concierge`, ran `npm run typecheck` clean, committed and pushed.
 
 **Files touched**: `supabase/functions/concierge/index.ts`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
 
