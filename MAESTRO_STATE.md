@@ -8,9 +8,9 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Build broadcast → execute flow still untested end-to-end |
-| Last verified deploy | `concierge` and `github-execute` redeployed on 2026-04-13; 14 protected functions previously redeployed on 2026-04-12; live runtime smoke still only verified on deployed `vault` |
-| Unapplied migrations | 2 unapplied: `20260410143000_promote_gpt54_builder.sql` (verified 2026-04-12), `20260412200000_add_session_mode.sql` (new, 2026-04-12) |
+| Active blockers | Build broadcast → execute flow still untested end-to-end (504 root cause fixed, needs live smoke) |
+| Last verified deploy | `concierge` redeployed 2026-04-13 (504 fix, commit `71da7a9`); `github-execute` redeployed earlier 2026-04-13; 14 protected functions redeployed 2026-04-12; live runtime smoke only verified on `vault` |
+| Unapplied migrations | 2 unapplied: `20260410143000_promote_gpt54_builder.sql`, `20260412200000_add_session_mode.sql` |
 | Active locks | None |
 
 ---
@@ -157,16 +157,15 @@ Legacy (unused): agent_skills, flags
 | Pre-Build now locks the builder roster into `build_spec`, `architect` restricts builder lanes to that roster, and `BuildWorkspace` respects locked builder IDs instead of re-casting builders at build time | 2026-04-13 (code verified, `npm run typecheck`) |
 | BuildWorkspace now surfaces dispatching, waiting-on-provider, partial-results, GitHub-write, and bouncer-running states during build review/execution | 2026-04-13 (code verified, `npm run typecheck`) |
 | `github-execute` now routes execution through empty-repo default-branch bootstrap before Maestro branches/PRs, allowing first-build execution into a new repo | 2026-04-13 (code verified, `npm run typecheck`) |
+| 504 root cause resolved: `concierge` `buildDeterministicBuildPlan()` no longer double-injects ARCHITECT.MD into `build_prompt` (already in system prompt via `orchestrate`); `build_prompt` is now ~80 tokens | 2026-04-13 (`supabase functions deploy concierge`, commit `71da7a9`) |
+| Continuation chain wired: `BuildWorkspace` reads `complete:false`/`continuation_prompt` from `signals`, shows "Continue Build" in reviewing stage for incomplete agents | 2026-04-13 (code verified, `npm run typecheck`) |
+| Lane depth warning: `laneHasDeepPaths()` in `BuildWorkspace` warns conductors in plan_review when assigned paths span 2+ deep wildcards | 2026-04-13 (code verified, `npm run typecheck`) |
 
 ## What's Broken or Incomplete
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| Migration `20260412200000_add_session_mode.sql` needs to be applied remotely | 2026-04-12 | Unassigned |
-
-| Issue | Since | Owner |
-|-------|-------|-------|
-| Build broadcast → Execute flow untested end-to-end | 2026-04-12 | Unassigned |
+| Build broadcast → Execute flow untested end-to-end (504 root cause fixed; needs live smoke) | 2026-04-12 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
 | Build orchestration is still synchronous end-to-end; UI status is clearer now, but provider retries/reroutes are not yet queued mid-flight | 2026-04-13 | Unassigned |
@@ -199,6 +198,21 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-13 — GitHub Copilot (Sonnet 4.6)
+
+**What was done**: Identified and fixed the root cause of build-mode 504 Gateway Timeouts. `orchestrate/index.ts` already injects ARCHITECT.MD into the **system prompt** for every build-mode call, but `concierge/buildDeterministicBuildPlan()` was also embedding the full `architectMd` string in the **user-message `build_prompt`**, causing double-injection (~4,000 extra tokens per request). Each agent was then expected to output 20–30 complete files in one shot under a 60s edge function timeout — impossible for any provider. Fix: rewrote `buildDeterministicBuildPlan()` to emit a ~80-token build_prompt referencing ARCHITECT.MD without embedding it, and updated the Anthropic-driven `buildPlanPrompt` to explicitly forbid embedding. Also wired the continuation chain (Layer 3): `BuildWorkspace` now reads `complete:false` + `continuation_prompt` from `signals` and surfaces a "Continue Build" button for incomplete agents. Added lane depth warning (Layer 2): `laneHasDeepPaths()` helper warns conductors in plan_review when a lane spans 2+ deep wildcard paths. Redeployed `concierge`, ran `npm run typecheck` clean, committed and pushed.
+
+**Files touched**: `supabase/functions/concierge/index.ts`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- ARCHITECT.MD belongs only in the orchestrate system prompt path — concierge should reference it, not re-embed it.
+- Continuation data (`build_complete`, `continuation_prompt`) already stores in the `signals` JSONB column — no new migration needed.
+- Lane depth warning is heuristic-based (`/**` count ≥ 2) — catches the common failure case without requiring a file tree parse.
+
+**What didn't work**: Build flow still needs a live end-to-end smoke after this fix. The 2 unapplied migrations (`promote_gpt54_builder`, `add_session_mode`) are still pending remote application.
+
+---
 
 ### 2026-04-13 — OpenAI Codex
 
