@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { AGENT_DEFAULTS, Agent, AgentSkill, AuditEvent, Round, Session, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode } from '../types';
+import { AGENT_DEFAULTS, Agent, AgentSkill, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode } from '../types';
 
 export function useWorkspace() {
   const { state, dispatch } = useMaestro();
@@ -237,7 +237,7 @@ export function useWorkspace() {
     }
   }, [user, dispatch]);
 
-  const createSession = useCallback(async (workspaceId: string) => {
+  const createSession = useCallback(async (workspaceId: string, mode: SessionMode = 'ask') => {
     if (!user) return null;
     const sessionCount = state.sessions.length + 1;
     const activeRepo = state.activeRepoConnection;
@@ -250,6 +250,7 @@ export function useWorkspace() {
         user_id: user.id,
         title: `Session ${sessionCount}`,
         execution_mode: 'pr_flow',
+        mode,
         status: 'active',
         github_repo: githubRepo,
       } as never)

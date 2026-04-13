@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { supabase } from '../../lib/supabase';
-import { X, ArrowRight, RotateCcw, Pencil, Download } from 'lucide-react';
+import { X, ArrowRight, RotateCcw, Pencil, Download, Hammer } from 'lucide-react';
 import type { SessionPhase, DesignMode } from '../../types';
 
 /**
@@ -50,6 +50,13 @@ export default function ConciergePanel() {
   const handleProceed = useCallback(async () => {
     if (!decision) { handleClose(); return; }
 
+    // Ask mode sessions don't advance through build phases
+    if (state.activeSession?.mode === 'ask') {
+      handleClose();
+      dispatch({ type: 'SHOW_TOAST', payload: 'Ready for next round' });
+      return;
+    }
+
     const next = decision.recommended_next_phase;
 
     if (next === 'design') {
@@ -88,6 +95,17 @@ export default function ConciergePanel() {
     dispatch({ type: 'SET_CONCIERGE_DECISION', payload: null });
     handleClose();
   }, [dispatch, handleClose]);
+
+  const handleConvertToBuild = useCallback(async () => {
+    if (!state.activeSession) return;
+    await supabase
+      .from('sessions')
+      .update({ mode: 'build' } as never)
+      .eq('id', state.activeSession.id);
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { mode: 'build' } });
+    dispatch({ type: 'SHOW_TOAST', payload: 'Session converted to Build — full phased flow unlocked' });
+    handleClose();
+  }, [state.activeSession, dispatch, handleClose]);
 
   const handleDownload = useCallback(() => {
     if (!decision) return;
@@ -248,6 +266,9 @@ export default function ConciergePanel() {
 
   const { alignment_summary, tension_points, recommended_direction, phase, model_used, intent, design_mode, recommended_next_phase } = decision;
   const isSimpleAsk = intent === 'simple_ask';
+  const isAskMode = state.activeSession?.mode === 'ask';
+  const roundCount = state.rounds.filter(r => r.session_id === state.activeSession?.id).length;
+  const showConvertToBuild = isAskMode && roundCount >= 2;
 
   // ─── Recommended phase pill label ────────────────────────────────────────
   const nextPhaseLabel = recommended_next_phase
@@ -399,6 +420,22 @@ export default function ConciergePanel() {
                 <Download size={12} />
                 Report
               </button>
+              {showConvertToBuild && (
+                <button
+                  className="reveal-pill"
+                  style={{
+                    height: '38px', fontSize: '12px', padding: '0 18px',
+                    background: 'rgba(90,184,142,0.12)',
+                    borderColor: 'rgba(90,184,142,0.25)',
+                    color: '#5ab88e',
+                    fontWeight: 500,
+                  }}
+                  onClick={handleConvertToBuild}
+                >
+                  <Hammer size={12} />
+                  Convert to Build
+                </button>
+              )}
             </div>
           )}
           {model_used && (

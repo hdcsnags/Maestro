@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
-import { Eye } from 'lucide-react';
+import { useWorkspace } from '../../hooks/useWorkspace';
+import { Eye, MessageCircle, Hammer } from 'lucide-react';
 import type { OrbState } from '../../lib/orbState';
+import type { SessionMode } from '../../types';
 
 /**
  * Empty stage — the Maestro orb. Shown as the resting state OR when
@@ -47,6 +49,7 @@ function hexToRgb(hex: string): string {
 
 export default function EmptyStage({ orbState }: EmptyStageProps) {
   const { state, dispatch } = useMaestro();
+  const { createSession } = useWorkspace();
   const activeCount = state.agents.filter(a => a.is_active).length;
   const orbConfig = ORB_CONFIG[orbState];
   const glowRgb = useMemo(() => hexToRgb(orbConfig.glowColor), [orbConfig.glowColor]);
@@ -57,6 +60,13 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
     ? state.responses.filter(r => r.round_id === latestRound.id).length
     : 0;
   const hasResponses = responseCount > 0 && !state.carouselVisible;
+
+  const showModePicker = !state.activeSession && state.workspace;
+
+  const handlePickMode = async (mode: SessionMode) => {
+    if (!state.workspace) return;
+    await createSession(state.workspace.id, mode);
+  };
 
   return (
     <div
@@ -109,6 +119,85 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
         >
           {statusText || `${activeCount} ${activeCount === 1 ? 'voice' : 'voices'} standing by`}
         </div>
+
+        {/* Mode picker — shown when no active session */}
+        {showModePicker && (
+          <div
+            style={{
+              display: 'flex',
+              gap: '16px',
+              justifyContent: 'center',
+              marginTop: '32px',
+              pointerEvents: 'auto',
+            }}
+          >
+            <button
+              onClick={() => handlePickMode('ask')}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '20px 28px',
+                borderRadius: '20px',
+                border: '1px solid rgba(201,168,76,0.18)',
+                background: 'linear-gradient(180deg, rgba(201,168,76,0.06), rgba(201,168,76,0.02))',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                minWidth: '160px',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(201,168,76,0.4)';
+                (e.currentTarget as HTMLElement).style.background = 'linear-gradient(180deg, rgba(201,168,76,0.1), rgba(201,168,76,0.04))';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(201,168,76,0.18)';
+                (e.currentTarget as HTMLElement).style.background = 'linear-gradient(180deg, rgba(201,168,76,0.06), rgba(201,168,76,0.02))';
+              }}
+            >
+              <MessageCircle size={20} style={{ color: 'var(--gold)' }} />
+              <span className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--gold)', fontWeight: 500 }}>
+                Ask the Council
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                Chat, broadcast, synthesize
+              </span>
+            </button>
+
+            <button
+              onClick={() => handlePickMode('build')}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '20px 28px',
+                borderRadius: '20px',
+                border: '1px solid rgba(90,184,142,0.18)',
+                background: 'linear-gradient(180deg, rgba(90,184,142,0.06), rgba(90,184,142,0.02))',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                minWidth: '160px',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(90,184,142,0.4)';
+                (e.currentTarget as HTMLElement).style.background = 'linear-gradient(180deg, rgba(90,184,142,0.1), rgba(90,184,142,0.04))';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(90,184,142,0.18)';
+                (e.currentTarget as HTMLElement).style.background = 'linear-gradient(180deg, rgba(90,184,142,0.06), rgba(90,184,142,0.02))';
+              }}
+            >
+              <Hammer size={20} style={{ color: '#5ab88e' }} />
+              <span className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: '#5ab88e', fontWeight: 500 }}>
+                Start a Build
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                Full phased flow to code
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Responses ready indicator (carousel hidden but responses exist) */}
         {hasResponses && (

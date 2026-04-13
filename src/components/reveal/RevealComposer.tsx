@@ -246,7 +246,9 @@ export default function RevealComposer({ onBroadcast }: Props) {
               background: 'rgba(255,255,255,0.02)',
             }}
           >
-            {(['analysis', 'build', 'artifact'] as OrchestrationMode[]).map(m => {
+            {(['analysis', 'build', 'artifact'] as OrchestrationMode[])
+            .filter(m => state.activeSession?.mode === 'ask' ? m === 'analysis' : true)
+            .map(m => {
               const active = state.orchestrationMode === m;
               return (
                 <button

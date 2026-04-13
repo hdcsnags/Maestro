@@ -5,6 +5,7 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type ExecutionStrategy = 'per_agent' | 'synthesized';
 export type OrchestrationMode = 'analysis' | 'build' | 'artifact';
 export type ExecutionRunStatus = 'pending' | 'approved' | 'running' | 'complete' | 'failed';
+export type SessionMode = 'ask' | 'build';
 
 export interface Workspace {
   id: string;
@@ -58,6 +59,7 @@ export interface Session {
   title: string;
   execution_mode: ExecutionMode;
   status: SessionStatus;
+  mode: SessionMode;
   github_repo?: string;
   supabase_project_url?: string;
   created_at: string;

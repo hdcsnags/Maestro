@@ -8,9 +8,9 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Build broadcast → execute flow still untested end-to-end; council auth fixes landed but need runtime smoke test |
-| Last verified deploy | 14 remote functions listed ACTIVE on 2026-04-12; `orchestrate` updated 2026-04-11 05:13 UTC, `github-execute` updated 2026-04-11 05:13 UTC |
-| Unapplied migrations | 1 confirmed unapplied migration on remote: `20260410143000_promote_gpt54_builder.sql` (verified 2026-04-12) |
+| Active blockers | Build broadcast → execute flow still untested end-to-end |
+| Last verified deploy | 14 protected functions redeployed on 2026-04-12; live runtime smoke tested on deployed `vault` after deploy |
+| Unapplied migrations | 2 unapplied: `20260410143000_promote_gpt54_builder.sql` (verified 2026-04-12), `20260412200000_add_session_mode.sql` (new, 2026-04-12) |
 | Active locks | None |
 
 ---
@@ -50,7 +50,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Pre-Build UI | `src/components/reveal/PreBuildPanel.tsx` |
 | Design UI | `src/components/reveal/DesignPhase.tsx` |
 | Agent picker | `src/components/reveal/OrchestraDrawer.tsx` |
-| Prompt input | `src/components/reveal/RevealComposer.tsx` |
+| Prompt input | `src/components/reveal/RevealComposer.tsx` |`r`n| Frontend edge invoke helper | `src/lib/functions.ts` |`r`n| Shared edge auth helper | `supabase/functions/_shared/auth.ts` |`r`n| Edge function config | `supabase/config.toml` |
 | Edge functions | `supabase/functions/*/index.ts` |
 | Migrations | `supabase/migrations/` |
 
@@ -75,7 +75,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 
 ## Database (19 active tables)
 
-Core: workspaces, agents, sessions, rounds, responses, syntheses
+Core: workspaces, agents, sessions (has `mode`: 'ask'|'build'), rounds, responses, syntheses
 GitHub: repo_connections, execution_runs, approval_requests
 Security: provider_connections, encrypted_secrets, audit_events
 Sprint B: design_artifacts, build_lanes, bouncer_events, build_reports, concierge_decisions
@@ -105,6 +105,7 @@ Legacy (unused): agent_skills, flags
 - **Truncation guard**: github-execute rejects file content containing `// ... existing code` patterns. Catches LLM laziness but can false-positive on legitimate comments — known tradeoff, accepted.
 - **Build spec locking**: `sessions.build_spec_locked` must be true before build phase. github-execute checks server-side. Prevents mid-build spec mutations.
 - **Lane scope is authoritative in build mode**: `build_lanes.lane_paths` determines what files an agent can write, not `agents.scoped_paths`. Lanes are populated from Architect.md parsing.
+- **Edge auth is enforced in-function, not at the gateway**: With Supabase JWT Signing Keys, all protected functions set `verify_jwt = false` in `supabase/config.toml`, enter `supabase/functions/_shared/auth.ts`, and expect the frontend to call them through `supabase.functions.invoke(...)` so the real user session token is attached.
 
 ## Patterns & Conventions
 
@@ -128,22 +129,29 @@ Legacy (unused): agent_skills, flags
 | GitHub OAuth authorize + token exchange path exists in code | 2026-04-12 (code verified) |
 | GitHub repo listing (all visibility levels, paginated up to 1000) | *(unverified)* |
 | GitHub repo creation (requires Administration:write on App) | 2026-04-12 |
-| 14 edge functions listed ACTIVE remotely | 2026-04-12 |
-| `orchestrate` + `github-execute` remote versions reflect post-fix deploys | 2026-04-12 |
+| 14 protected edge functions redeployed with shared in-function auth (`verify_jwt = false`) | 2026-04-12 |
+| Frontend protected edge-function callers migrated to `supabase.functions.invoke(...)` | 2026-04-12 (`npm run typecheck`) |
 | Multi-provider agent orchestration path exists in code (Anthropic/OpenAI/Google/OpenRouter) | 2026-04-12 (code verified) |
 | Concierge triage + concierge synthesis flow exists in code | 2026-04-12 (code verified) |
 | Design phase with multi-lane HTML mockup generation path exists in code | 2026-04-12 (code verified) |
 | Pre-Build flow exists in code (intake, Architect.md, build spec lock, lane assignment) | 2026-04-12 (code verified) |
 | Build phase broadcast + response review UI exists in code | 2026-04-12 (code verified) |
 | Execute Build with patches wired in BuildWorkspace.tsx | 2026-04-12 |
+| Deployed `vault?action=list` succeeds with a real user session under the new auth model | 2026-04-12 (live smoke) |
+| Deployed `vault?action=list` fails in-function with `401 AUTH_HEADER_MISSING` when auth is missing | 2026-04-12 (live smoke) |
 | Orb state machine derivation wired into EmptyStage/WorkspacePage and committed | 2026-04-12 (`npm run typecheck`, commit `4fb823c`) |
 | Bouncer security review gate post-build exists in code | 2026-04-12 (code verified) |
 | Tiered context system (synthesis > recent rounds > pinned > filename refs) | 2026-04-12 (code verified) |
 | Build artifact protocol hardening (`artifact_protocol`, `complete`, `continuation_prompt`, manifest validation) | 2026-04-12 (`npm run typecheck`) |
 | Scope enforcement: out-of-scope files skipped with reason logged | 2026-04-12 (code verified) |
 | Truncation guard: regex catches lazy `// ... existing code` stubs | 2026-04-12 (code verified) |
+| Ask/Build session mode split — mode picker on home screen, composer tab gating, concierge Convert to Build, session dropdown indicator | 2026-04-12 (`npm run typecheck`) |
 
 ## What's Broken or Incomplete
+
+| Issue | Since | Owner |
+|-------|-------|-------|
+| Migration `20260412200000_add_session_mode.sql` needs to be applied remotely | 2026-04-12 | Unassigned |
 
 | Issue | Since | Owner |
 |-------|-------|-------|
@@ -178,6 +186,39 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-12 — Claude Code (Opus 4.6)
+
+**What was done**: Implemented Ask/Build session mode split. Added `mode` column to sessions table (migration), two-door mode picker on EmptyStage home screen, composer tab gating (Ask mode hides Build/Artifact tabs), concierge "Convert to Build" button after 2+ rounds in Ask mode, session dropdown mode indicator, and Ask mode guard on phase advancement.
+
+**Files touched**: `supabase/migrations/20260412200000_add_session_mode.sql`, `src/types/index.ts`, `src/hooks/useWorkspace.ts`, `src/components/reveal/EmptyStage.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/ConciergePanel.tsx`, `src/components/reveal/SessionSwitcher.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- `mode` defaults to `'ask'` for new sessions; existing sessions backfilled to `'build'` in migration.
+- Ask mode reuses the full orchestration pipeline (broadcast, synthesis, concierge) — only build-phase UI is hidden, not backend logic.
+- Phase advancement blocked in concierge `handleProceed` for Ask mode — prevents accidental design/pre_build/build transitions.
+- "Convert to Build" appears after 2+ rounds so the concierge has enough context to meaningfully transition.
+- Build-phase components (PreBuildPanel, DesignPhase, BuildWorkspace, BuildReport) naturally self-gate via `current_phase` checks — no additional gating needed.
+- Updated Part 1 (database section) since sessions table schema changed.
+
+**What didn't work**: N/A — typecheck passed clean on first run.
+
+---
+
+### 2026-04-12 — OpenAI Codex
+
+**What was done**: Reworked Supabase Edge Function auth for JWT Signing Keys. Added a shared in-function auth helper, disabled gateway `verify_jwt` for all protected functions, migrated all protected frontend callers to `supabase.functions.invoke(...)`, redeployed all 14 protected functions, and live-smoked deployed `vault?action=list` with and without a real user session.
+
+**Files touched**: `MAESTRO_STATE.md`, `src/lib/functions.ts`, `src/hooks/useOrchestration.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/DesignPhase.tsx`, `src/components/reveal/ExecutionModal.tsx`, `src/components/reveal/PreBuildPanel.tsx`, `src/components/reveal/RepoSection.tsx`, `src/components/reveal/VaultDrawer.tsx`, `supabase/config.toml`, `supabase/functions/_shared/auth.ts`, `supabase/functions/architect/index.ts`, `supabase/functions/bouncer/index.ts`, `supabase/functions/concierge/index.ts`, `supabase/functions/concierge-triage/index.ts`, `supabase/functions/design/index.ts`, `supabase/functions/github-auth/index.ts`, `supabase/functions/github-create-repo/index.ts`, `supabase/functions/github-execute/index.ts`, `supabase/functions/github-read/index.ts`, `supabase/functions/github-repos/index.ts`, `supabase/functions/intake/index.ts`, `supabase/functions/orchestrate/index.ts`, `supabase/functions/synthesize/index.ts`, `supabase/functions/vault/index.ts`
+
+**Decisions made**:
+- Moved protected edge auth enforcement entirely into `supabase/functions/_shared/auth.ts` and set `verify_jwt = false` for every protected function to avoid gateway-level JWT signing-key incompatibility.
+- Standardized frontend protected calls on `src/lib/functions.ts` + `supabase.functions.invoke(...)` so the real session token is attached consistently.
+- Used deployed `vault?action=list` as the smoke target because it is protected, low-risk, and exercises the new auth contract cleanly.
+- Updated Part 1 because the edge auth model is now structurally different.
+
+**What didn't work**: The first live smoke hit older deployed code until the functions were redeployed; a few regex-based frontend edits also needed manual cleanup before `npm run typecheck` passed.
+
+---
 ### 2026-04-12 — Claude Code (Opus 4.6)
 
 **What was done**: Wired patches into BuildWorkspace.tsx handleExecute so Execute Build sends approved agent responses as patches[] to github-execute. Previously the frontend never sent patches, causing a NO_PATCHES 400 every time.
@@ -268,3 +309,6 @@ These areas change often and should be re-verified after any significant work se
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
+
+

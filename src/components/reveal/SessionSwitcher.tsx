@@ -217,7 +217,7 @@ export default function SessionSwitcher() {
                         {session.title}
                       </div>
                       <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                        {new Date(session.created_at).toLocaleDateString()} -- {session.execution_mode}
+                        {new Date(session.created_at).toLocaleDateString()} — {session.mode ?? 'build'}
                       </div>
                     </div>
                     <button
