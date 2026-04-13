@@ -202,6 +202,20 @@ These areas change often and should be re-verified after any significant work se
 
 ### 2026-04-13 — OpenAI Codex
 
+**What was done**: Patched a follow-up build-roster mismatch after live user validation. Pre-Build now clears any stale in-memory build plan whenever the locked builder roster changes or the session enters Build, and `BuildWorkspace` now resolves locked builders by name as well as ID so valid locked lanes do not fail just because a stale or missing agent ID leaked into the plan handoff. Re-ran `npm run typecheck` cleanly.
+
+**Files touched**: `src/components/reveal/PreBuildPanel.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treated stale `state.buildPlan` as part of the bug, not just the lane-ID error message, because Build could otherwise review an outdated roster after Pre-Build edits.
+- Kept locked-roster authority intact while relaxing matching from ID-only to ID-or-name within the locked builder set.
+- Left concierge unchanged in this pass because the immediate mismatch was fixable in frontend state handoff and locked-lane resolution.
+
+**What didn't work**: This pass still has not been live-smoked after the new patch, so the build handoff remains code-verified only.
+
+---
+### 2026-04-13 — OpenAI Codex
+
 **What was done**: Fixed the empty-repo execution path so `github-execute` now calls the default-branch bootstrap helper before any branch/PR work, and skips backup-branch creation when the repo was just initialized. Locked builder authority in Pre-Build by adding builder-count selection and a pinned builder roster in `build_spec`, then updated `architect` and `BuildWorkspace` so locked builder IDs stay authoritative once chosen. Re-ran `npm run typecheck` cleanly.
 
 **Files touched**: `src/components/reveal/PreBuildPanel.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `supabase/functions/architect/index.ts`, `supabase/functions/github-execute/index.ts`, `MAESTRO_STATE.md`
@@ -442,6 +456,7 @@ These areas change often and should be re-verified after any significant work se
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
 
 
 

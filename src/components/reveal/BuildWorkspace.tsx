@@ -229,15 +229,40 @@ export default function BuildWorkspace() {
     const lockedIds = new Set(lockedBuilderAgentIds);
     const builderLanes = lanes.filter(l => l.role === 'builder');
     const ids = new Set<string>();
+    const lockedAgents = agents.filter(agent => lockedIds.has(agent.id));
+
+    const matchLockedAgentByName = (label: string) => {
+      const laneName = norm(label);
+      if (!laneName) return null;
+      return lockedAgents.find(agent => {
+        const name = norm(agent.name);
+        const display = norm(agent.display_name);
+        const role = norm(agent.role);
+        return display === laneName
+          || name === laneName
+          || display.includes(laneName)
+          || laneName.includes(display)
+          || role.includes(laneName)
+          || laneName.includes(role);
+      }) ?? null;
+    };
 
     for (const agent of plan?.builder_agents ?? []) {
-      if (!agent.agent_id) continue;
-      if (lockedIds.size === 0 || lockedIds.has(agent.agent_id)) ids.add(agent.agent_id);
+      if (agent.agent_id && (lockedIds.size === 0 || lockedIds.has(agent.agent_id))) {
+        ids.add(agent.agent_id);
+        continue;
+      }
+      const matched = lockedIds.size > 0 ? matchLockedAgentByName(agent.agent_name) : null;
+      if (matched) ids.add(matched.id);
     }
 
     for (const lane of builderLanes) {
-      if (!lane.agent_id) continue;
-      if (lockedIds.size === 0 || lockedIds.has(lane.agent_id)) ids.add(lane.agent_id);
+      if (lane.agent_id && (lockedIds.size === 0 || lockedIds.has(lane.agent_id))) {
+        ids.add(lane.agent_id);
+        continue;
+      }
+      const matched = lockedIds.size > 0 ? matchLockedAgentByName(lane.agent_name) : null;
+      if (matched) ids.add(matched.id);
     }
 
     if (lockedIds.size > 0) {
@@ -249,7 +274,6 @@ export default function BuildWorkspace() {
           : 'Build is locked to the Pre-Build builder roster, but the current lanes do not map to those locked builders.',
       };
     }
-
     if (ids.size > 0) return { ids: [...ids], warning: '' };
 
     const activeAgentPool = agents.filter(agent => agent.is_active);
@@ -1513,6 +1537,7 @@ function StatChip({ label, value, color }: { label: string; value: number; color
     </div>
   );
 }
+
 
 
 
