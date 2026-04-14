@@ -383,15 +383,6 @@ export default function BuildWorkspace() {
     [resolveBuilderAgentIds, normalizedBuildPlan],
   );
 
-  const shouldIncludeBuilderAgent = useCallback((agentId: string | null | undefined) => {
-    if (!agentId) return false;
-    if (resolvedBuilderAgentIds.length > 0) return resolvedBuilderAgentIds.includes(agentId);
-    // lanes are loaded from DB on every mount — use them as a stable fallback when
-    // state.buildPlan has been cleared (e.g. after a session switch or page refresh).
-    // Without this, all responses get filtered out if lockedBuilderAgentIds is set.
-    if (lanes.some(l => l.role === 'builder' && l.agent_id === agentId)) return true;
-    return lockedBuilderAgentIds.length === 0;
-  }, [resolvedBuilderAgentIds, lockedBuilderAgentIds, lanes]);
   // Load lanes on mount — always signal lanesLoaded so the hydration effect can proceed.
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -431,10 +422,13 @@ export default function BuildWorkspace() {
     // lanes already exist in DB, causing a re-fire on every remount.
     if (!lanesLoaded) return;
 
+    // Only identify a round as a build round if it has at least one response with a
+    // file_manifest. Using shouldIncludeBuilderAgent here was too broad — it would
+    // match analysis rounds when no locked builder IDs are set, surfacing prose
+    // responses in the reviewing stage instead of actual build output.
     const buildRound = [...sessionRounds].reverse().find(round => {
       const roundResponses = state.responses.filter(response => response.round_id === round.id);
-      if (roundResponses.some(hasWriteManifest)) return true;
-      return round.target_agents.some(agentId => shouldIncludeBuilderAgent(agentId));
+      return roundResponses.some(hasWriteManifest);
     });
 
     if (buildRound) {
@@ -457,7 +451,10 @@ export default function BuildWorkspace() {
 
     // Builder lanes already exist in DB → concierge already ran for this session.
     // Skip re-calling concierge; jump straight to plan_review with existing lanes.
-    if (lanes.some(l => l.role === 'builder')) {
+    // Accept any non-read_only lane as a signal that the architect ran — the role
+    // enforcement fix above will correct future sessions; existing sessions may have
+    // lanes with role 'reviewer' due to the architect LLM bug.
+    if (lanes.some(l => l.role !== 'read_only')) {
       preparingTriggered.current = true;
       setStage('plan_review');
       setStageHydrated(true);
@@ -473,7 +470,7 @@ export default function BuildWorkspace() {
 
     setStage('preparing');
     setStageHydrated(true);
-  }, [session, isVisible, stageHydrated, lanesLoaded, lanes, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
+  }, [session, isVisible, stageHydrated, lanesLoaded, lanes, state.executionRuns, state.responses, sessionRounds, normalizedBuildPlan, resolvedBuilderAgentIds]);
 
   // Sprint C · F2 — Auto-call concierge on build phase entry
   useEffect(() => {
@@ -568,16 +565,18 @@ export default function BuildWorkspace() {
     }
   }, [session, isVisible, state.executionRuns]);
 
-  // Derive build responses: responses from the build broadcast round
+  // Derive build responses: all responses in the build broadcast round.
+  // We no longer filter by shouldIncludeBuilderAgent here — buildRoundId is only
+  // set for rounds containing file_manifest responses (hydration) or the round
+  // just created by broadcast() (broadcasting stage), so all responses belong.
   const buildResponses: Response[] = useMemo(() => (
     buildRoundId
       ? state.responses.filter(r =>
         r.round_id === buildRoundId
         && !!r.agent_id
-        && shouldIncludeBuilderAgent(r.agent_id)
       )
       : []
-  ), [buildRoundId, state.responses, shouldIncludeBuilderAgent]);
+  ), [buildRoundId, state.responses]);
 
   const executableResponseCount = useMemo(
     () => buildResponses.filter(hasExecutableManifest).length,
@@ -596,16 +595,17 @@ export default function BuildWorkspace() {
   // When broadcasting, watch for responses to auto-transition to reviewing
   useEffect(() => {
     if (stage !== 'broadcasting' || !buildRoundId) return;
-    const roundResponses = state.responses.filter(r =>
-      r.round_id === buildRoundId
-      && shouldIncludeBuilderAgent(r.agent_id)
-    );
-    const builderCount = resolvedBuilderAgentIds.length || lanes.filter(l => l.role === 'builder').length || 1;
+    const roundResponses = state.responses.filter(r => r.round_id === buildRoundId);
+    // Use the round's target_agents count to know when all builders have responded.
+    // Fall back to resolvedBuilderAgentIds or lane count if the round isn't loaded yet.
+    const buildRound = state.rounds.find(r => r.id === buildRoundId);
+    const builderCount = buildRound?.target_agents?.length
+      ?? (resolvedBuilderAgentIds.length || lanes.length || 1);
     if (roundResponses.length >= builderCount) {
       setApprovedResponseIds(new Set(roundResponses.filter(hasExecutableManifest).map(r => r.id)));
       setStage('reviewing');
     }
-  }, [stage, buildRoundId, state.responses, lanes, resolvedBuilderAgentIds, shouldIncludeBuilderAgent]);
+  }, [stage, buildRoundId, state.responses, state.rounds, lanes, resolvedBuilderAgentIds]);
 
   const toggleResponseApproval = useCallback((responseId: string) => {
     setApprovedResponseIds(prev => {
@@ -715,7 +715,6 @@ export default function BuildWorkspace() {
       const approved = buildResponses.filter(r =>
         approvedResponseIds.has(r.id)
         && !!r.agent_id
-        && shouldIncludeBuilderAgent(r.agent_id)
       );
       if (approved.length === 0) {
         throw new Error('Select at least one builder response before executing.');
@@ -796,7 +795,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('ready');
     }
-  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes, shouldIncludeBuilderAgent]);
+  }, [session, user, state.executionMode, state.executionStrategy, state.activeRepoConnection, dispatch, buildResponses, approvedResponseIds, resolvedBuilderAgentIds, lanes]);
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {

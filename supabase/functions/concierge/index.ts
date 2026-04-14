@@ -292,11 +292,17 @@ Deno.serve(async (req: Request) => {
       const lanes = (laneData ?? []) as BuildLaneSummary[];
       const builders = lanes.filter((l) => l.role === "builder");
 
-      if (builders.length === 0 || !architectMd) {
+      // Fallback: if architect LLM assigned wrong roles to locked builder agents,
+      // treat all non-read_only lanes as builders rather than failing with 412.
+      const effectiveBuilders = builders.length > 0
+        ? builders
+        : lanes.filter((l) => l.role !== "read_only");
+
+      if (effectiveBuilders.length === 0 || !architectMd) {
         return new Response(
           JSON.stringify({
             error: "BUILD_NOT_READY",
-            message: builders.length === 0
+            message: effectiveBuilders.length === 0
               ? "No builder lanes assigned. Generate Architect.md first."
               : "No Architect.md found. Generate the scaffold first.",
           }),
@@ -304,7 +310,7 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      const fallbackPlan = buildDeterministicBuildPlan(projectTitle, architectMd, builders);
+      const fallbackPlan = buildDeterministicBuildPlan(projectTitle, architectMd, effectiveBuilders);
       const buildModel = "claude-sonnet-4-6";
       let buildPlan: BuildPlanPayload = fallbackPlan;
       let modelUsed = "deterministic-fallback";

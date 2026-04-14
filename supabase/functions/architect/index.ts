@@ -42,6 +42,9 @@ exactly these columns and header row, in this order:
 - Builder lanes must not overlap. Reviewer / read_only / security_audit
   lanes may span across builder paths.
 - Role column must be exactly one of: builder, reviewer, read_only, security_audit.
+- CRITICAL: Every agent listed in the Locked Builder Roster section MUST be
+  assigned role "builder" in this table. Do not assign them reviewer,
+  read_only, or security_audit roles.
 
 Return the markdown only — no preamble, no code fences around the whole
 document.`;
@@ -366,12 +369,15 @@ ${decisionsText || "(no concierge decisions yet)"}`;
         .map((lane) => {
           const match = assignAgentToLane(lane, agentList, usedAgentIds, lockedBuilderIds);
           if (match) usedAgentIds.add(match.id);
+          // Server-side enforcement: if the matched agent is a locked builder,
+          // force role to 'builder' regardless of what the LLM wrote in the table.
+          const enforceBuilder = match !== null && lockedBuilderIds.has(match.id);
           return {
             session_id: body.session_id,
             agent_id: match?.id ?? null,
             agent_name: match?.display_name ?? lane.agent_name,
             lane_paths: lane.lane_paths,
-            role: lane.role,
+            role: enforceBuilder ? "builder" : lane.role,
           };
         });
 
