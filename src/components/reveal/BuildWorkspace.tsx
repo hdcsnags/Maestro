@@ -162,6 +162,10 @@ export default function BuildWorkspace() {
   const [lanesLoaded, setLanesLoaded] = useState(false);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const preparingTriggered = useRef(false);
+  // Snapshot of how many rounds existed before the build broadcast started.
+  // The round-watch effect uses this to ignore all pre-existing rounds (e.g. the
+  // analysis round) and only latch onto the first round created after approval.
+  const preBuildRoundCount = useRef<number>(0);
 
   // Cycling broadcast/preparing message
   useEffect(() => {
@@ -492,6 +496,11 @@ export default function BuildWorkspace() {
   const handleApprovePlan = useCallback(async () => {
     const buildPlan = normalizedBuildPlan;
     if (!session || !buildPlan) return;
+
+    // Snapshot round count BEFORE broadcasting so the round-watch effect
+    // can ignore all pre-existing rounds (analysis round, etc.).
+    preBuildRoundCount.current = state.rounds.filter(r => r.session_id === session.id).length;
+
     setStage('broadcasting');
     setError('');
 
@@ -543,7 +552,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('plan_review');
     }
-  }, [session, normalizedBuildPlan, resolveBuilderAgentIds, dispatch, broadcast]);
+  }, [session, state.rounds, normalizedBuildPlan, resolveBuilderAgentIds, dispatch, broadcast]);
 
   // Manually reload the build plan from concierge — used by "Back to Plan" and
   // "Load Build Plan" escape hatches so users are never stuck on a blank screen.
@@ -599,12 +608,15 @@ export default function BuildWorkspace() {
   );
   const blockedResponseCount = buildResponses.length - executableResponseCount;
 
-  // When broadcasting, detect the new round created by broadcast()
+  // When broadcasting, detect the new round created by broadcast().
+  // Uses preBuildRoundCount snapshot to skip all pre-existing rounds (e.g. the
+  // analysis round) and only latch onto the first round created after approval.
   useEffect(() => {
     if (stage !== 'broadcasting' || buildRoundId) return;
     const sessionRounds = state.rounds.filter(r => r.session_id === session?.id);
-    const lastRound = sessionRounds[sessionRounds.length - 1];
-    if (lastRound) setBuildRoundId(lastRound.id);
+    // Only consider rounds at index >= snapshot — these were created after approval.
+    const buildRound = sessionRounds[preBuildRoundCount.current];
+    if (buildRound) setBuildRoundId(buildRound.id);
   }, [stage, buildRoundId, state.rounds, session]);
 
   // When broadcasting, watch for responses to auto-transition to reviewing
