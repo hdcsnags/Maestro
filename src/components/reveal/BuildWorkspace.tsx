@@ -386,8 +386,12 @@ export default function BuildWorkspace() {
   const shouldIncludeBuilderAgent = useCallback((agentId: string | null | undefined) => {
     if (!agentId) return false;
     if (resolvedBuilderAgentIds.length > 0) return resolvedBuilderAgentIds.includes(agentId);
+    // lanes are loaded from DB on every mount — use them as a stable fallback when
+    // state.buildPlan has been cleared (e.g. after a session switch or page refresh).
+    // Without this, all responses get filtered out if lockedBuilderAgentIds is set.
+    if (lanes.some(l => l.role === 'builder' && l.agent_id === agentId)) return true;
     return lockedBuilderAgentIds.length === 0;
-  }, [resolvedBuilderAgentIds, lockedBuilderAgentIds]);
+  }, [resolvedBuilderAgentIds, lockedBuilderAgentIds, lanes]);
   // Load lanes on mount — always signal lanesLoaded so the hydration effect can proceed.
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -440,7 +444,11 @@ export default function BuildWorkspace() {
         setApprovedResponseIds(new Set(roundResponses.filter(hasExecutableManifest).map(response => response.id)));
         setStage('reviewing');
       } else {
-        setStage('broadcasting');
+        // Build round exists but zero responses arrived — the broadcast timed out or silently
+        // failed. Setting stage to 'broadcasting' would be a dead end because broadcast()
+        // won't re-fire. Go back to plan_review so the user can see the plan and retry.
+        setError('Previous build broadcast timed out — no responses were received. Review the plan and start again.');
+        setStage('plan_review');
       }
       preparingTriggered.current = true;
       setStageHydrated(true);
