@@ -8,7 +8,7 @@ import type { BuildLaneRole, BuildPlan, SessionPhase, Response } from '../../typ
 import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
-  Pause, XCircle, ThumbsUp, GitBranch,
+  Pause, XCircle, ThumbsUp, GitBranch, RotateCcw,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -450,13 +450,12 @@ export default function BuildWorkspace() {
     }
 
     // Builder lanes already exist in DB → concierge already ran for this session.
-    // Skip re-calling concierge; jump straight to plan_review with existing lanes.
-    // Accept any non-read_only lane as a signal that the architect ran — the role
-    // enforcement fix above will correct future sessions; existing sessions may have
-    // lanes with role 'reviewer' due to the architect LLM bug.
+    // Go to 'preparing' (not plan_review directly) so the concierge auto-effect
+    // fires and reloads the build plan into state. Without this, plan_review renders
+    // blank after a refresh because normalizedBuildPlan is null (MaestroContext resets).
+    // Do NOT set preparingTriggered here — the auto-effect needs to run.
     if (lanes.some(l => l.role !== 'read_only')) {
-      preparingTriggered.current = true;
-      setStage('plan_review');
+      setStage('preparing');
       setStageHydrated(true);
       return;
     }
@@ -545,6 +544,22 @@ export default function BuildWorkspace() {
       setStage('plan_review');
     }
   }, [session, normalizedBuildPlan, resolveBuilderAgentIds, dispatch, broadcast]);
+
+  // Manually reload the build plan from concierge — used by "Back to Plan" and
+  // "Load Build Plan" escape hatches so users are never stuck on a blank screen.
+  const handleReloadPlan = useCallback(async () => {
+    if (!session) return;
+    setError('');
+    setStage('preparing');
+    try {
+      const plan = await invokeEdgeFunction<BuildPlan>('concierge', { session_id: session.id, phase: 'pre_build_complete' });
+      dispatch({ type: 'SET_BUILD_PLAN', payload: plan });
+      setStage('plan_review');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Concierge could not prepare a build plan.');
+      setStage('plan_review');
+    }
+  }, [session, dispatch]);
 
   // Check for existing execution runs
   useEffect(() => {
@@ -930,6 +945,20 @@ export default function BuildWorkspace() {
                 Approve &amp; Build
               </button>
             )}
+            {stage === 'reviewing' && buildResponses.length === 0 && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                  borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                }}
+                onClick={handleReloadPlan}
+              >
+                <RotateCcw size={13} />
+                Back to Plan
+              </button>
+            )}
             {stage === 'reviewing' && buildResponses.length > 0 && (
               <div className="flex items-center gap-2">
                 {buildResponses.some(r => r.signals?.build_complete === 'false') && (
@@ -1089,7 +1118,45 @@ export default function BuildWorkspace() {
             </section>
           )}
 
-          {/* ── Broadcast: pre-build overview ───────────────── */}
+          {/* ── Plan Review: no plan loaded (e.g. after refresh) ─ */}
+          {stage === 'plan_review' && !normalizedBuildPlan && !error && (
+            <section style={{ textAlign: 'center', padding: '60px 0' }}>
+              <Loader2 size={24} style={{ color: 'var(--text-dim)', margin: '0 auto 16px' }} />
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                Build plan not loaded.
+              </p>
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                  borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                }}
+                onClick={handleReloadPlan}
+              >
+                <RotateCcw size={13} />
+                Load Build Plan
+              </button>
+            </section>
+          )}
+
+          {/* ── Plan Review: error + retry ────────────────────── */}
+          {stage === 'plan_review' && !normalizedBuildPlan && error && (
+            <section style={{ textAlign: 'center', padding: '40px 0' }}>
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                  borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                }}
+                onClick={handleReloadPlan}
+              >
+                <RotateCcw size={13} />
+                Retry Load
+              </button>
+            </section>
+          )}
           {stage === 'broadcast' && (
             <section style={{ marginBottom: '28px' }}>
               {session.architect_md && (
@@ -1153,6 +1220,31 @@ export default function BuildWorkspace() {
               </span>
             </div>
           )}
+          {/* ── Reviewing: no responses (broadcast timed out) ─── */}
+          {stage === 'reviewing' && buildResponses.length === 0 && (
+            <section style={{ textAlign: 'center', padding: '60px 0' }}>
+              <AlertTriangle size={28} style={{ color: 'var(--risk)', margin: '0 auto 16px', display: 'block' }} />
+              <p className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.15em', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                No build responses received
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '460px', margin: '0 auto 24px', lineHeight: 1.6 }}>
+                The broadcast may have timed out before any agent responded. Go back to the plan and start the build again — providers can be slow on large prompts.
+              </p>
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                  borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                }}
+                onClick={handleReloadPlan}
+              >
+                <RotateCcw size={13} />
+                Back to Plan
+              </button>
+            </section>
+          )}
+
           {/* ── Reviewing: agent responses ───────────────────── */}
           {stage === 'reviewing' && buildResponses.length > 0 && (
             <section style={{ marginBottom: '28px' }}>
