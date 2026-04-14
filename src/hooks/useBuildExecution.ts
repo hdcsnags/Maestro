@@ -295,7 +295,7 @@ export function useBuildExecution() {
         // Dispatch up to 2 in parallel (one per builder) to avoid overwhelming
         const batches: BuildTask[][] = [];
         const seenOwners = new Set<string>();
-        let batch: BuildTask[] = [];
+        const batch: BuildTask[] = [];
 
         for (const task of ready) {
           if (abortRef.current) break;

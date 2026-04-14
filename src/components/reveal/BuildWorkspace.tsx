@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
+import { useBuildExecution } from '../../hooks/useBuildExecution';
 import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
 import type { BuildLaneRole, BuildPlan, SessionPhase, Response } from '../../types';
@@ -9,6 +10,7 @@ import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
   Pause, XCircle, ThumbsUp, GitBranch, RotateCcw,
+  FileCode, SkipForward,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -35,7 +37,7 @@ interface BouncerResult {
   model_used: string;
 }
 
-type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done';
+type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done' | 'task_decomposing' | 'task_building';
 type BroadcastProgressState = 'dispatching' | 'waiting' | 'partial' | 'ready';
 
 interface NormalizedBuilderAgent {
@@ -142,6 +144,7 @@ export default function BuildWorkspace() {
   const { state, dispatch } = useMaestro();
   const { user } = useAuth();
   const { broadcast } = useOrchestration();
+  const buildExec = useBuildExecution();
   const session = state.activeSession;
   const agents = state.agents;
 
@@ -572,6 +575,95 @@ export default function BuildWorkspace() {
     }
   }, [session, dispatch]);
 
+  /* ── Build v2: task-queued build flow ────────────────────── */
+  const handleTaskBuild = useCallback(async () => {
+    if (!session) return;
+    setError('');
+    setStage('task_decomposing');
+
+    try {
+      await buildExec.decompose(session.id);
+      setStage('task_building');
+      // Start execution loop
+      await buildExec.execute();
+      // After completion, transition to execution stage
+      setStage('ready');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Task decomposition failed.');
+      setStage('plan_review');
+    }
+  }, [session, buildExec]);
+
+  const handleTaskExecuteToGithub = useCallback(async () => {
+    if (!session || !user) return;
+    setStage('executing');
+    setError('');
+
+    try {
+      if (!state.activeRepoConnection?.id) {
+        throw new Error('No active GitHub repo is connected.');
+      }
+
+      const manifest = buildExec.collectManifest();
+      if (manifest.length === 0) {
+        throw new Error('No completed tasks to execute. Build more files first.');
+      }
+
+      // Create execution run
+      const { data: runData, error: runErr } = await supabase
+        .from('execution_runs')
+        .insert({
+          session_id: session.id,
+          user_id: user.id,
+          strategy: 'synthesized' as const,
+          status: 'running',
+        } as never)
+        .select()
+        .maybeSingle();
+
+      if (runErr || !runData) {
+        throw new Error(runErr?.message ?? 'Failed to create execution run');
+      }
+
+      // Call github-execute with the collected manifest
+      const execResult = await invokeEdgeFunction<{
+        status?: string;
+        written_files?: string[];
+        prs?: Array<{ url?: string; number?: number }>;
+        errors?: string[];
+        branches?: string[];
+      }>('github-execute', {
+        session_id: session.id,
+        execution_run_id: (runData as { id: string }).id,
+        repo_connection_id: state.activeRepoConnection.id,
+        file_manifest: manifest,
+        strategy: 'synthesized',
+      });
+
+      // Update execution run status
+      const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+      await supabase
+        .from('execution_runs')
+        .update({ status, result: execResult as never } as never)
+        .eq('id', (runData as { id: string }).id);
+
+      dispatch({
+        type: 'ADD_EXECUTION_RUN',
+        payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+      });
+
+      // Check if bouncer review is needed
+      if (session.current_phase === 'bouncer') {
+        setStage('bouncer');
+      } else {
+        setStage('complete');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('task_building');
+    }
+  }, [session, user, state.activeRepoConnection, buildExec, dispatch]);
+
   // Greet the user when broadcasting starts so the screen isn't a dead void.
   useEffect(() => {
     if (stage === 'broadcasting' && conciergeMessages.length === 0) {
@@ -954,6 +1046,8 @@ export default function BuildWorkspace() {
     : stage === 'executing' ? 'Build — Writing to GitHub'
     : stage === 'bouncer' ? 'Bouncer Review'
     : stage === 'done' ? 'Build Complete'
+    : stage === 'task_decomposing' ? 'Build — Preparing Tasks'
+    : stage === 'task_building' ? `Build — ${buildExec.progress.completed}/${buildExec.progress.total} Files`
     : 'Build in Progress';
   const hasCritical = bouncerResult?.findings.some(f => f.severity === 'critical_pause') ?? false;
 
@@ -975,18 +1069,33 @@ export default function BuildWorkspace() {
               </span>
             </div>
             {stage === 'plan_review' && normalizedBuildPlan && (
-              <button
-                className="reveal-pill"
-                style={{
-                  height: '36px', fontSize: '12px', padding: '0 20px',
-                  background: 'var(--gold)', color: 'var(--void)',
-                  borderColor: 'transparent', fontWeight: 500,
-                }}
-                onClick={handleApprovePlan}
-              >
-                <Play size={14} />
-                Approve &amp; Build
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  className="reveal-pill"
+                  style={{
+                    height: '36px', fontSize: '12px', padding: '0 20px',
+                    background: 'var(--gold)', color: 'var(--void)',
+                    borderColor: 'transparent', fontWeight: 500,
+                  }}
+                  onClick={handleTaskBuild}
+                >
+                  <FileCode size={14} />
+                  Build (File by File)
+                </button>
+                <button
+                  className="reveal-pill"
+                  style={{
+                    height: '36px', fontSize: '12px', padding: '0 16px',
+                    background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                    borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                  }}
+                  onClick={handleApprovePlan}
+                  title="Legacy: broadcast all files to builders at once"
+                >
+                  <Play size={14} />
+                  Broadcast (Legacy)
+                </button>
+              </div>
             )}
             {stage === 'reviewing' && buildResponses.length === 0 && (
               <button
@@ -1044,11 +1153,57 @@ export default function BuildWorkspace() {
                   background: 'var(--gold)', color: 'var(--void)',
                   borderColor: 'transparent', fontWeight: 500,
                 }}
-                onClick={handleExecute}
+                onClick={buildExec.tasks.length > 0 ? handleTaskExecuteToGithub : handleExecute}
               >
                 <Play size={14} />
                 Execute Build
               </button>
+            )}
+            {stage === 'task_building' && (
+              <div className="flex items-center gap-2">
+                {buildExec.isRunning && (
+                  <button
+                    className="reveal-pill"
+                    style={{
+                      height: '36px', fontSize: '12px', padding: '0 16px',
+                      background: 'rgba(224,90,90,0.1)', color: 'var(--risk)',
+                      borderColor: 'rgba(224,90,90,0.3)', fontWeight: 500,
+                    }}
+                    onClick={buildExec.abort}
+                  >
+                    <Pause size={13} />
+                    Pause
+                  </button>
+                )}
+                {!buildExec.isRunning && buildExec.progress.completed > 0 && (
+                  <button
+                    className="reveal-pill"
+                    style={{
+                      height: '36px', fontSize: '12px', padding: '0 20px',
+                      background: 'var(--gold)', color: 'var(--void)',
+                      borderColor: 'transparent', fontWeight: 500,
+                    }}
+                    onClick={() => setStage('ready')}
+                  >
+                    <Play size={14} />
+                    Execute to GitHub ({buildExec.progress.completed} files)
+                  </button>
+                )}
+                {!buildExec.isRunning && buildExec.progress.queued > 0 && (
+                  <button
+                    className="reveal-pill"
+                    style={{
+                      height: '36px', fontSize: '12px', padding: '0 16px',
+                      background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                      borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                    }}
+                    onClick={() => buildExec.execute()}
+                  >
+                    <RotateCcw size={13} />
+                    Resume Build
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1331,6 +1486,195 @@ export default function BuildWorkspace() {
                 >
                   Send
                 </button>
+              </div>
+            </section>
+          )}
+
+          {/* ── Task Decomposing: concierge splitting files ──── */}
+          {stage === 'task_decomposing' && (
+            <section style={{ textAlign: 'center', padding: '60px 0' }}>
+              <Loader2 size={28} className="animate-spin" style={{ color: 'var(--gold)', margin: '0 auto 16px' }} />
+              <p className="font-mono-dm" style={{ fontSize: '12px', letterSpacing: '0.15em', color: 'var(--gold)', marginBottom: '8px' }}>
+                Decomposing build into file tasks…
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                Concierge is reading ARCHITECT.md, assigning files to builders, and generating per-file instructions.
+              </p>
+            </section>
+          )}
+
+          {/* ── Task Building: per-file progress board ────────── */}
+          {stage === 'task_building' && (
+            <section style={{ marginBottom: '28px' }}>
+              {/* Progress bar */}
+              <div style={{
+                padding: '16px 20px', marginBottom: '20px', borderRadius: '12px',
+                background: 'rgba(201,168,76,0.04)', border: '1px solid rgba(201,168,76,0.12)',
+              }}>
+                <div className="flex items-center justify-between" style={{ marginBottom: '10px' }}>
+                  <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Build Progress
+                  </span>
+                  <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--gold)' }}>
+                    {buildExec.progress.completed} / {buildExec.progress.total} files
+                  </span>
+                </div>
+                <div style={{
+                  height: '6px', borderRadius: '3px',
+                  background: 'rgba(255,255,255,0.06)', overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: '3px',
+                    background: 'var(--gold)',
+                    width: buildExec.progress.total > 0
+                      ? `${((buildExec.progress.completed + buildExec.progress.failed + buildExec.progress.skipped) / buildExec.progress.total) * 100}%`
+                      : '0%',
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+                <div className="flex items-center gap-4" style={{ marginTop: '8px' }}>
+                  {buildExec.progress.completed > 0 && (
+                    <span style={{ fontSize: '11px', color: '#5ab88e' }}>
+                      ✓ {buildExec.progress.completed} complete
+                    </span>
+                  )}
+                  {buildExec.progress.dispatched > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--gold)' }}>
+                      ⟳ {buildExec.progress.dispatched} building
+                    </span>
+                  )}
+                  {buildExec.progress.failed > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--risk)' }}>
+                      ✕ {buildExec.progress.failed} failed
+                    </span>
+                  )}
+                  {buildExec.progress.skipped > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                      ⊘ {buildExec.progress.skipped} skipped
+                    </span>
+                  )}
+                  {buildExec.progress.queued > 0 && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      ◦ {buildExec.progress.queued} queued
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Task list */}
+              <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '10px' }}>
+                File Tasks
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '400px', overflowY: 'auto' }}>
+                {buildExec.tasks.map((task) => {
+                  const agent = state.agents.find(a => a.id === task.lane_owner);
+                  const statusColor = task.status === 'completed' ? '#5ab88e'
+                    : task.status === 'dispatched' ? 'var(--gold)'
+                    : task.status === 'failed' ? 'var(--risk)'
+                    : task.status === 'skipped' ? 'var(--text-dim)'
+                    : task.status === 'rerouted' ? '#e8a847'
+                    : 'var(--text-muted)';
+                  const statusIcon = task.status === 'completed' ? '✓'
+                    : task.status === 'dispatched' ? '⟳'
+                    : task.status === 'failed' ? '✕'
+                    : task.status === 'skipped' ? '⊘'
+                    : task.status === 'rerouted' ? '↻'
+                    : '◦';
+
+                  return (
+                    <div key={task.id} style={{
+                      padding: '8px 14px', borderRadius: '8px',
+                      background: task.status === 'dispatched' ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${task.status === 'dispatched' ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.04)'}`,
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                    }}>
+                      <span style={{ fontSize: '13px', color: statusColor, width: '16px', textAlign: 'center' }}>
+                        {statusIcon}
+                      </span>
+                      <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-primary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {task.file_path}
+                      </span>
+                      {agent && (
+                        <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>
+                          {agent.display_name ?? agent.name}
+                        </span>
+                      )}
+                      {task.status === 'failed' && (
+                        <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                          <button
+                            onClick={() => buildExec.retryTask(task.id)}
+                            title="Retry this file"
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              padding: '2px', color: 'var(--gold)', display: 'flex',
+                            }}
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                          <button
+                            onClick={() => buildExec.skipTask(task.id, 'Manually skipped')}
+                            title="Skip this file"
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              padding: '2px', color: 'var(--text-dim)', display: 'flex',
+                            }}
+                          >
+                            <SkipForward size={11} />
+                          </button>
+                        </div>
+                      )}
+                      {task.failure_reason && task.status === 'failed' && (
+                        <span style={{ fontSize: '9px', color: 'var(--risk)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title={task.failure_reason}>
+                          {task.failure_reason}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Concierge chat during task building */}
+              <div style={{
+                marginTop: '20px', borderRadius: '14px',
+                border: '1px solid rgba(255,255,255,0.06)',
+                background: 'rgba(255,255,255,0.02)', overflow: 'hidden',
+              }}>
+                <div style={{
+                  padding: '10px 16px',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                }}>
+                  <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                    Concierge
+                  </span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                    {buildExec.isRunning ? 'Building files one at a time…' : 'Build paused — resume or execute'}
+                  </span>
+                </div>
+                <div style={{ maxHeight: '120px', overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {conciergeMessages.length > 0 ? conciergeMessages.slice(-5).map((msg, i) => (
+                    <div key={i} style={{
+                      alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                      maxWidth: '85%', padding: '6px 10px',
+                      borderRadius: '8px',
+                      background: msg.role === 'user' ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${msg.role === 'user' ? 'rgba(212,168,67,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                      fontSize: '11px',
+                      color: msg.role === 'user' ? 'var(--gold)' : 'var(--text-secondary)',
+                    }}>
+                      {msg.text}
+                    </div>
+                  )) : (
+                    <p style={{ fontSize: '11px', color: 'var(--text-dim)', margin: 0 }}>
+                      {buildExec.isRunning
+                        ? 'Files are being generated one at a time. Each file takes 3-8 seconds.'
+                        : buildExec.progress.completed > 0
+                          ? `${buildExec.progress.completed} files ready. Click "Execute to GitHub" to push, or resume building remaining files.`
+                          : 'Task build starting…'}
+                    </p>
+                  )}
+                </div>
               </div>
             </section>
           )}
