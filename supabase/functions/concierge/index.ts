@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete";
+type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
 type NextPhase = "analysis" | "design" | "pre_build" | "build";
@@ -15,6 +15,7 @@ type NextPhase = "analysis" | "design" | "pre_build" | "build";
 interface ConciergeRequest {
   session_id: string;
   phase: Phase;
+  user_message?: string; // only for build_chat phase
   responses: Array<{
     agent_name: string;
     content: string;
@@ -125,6 +126,79 @@ function buildDeterministicBuildPlan(
       instruction: `Build only the files in: ${builder.lane_paths.join(", ") || "your assigned lane paths"}`,
     })),
   };
+}
+
+// Maximum files to send per build broadcast. Agents asked to generate more than
+// this in a single call will reliably 504. The continuation mechanism handles
+// the remaining files in follow-up rounds.
+const MAX_FILES_PER_CHUNK = 12;
+
+/**
+ * Parse a file tree from an ARCHITECT.md code block.
+ * Handles the standard ├──/└── format written by the architect edge function.
+ */
+function parseFilesFromArchitectMd(md: string): string[] {
+  const files: string[] = [];
+  const codeBlockRegex = /```[^\n]*\n([\s\S]*?)```/g;
+  let blockMatch;
+
+  while ((blockMatch = codeBlockRegex.exec(md)) !== null) {
+    const lines = blockMatch[1].split("\n");
+    if (!lines.some((l) => l.includes("├──") || l.includes("└──"))) continue;
+
+    const dirStack: string[] = [];
+
+    for (const line of lines) {
+      const branchIdx = line.search(/[├└]/);
+      if (branchIdx === -1) continue;
+
+      // Each 4-char indent group (│   or    ) = 1 depth level
+      const depth = Math.floor(branchIdx / 4);
+      const afterBranch = line.slice(branchIdx).match(/^[├└]──\s+(.+)/);
+      if (!afterBranch) continue;
+
+      // Strip inline comments (e.g. "# comment") after two or more spaces
+      const name = afterBranch[1].split(/\s{2,}#/)[0].trim();
+
+      // Truncate stack to current depth (moving up the tree)
+      dirStack.length = depth;
+
+      if (name.endsWith("/")) {
+        dirStack.push(name.slice(0, -1));
+      } else {
+        files.push([...dirStack, name].join("/"));
+      }
+    }
+
+    if (files.length > 0) break; // use the first tree found
+  }
+
+  return files;
+}
+
+/**
+ * Return files from `allFiles` whose paths match any of the lane glob patterns.
+ * Supports `**`, `dir/**`, `dir/*`, exact paths, and basic `*` globs.
+ */
+function matchFilesToLane(allFiles: string[], laneGlobs: string[]): string[] {
+  if (!laneGlobs.length) return allFiles;
+  return allFiles.filter((file) =>
+    laneGlobs.some((glob) => {
+      const g = glob.trim();
+      if (g === "**" || g === "*") return true;
+      if (g.endsWith("/**")) return file.startsWith(g.slice(0, -3) + "/");
+      if (g.endsWith("/*")) {
+        const prefix = g.slice(0, -2);
+        const rest = file.slice(prefix.length + 1);
+        return file.startsWith(prefix + "/") && !rest.includes("/");
+      }
+      if (g.includes("*")) {
+        const pattern = "^" + g.replace(/\./g, "\\.").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*") + "$";
+        try { return new RegExp(pattern).test(file); } catch { return false; }
+      }
+      return file === g || file.startsWith(g + "/");
+    })
+  );
 }
 
 const CLASSIFY_SYSTEM_PROMPT = `You classify a user's request into a routing intent so Maestro can pick the right next phase.
@@ -251,8 +325,8 @@ Deno.serve(async (req: Request) => {
     const { adminClient, userId } = auth;
 
     const body: ConciergeRequest = await req.json();
-    // pre_build_complete doesn't need responses — it reads architect_md + build_lanes directly
-    if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && !Array.isArray(body.responses))) {
+    // pre_build_complete and build_chat don't need responses — they read state directly
+    if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && body.phase !== "build_chat" && !Array.isArray(body.responses))) {
       return new Response(
         JSON.stringify({ error: "Invalid request: session_id, phase, and responses required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -260,7 +334,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const apiKey = await getUserApiKey(adminClient, userId, "anthropic");
-    if (!apiKey && body.phase !== "pre_build_complete") {
+    if (!apiKey && body.phase !== "pre_build_complete" && body.phase !== "build_chat") {
       // Fail loud — no silent provider fallback. User must add an Anthropic key.
       return new Response(
         JSON.stringify({
@@ -425,6 +499,44 @@ Generate the build plan.`;
         }
       }
 
+      // ── File chunking ─────────────────────────────────────────────────────
+      // Parse the file tree from ARCHITECT.md. If any builder's lane has more
+      // than MAX_FILES_PER_CHUNK files, restrict their instruction to the first
+      // chunk only. The continuation protocol (complete:false + continuation_prompt)
+      // handles remaining files in follow-up rounds.
+      const allFiles = parseFilesFromArchitectMd(architectMd);
+      if (allFiles.length > 0) {
+        buildPlan = {
+          ...buildPlan,
+          builder_agents: buildPlan.builder_agents.map((agent) => {
+            const laneFiles = matchFilesToLane(allFiles, agent.scoped_paths);
+            if (laneFiles.length <= MAX_FILES_PER_CHUNK) return agent;
+
+            const chunk1 = laneFiles.slice(0, MAX_FILES_PER_CHUNK);
+            const remaining = laneFiles.slice(MAX_FILES_PER_CHUNK);
+            const remainingSample = remaining.slice(0, 5).join(", ") + (remaining.length > 5 ? `, …and ${remaining.length - 5} more` : "");
+
+            console.log("[concierge] chunking lane", {
+              agent: agent.agent_name,
+              total: laneFiles.length,
+              chunk1: chunk1.length,
+              remaining: remaining.length,
+            });
+
+            return {
+              ...agent,
+              instruction: `Build ONLY these ${chunk1.length} files in this first batch (${laneFiles.length} total in your lane):\n${chunk1.map((f) => `- ${f}`).join("\n")}\n\nWhen all ${chunk1.length} are written, set complete:false and include in continuation_prompt: "Remaining ${remaining.length} files: ${remainingSample}"`,
+            };
+          }),
+        };
+        if (!warning && allFiles.length > 0) {
+          const chunked = buildPlan.builder_agents.filter((a) => a.instruction.startsWith("Build ONLY these"));
+          if (chunked.length > 0) {
+            warning = `Lane chunking applied to ${chunked.length} builder(s) — each receives the first ${MAX_FILES_PER_CHUNK} files. Remaining files will be built via continuation.`;
+          }
+        }
+      }
+
       return new Response(
         JSON.stringify({
           phase: "pre_build_complete",
@@ -434,6 +546,71 @@ Generate the build plan.`;
           model_used: modelUsed,
           ...(warning ? { warning } : {}),
         }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Build chat ─────────────────────────────────────────────────────────
+    // Lightweight Haiku-powered status chat during an active build broadcast.
+    // No responses array needed — context is read from DB.
+    if (body.phase === "build_chat") {
+      const chatMessage = body.user_message?.trim() || "What is happening?";
+
+      // Read build context: latest round + response counts
+      const { data: laneData } = await adminClient
+        .from("build_lanes")
+        .select("agent_name, role")
+        .eq("session_id", body.session_id);
+
+      const { data: roundData } = await adminClient
+        .from("rounds")
+        .select("id, status, target_agents")
+        .eq("session_id", body.session_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      let responsesReceived = 0;
+      let responsesExpected = 0;
+      if (roundData) {
+        responsesExpected = (roundData.target_agents as string[] | null)?.length ?? 0;
+        const { count } = await adminClient
+          .from("responses")
+          .select("id", { count: "exact", head: true })
+          .eq("round_id", roundData.id);
+        responsesReceived = count ?? 0;
+      }
+
+      const builders = (laneData ?? []).filter((l) => l.role !== "read_only");
+      const buildContext = `${responsesReceived}/${responsesExpected} builder responses received so far. Active builders: ${builders.map((b) => b.agent_name).join(", ") || "none"}.`;
+
+      // Graceful no-key fallback
+      if (!apiKey) {
+        return new Response(
+          JSON.stringify({ reply: `Build is underway. ${buildContext} No API key available for status update.`, build_status: { responses_received: responsesReceived, responses_expected: responsesExpected } }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const chatRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5",
+          max_tokens: 256,
+          system: `You are Maestro's Concierge. The user is waiting for a build broadcast to complete. Be brief (under 80 words), direct, and helpful. Current build status: ${buildContext}. If asked what's happening, describe the status naturally. If asked a product or code question, answer concisely. Do not start every sentence with "I".`,
+          messages: [{ role: "user", content: chatMessage }],
+        }),
+      });
+
+      let reply = `Build is underway — ${buildContext}`;
+      if (chatRes.ok) {
+        const chatData = await chatRes.json();
+        reply = chatData?.content?.[0]?.text ?? reply;
+      }
+
+      return new Response(
+        JSON.stringify({ reply, build_status: { responses_received: responsesReceived, responses_expected: responsesExpected } }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

@@ -162,10 +162,12 @@ export default function BuildWorkspace() {
   const [lanesLoaded, setLanesLoaded] = useState(false);
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const preparingTriggered = useRef(false);
-  // Snapshot of how many rounds existed before the build broadcast started.
-  // The round-watch effect uses this to ignore all pre-existing rounds (e.g. the
-  // analysis round) and only latch onto the first round created after approval.
   const preBuildRoundCount = useRef<number>(0);
+
+  // Concierge chat — active during broadcasting + reviewing-with-no-responses
+  const [conciergeMessages, setConciergeMessages] = useState<Array<{ role: 'user' | 'concierge'; text: string }>>([]);
+  const [conciergeInput, setConciergeInput] = useState('');
+  const [conciergeTyping, setConciergeTyping] = useState(false);
 
   // Cycling broadcast/preparing message
   useEffect(() => {
@@ -570,7 +572,36 @@ export default function BuildWorkspace() {
     }
   }, [session, dispatch]);
 
-  // Check for existing execution runs
+  // Greet the user when broadcasting starts so the screen isn't a dead void.
+  useEffect(() => {
+    if (stage === 'broadcasting' && conciergeMessages.length === 0) {
+      setConciergeMessages([{
+        role: 'concierge',
+        text: 'Build broadcast is live — builders are generating code. This typically takes 60–120 seconds for large lane assignments. Ask me anything while you wait.',
+      }]);
+    }
+  }, [stage, conciergeMessages.length]);
+
+  const sendConciergeMessage = useCallback(async () => {
+    if (!session || !conciergeInput.trim()) return;
+    const message = conciergeInput.trim();
+    setConciergeInput('');
+    setConciergeMessages(prev => [...prev, { role: 'user', text: message }]);
+    setConciergeTyping(true);
+    try {
+      const result = await invokeEdgeFunction<{ reply: string }>('concierge', {
+        session_id: session.id,
+        phase: 'build_chat',
+        user_message: message,
+        responses: [],
+      });
+      setConciergeMessages(prev => [...prev, { role: 'concierge', text: result.reply }]);
+    } catch {
+      setConciergeMessages(prev => [...prev, { role: 'concierge', text: 'Unable to reach Concierge right now.' }]);
+    } finally {
+      setConciergeTyping(false);
+    }
+  }, [session, conciergeInput]);
   useEffect(() => {
     if (!session || !isVisible) return;
     const latestRun = state.executionRuns
@@ -1232,6 +1263,78 @@ export default function BuildWorkspace() {
               </span>
             </div>
           )}
+
+          {/* ── Concierge chat — shown during broadcasting so user isn't staring at a brick */}
+          {stage === 'broadcasting' && (
+            <section style={{
+              marginTop: '8px', marginBottom: '24px',
+              borderRadius: '14px',
+              border: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(255,255,255,0.02)',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '10px 16px',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                display: 'flex', alignItems: 'center', gap: '8px',
+              }}>
+                <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Concierge
+                </span>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Ask anything while the build runs</span>
+              </div>
+              <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {conciergeMessages.map((msg, i) => (
+                  <div key={i} style={{
+                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%',
+                    padding: '8px 12px',
+                    borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                    background: msg.role === 'user' ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${msg.role === 'user' ? 'rgba(212,168,67,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                    fontSize: '12px',
+                    color: msg.role === 'user' ? 'var(--gold)' : 'var(--text-secondary)',
+                    lineHeight: 1.5,
+                  }}>
+                    {msg.text}
+                  </div>
+                ))}
+                {conciergeTyping && (
+                  <div style={{ alignSelf: 'flex-start', display: 'flex', gap: '4px', padding: '8px 12px' }}>
+                    <Loader2 size={12} className="animate-spin" style={{ color: 'var(--text-dim)' }} />
+                    <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Concierge is thinking…</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: '10px 12px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                <input
+                  value={conciergeInput}
+                  onChange={e => setConciergeInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendConciergeMessage(); } }}
+                  placeholder="Ask Concierge what's happening…"
+                  style={{
+                    flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px', padding: '7px 12px', fontSize: '12px',
+                    color: 'var(--text-primary)', outline: 'none',
+                  }}
+                />
+                <button
+                  className="reveal-pill"
+                  onClick={sendConciergeMessage}
+                  disabled={!conciergeInput.trim() || conciergeTyping}
+                  style={{
+                    height: '34px', fontSize: '11px', padding: '0 14px',
+                    background: conciergeInput.trim() ? 'rgba(212,168,67,0.1)' : 'rgba(255,255,255,0.04)',
+                    color: conciergeInput.trim() ? 'var(--gold)' : 'var(--text-dim)',
+                    borderColor: conciergeInput.trim() ? 'rgba(212,168,67,0.3)' : 'rgba(255,255,255,0.06)',
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* ── Reviewing: no responses (broadcast timed out) ─── */}
           {stage === 'reviewing' && buildResponses.length === 0 && (
             <section style={{ textAlign: 'center', padding: '60px 0' }}>
