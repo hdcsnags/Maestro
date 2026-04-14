@@ -3,7 +3,7 @@ export type SessionStatus = 'active' | 'archived';
 export type RoundStatus = 'pending' | 'broadcasting' | 'complete';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type ExecutionStrategy = 'per_agent' | 'synthesized';
-export type OrchestrationMode = 'analysis' | 'build' | 'artifact';
+export type OrchestrationMode = 'analysis' | 'build' | 'artifact' | 'build_task';
 export type ExecutionRunStatus = 'pending' | 'approved' | 'running' | 'complete' | 'failed';
 export type SessionMode = 'ask' | 'build';
 
@@ -130,6 +130,37 @@ export type ConciergePhase = 'post_round1' | 'post_round2' | 'design' | 'pre_bui
 export type ConciergeIntent = 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build';
 export type DesignMode = 'lite' | 'standard' | 'exploration';
 export type BuildLaneRole = 'builder' | 'reviewer' | 'read_only' | 'security_audit';
+export type BuildTaskStatus = 'queued' | 'dispatched' | 'waiting' | 'completed' | 'failed' | 'rerouted' | 'skipped';
+
+export interface BuildTask {
+  id?: string;
+  session_id: string;
+  build_round_id?: string | null;
+  task_id: string;
+  file_path: string;
+  lane_owner: string | null;
+  fallback_owner: string | null;
+  dependencies: string[];
+  status: BuildTaskStatus;
+  retry_count: number;
+  max_retries: number;
+  prompt_slice: string;
+
+  // Failure / reroute metadata
+  skip_reason?: string | null;
+  failure_reason?: string | null;
+  provider_error?: string | null;
+  rerouted_from?: string | null;
+
+  // Result (populated on completion)
+  result_content?: string | null;
+  result_operation?: 'create' | 'update' | 'delete' | null;
+  result_builder?: string | null;
+  completed_at?: string | null;
+
+  created_at?: string;
+  updated_at?: string;
+}
 
 export interface BuildLane {
   id?: string;

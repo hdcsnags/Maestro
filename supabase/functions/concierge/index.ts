@@ -7,7 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat";
+type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat" | "decompose_tasks";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
 type NextPhase = "analysis" | "design" | "pre_build" | "build";
@@ -325,8 +325,8 @@ Deno.serve(async (req: Request) => {
     const { adminClient, userId } = auth;
 
     const body: ConciergeRequest = await req.json();
-    // pre_build_complete and build_chat don't need responses — they read state directly
-    if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && body.phase !== "build_chat" && !Array.isArray(body.responses))) {
+    // pre_build_complete, build_chat, and decompose_tasks don't need responses — they read state directly
+    if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && body.phase !== "build_chat" && body.phase !== "decompose_tasks" && !Array.isArray(body.responses))) {
       return new Response(
         JSON.stringify({ error: "Invalid request: session_id, phase, and responses required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -334,7 +334,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const apiKey = await getUserApiKey(adminClient, userId, "anthropic");
-    if (!apiKey && body.phase !== "pre_build_complete" && body.phase !== "build_chat") {
+    if (!apiKey && body.phase !== "pre_build_complete" && body.phase !== "build_chat" && body.phase !== "decompose_tasks") {
       // Fail loud — no silent provider fallback. User must add an Anthropic key.
       return new Response(
         JSON.stringify({
@@ -611,6 +611,309 @@ Generate the build plan.`;
 
       return new Response(
         JSON.stringify({ reply, build_status: { responses_received: responsesReceived, responses_expected: responsesExpected } }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Decompose tasks — Build v2 task queue generation ─────────────────
+    // Parses ARCHITECT.md file tree + build_lanes → writes one build_tasks
+    // row per file. Uses Sonnet for prompt slice generation when possible,
+    // falls back to deterministic slices otherwise.
+    if (body.phase === "decompose_tasks") {
+      const { data: sessionData } = await adminClient
+        .from("sessions")
+        .select("architect_md, title, build_spec")
+        .eq("id", body.session_id)
+        .maybeSingle();
+
+      const architectMd = (sessionData as { architect_md?: string } | null)?.architect_md ?? "";
+      const projectTitle = (sessionData as { title?: string } | null)?.title ?? "Untitled";
+      const buildSpec = (sessionData as { build_spec?: Record<string, unknown> } | null)?.build_spec ?? {};
+
+      const { data: laneData } = await adminClient
+        .from("build_lanes")
+        .select("id, agent_id, agent_name, lane_paths, role")
+        .eq("session_id", body.session_id);
+
+      const lanes = (laneData ?? []) as Array<BuildLaneSummary & { id: string }>;
+      const builders = lanes.filter((l) => l.role === "builder");
+      const effectiveBuilders = builders.length > 0
+        ? builders
+        : lanes.filter((l) => l.role !== "read_only");
+
+      if (effectiveBuilders.length === 0 || !architectMd) {
+        return new Response(
+          JSON.stringify({
+            error: "BUILD_NOT_READY",
+            message: effectiveBuilders.length === 0
+              ? "No builder lanes assigned."
+              : "No Architect.md found.",
+          }),
+          { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Parse file tree from ARCHITECT.md
+      const allFiles = parseFilesFromArchitectMd(architectMd);
+      if (allFiles.length === 0) {
+        return new Response(
+          JSON.stringify({
+            error: "NO_FILES_FOUND",
+            message: "Could not parse a file tree from ARCHITECT.md. Ensure it contains a code block with ├──/└── tree format.",
+          }),
+          { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Clear any existing tasks for this session
+      await adminClient
+        .from("build_tasks")
+        .delete()
+        .eq("session_id", body.session_id);
+
+      // Assign files to builders based on lane globs
+      interface TaskPlan {
+        task_id: string;
+        file_path: string;
+        lane_owner: string;
+        lane_owner_name: string;
+        fallback_owner: string | null;
+        dependencies: string[];
+        prompt_slice: string;
+        priority: number; // lower = build first
+      }
+
+      // Determine fallback for each builder (a builder from a different provider)
+      function pickFallback(owner: typeof effectiveBuilders[0]): string | null {
+        const other = effectiveBuilders.find((b) =>
+          b.agent_id !== owner.agent_id && b.agent_name !== owner.agent_name
+        );
+        return other?.agent_id ?? null;
+      }
+
+      // Priority heuristic: config/types first, then lib, then routes/components, then entry points
+      function filePriority(fp: string): number {
+        const lower = fp.toLowerCase();
+        if (lower.includes("config") || lower.includes("types") || lower.includes(".env")) return 0;
+        if (lower.includes("/lib/") || lower.includes("/utils/") || lower.includes("/helpers/")) return 1;
+        if (lower.includes("/middleware/") || lower.includes("/models/") || lower.includes("/db/")) return 2;
+        if (lower.includes("/api/") || lower.includes("/routes/") || lower.includes("/services/")) return 3;
+        if (lower.includes("/components/") || lower.includes("/pages/") || lower.includes("/views/")) return 4;
+        if (lower.includes("index.") || lower.includes("app.") || lower.includes("main.") || lower.includes("server.")) return 5;
+        if (lower.includes("test") || lower.includes("spec") || lower.includes("seed")) return 6;
+        if (lower.includes("readme") || lower.includes("docker") || lower.includes("makefile")) return 7;
+        return 4; // default middle priority
+      }
+
+      const tasks: TaskPlan[] = [];
+      let taskCounter = 0;
+
+      // Track which files are assigned to avoid duplicates
+      const assignedFiles = new Set<string>();
+
+      for (const builder of effectiveBuilders) {
+        const laneFiles = matchFilesToLane(allFiles, builder.lane_paths);
+        const fallback = pickFallback(builder);
+
+        for (const filePath of laneFiles) {
+          if (assignedFiles.has(filePath)) continue;
+          assignedFiles.add(filePath);
+
+          taskCounter++;
+          const taskId = `task-${String(taskCounter).padStart(3, "0")}`;
+          const priority = filePriority(filePath);
+
+          tasks.push({
+            task_id: taskId,
+            file_path: filePath,
+            lane_owner: builder.agent_id ?? "",
+            lane_owner_name: builder.agent_name,
+            fallback_owner: fallback,
+            dependencies: [],
+            prompt_slice: "", // filled below
+            priority,
+          });
+        }
+      }
+
+      // Also catch unassigned files (files that don't match any lane)
+      for (const filePath of allFiles) {
+        if (assignedFiles.has(filePath)) continue;
+        assignedFiles.add(filePath);
+        taskCounter++;
+        const taskId = `task-${String(taskCounter).padStart(3, "0")}`;
+        // Assign to the first builder as a catch-all
+        const owner = effectiveBuilders[0];
+        tasks.push({
+          task_id: taskId,
+          file_path: filePath,
+          lane_owner: owner.agent_id ?? "",
+          lane_owner_name: owner.agent_name,
+          fallback_owner: pickFallback(owner),
+          dependencies: [],
+          prompt_slice: "",
+          priority: filePriority(filePath),
+        });
+      }
+
+      // Sort by priority
+      tasks.sort((a, b) => a.priority - b.priority);
+
+      // Simple dependency heuristic: config/types tasks come before everything else
+      const configTaskIds = tasks.filter((t) => t.priority === 0).map((t) => t.task_id);
+      for (const task of tasks) {
+        if (task.priority > 0 && configTaskIds.length > 0) {
+          task.dependencies = configTaskIds;
+        }
+      }
+
+      // Generate prompt slices
+      // Try LLM-powered slices if API key available, fall back to deterministic
+      let usedLlmSlices = false;
+
+      if (apiKey && tasks.length <= 60) {
+        // Ask Sonnet to generate per-file instructions
+        const fileList = tasks.map((t) => `- ${t.file_path} (builder: ${t.lane_owner_name})`).join("\n");
+        const slicePrompt = `You are decomposing a build plan into per-file build instructions.
+
+Project: ${projectTitle}
+
+ARCHITECT.MD (reference):
+${architectMd.slice(0, 6000)}
+
+Files to generate (${tasks.length} total):
+${fileList}
+
+For EACH file, write a 1-3 sentence build instruction that tells the builder:
+1. What this file does in the project
+2. Key implementation details (imports, exports, patterns)
+3. Any dependencies on other files in the list
+
+Return JSON only:
+{
+  "slices": {
+    "<file_path>": "<instruction text>",
+    ...
+  }
+}`;
+
+        try {
+          const sliceRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-6",
+              max_tokens: 4096,
+              messages: [{ role: "user", content: slicePrompt }],
+            }),
+          });
+
+          if (sliceRes.ok) {
+            const sliceData = await sliceRes.json();
+            const sliceRaw: string = sliceData?.content?.[0]?.text ?? "";
+            const fenced = sliceRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const jsonText = fenced ? fenced[1].trim() : sliceRaw;
+            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.slices && typeof parsed.slices === "object") {
+                for (const task of tasks) {
+                  const slice = parsed.slices[task.file_path];
+                  if (typeof slice === "string" && slice.trim().length > 10) {
+                    task.prompt_slice = slice.trim();
+                  }
+                }
+                usedLlmSlices = true;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[concierge] LLM prompt slice generation failed, using deterministic", String(e));
+        }
+      }
+
+      // Fill in deterministic slices for any tasks that don't have one
+      for (const task of tasks) {
+        if (task.prompt_slice) continue;
+        const ext = task.file_path.split(".").pop()?.toLowerCase() ?? "";
+        const dirHint = task.file_path.includes("/") ? task.file_path.split("/").slice(0, -1).join("/") : "root";
+        task.prompt_slice = `Build file: ${task.file_path}\nThis file is part of the "${dirHint}" module in project "${projectTitle}". Write the COMPLETE file content — no placeholders, no truncation. File type: .${ext}. Follow the project architecture from ARCHITECT.md.`;
+      }
+
+      // Build the per-task system prompt wrapper
+      const taskPromptPrefix = `BUILD TASK MODE — building "${projectTitle}".
+You are generating EXACTLY ONE file. Return JSON only:
+{
+  "path": "<exact file path>",
+  "content": "<COMPLETE file content — every line, no placeholders>",
+  "operation": "create"
+}
+
+RULES:
+- Output ONLY the JSON object above. No explanation, no markdown, no extra text.
+- "content" must be the COMPLETE file, top to bottom.
+- NEVER use "// ... existing code ...", "// placeholder", or similar.
+- If the file is empty or you cannot generate it, return { "path": "...", "content": "", "operation": "create" } with an empty string.`;
+
+      // Write tasks to build_tasks table
+      const taskRows = tasks.map((t) => ({
+        session_id: body.session_id,
+        task_id: t.task_id,
+        file_path: t.file_path,
+        lane_owner: t.lane_owner || null,
+        fallback_owner: t.fallback_owner,
+        dependencies: t.dependencies,
+        status: "queued" as const,
+        retry_count: 0,
+        max_retries: 2,
+        prompt_slice: `${taskPromptPrefix}\n\nFILE TO BUILD: ${t.file_path}\n\n${t.prompt_slice}`,
+      }));
+
+      const { error: insertError } = await adminClient
+        .from("build_tasks")
+        .insert(taskRows);
+
+      if (insertError) {
+        return new Response(
+          JSON.stringify({
+            error: "TASK_INSERT_FAILED",
+            message: insertError.message,
+          }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // Build summary for the UI
+      const builderSummary = effectiveBuilders.map((b) => {
+        const count = tasks.filter((t) => t.lane_owner === b.agent_id).length;
+        return `${b.agent_name}: ${count} files`;
+      }).join(", ");
+
+      const lockedBuilderIds = (buildSpec as { locked_builder_ids?: string[] }).locked_builder_ids ?? [];
+
+      return new Response(
+        JSON.stringify({
+          phase: "decompose_tasks",
+          total_tasks: tasks.length,
+          total_files: allFiles.length,
+          builder_summary: builderSummary,
+          used_llm_slices: usedLlmSlices,
+          tasks: tasks.map((t) => ({
+            task_id: t.task_id,
+            file_path: t.file_path,
+            lane_owner: t.lane_owner,
+            lane_owner_name: t.lane_owner_name,
+            fallback_owner: t.fallback_owner,
+            dependencies: t.dependencies,
+            priority: t.priority,
+            status: "queued",
+          })),
+          locked_builder_ids: lockedBuilderIds,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

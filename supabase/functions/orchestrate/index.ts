@@ -12,7 +12,7 @@ interface AgentSkillPayload {
   instruction: string;
 }
 
-type OrchestrationMode = "analysis" | "build" | "artifact";
+type OrchestrationMode = "analysis" | "build" | "artifact" | "build_task";
 
 interface OrchestrationRequest {
   prompt: string;
@@ -215,6 +215,24 @@ NON-NEGOTIABLE RULES:
 - Never put code in the "content" rationale field — code goes in file_manifest entries only
 - file_manifest may be empty [] if no file changes are needed
 - Prefer a few complete high-value files over many incomplete files`;
+  } else if (mode === "build_task") {
+    // Build v2 single-file task mode — lighter prompt, no ARCHITECT.md injection needed
+    // The prompt_slice from build_tasks already contains per-file instructions
+    prompt += `You are in BUILD TASK mode — generating exactly ONE file.
+
+Return your response as JSON with this EXACT structure:
+{
+  "path": "<exact repo-relative file path>",
+  "content": "<COMPLETE file content, every line, top to bottom>",
+  "operation": "create"
+}
+
+RULES:
+- Output ONLY the JSON above. No markdown fences, no explanation, no extra text.
+- "content" MUST be the COMPLETE file — not a diff, not a snippet.
+- NEVER use "// ... existing code ...", "// placeholder", "// rest of file", or similar.
+- If you cannot generate the file, set content to an empty string.
+- "path" must match exactly the file_path in the task.`;
   } else if (mode === "artifact") {
     prompt += `You are in ARTIFACT mode. Produce a single downloadable file that fulfills the request.
 
@@ -537,6 +555,7 @@ Deno.serve(async (req: Request) => {
     let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode);
 
     // Sprint A · B7.2 — inject ARCHITECT.md into build-mode system prompt.
+    // Skip for build_task mode — prompt_slice already contains per-file context.
     if (orchestrationMode === "build" && session_id) {
       const { data: sessRow } = await supabase
         .from("sessions")
@@ -574,7 +593,9 @@ Deno.serve(async (req: Request) => {
     const capabilities = capabilitiesFor(provider, effectiveModel);
     const maxOutputTokens = orchestrationMode === "build"
       ? capabilities.buildOutputTokens
-      : capabilities.defaultOutputTokens;
+      : orchestrationMode === "build_task"
+        ? Math.min(capabilities.buildOutputTokens, 8192) // single file needs less
+        : capabilities.defaultOutputTokens;
 
     if (provider === 'anthropic') {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
