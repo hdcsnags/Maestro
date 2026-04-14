@@ -8,9 +8,9 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Build broadcast → execute flow still untested end-to-end (504 root cause fixed, needs live smoke) |
-| Last verified deploy | `concierge` redeployed 2026-04-13 (504 fix, commit `71da7a9`); `github-execute` redeployed earlier 2026-04-13; 14 protected functions redeployed 2026-04-12; live runtime smoke only verified on `vault` |
-| Unapplied migrations | 2 unapplied: `20260410143000_promote_gpt54_builder.sql`, `20260412200000_add_session_mode.sql` |
+| Active blockers | Build v2 task-queued flow implemented — needs live end-to-end smoke test |
+| Last verified deploy | `concierge` + `orchestrate` redeployed 2026-04-14 (Build v2: decompose_tasks + build_task mode); `github-execute` redeployed 2026-04-13; 14 protected functions redeployed 2026-04-12 |
+| Unapplied migrations | None — all migrations applied to remote including `20260414040000_build_tasks.sql` |
 | Active locks | None |
 
 ---
@@ -44,6 +44,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Global state | `src/context/MaestroContext.tsx` |
 | Auth | `src/context/AuthContext.tsx` |
 | Orchestration logic | `src/hooks/useOrchestration.ts` (broadcast, synthesize, callAgent) |
+| Build v2 execution | `src/hooks/useBuildExecution.ts` (task decompose, dispatch loop, retry/reroute) |
 | Workspace CRUD | `src/hooks/useWorkspace.ts` (ensureWorkspace, ensureAgents, sessions) |
 | Types | `src/types/index.ts` (source of truth for all shared interfaces) |
 | Build UI | `src/components/reveal/BuildWorkspace.tsx` |
@@ -74,12 +75,13 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | `github-execute` | Branch, commit, PR creation from patches |
 | `vault` | API key CRUD (BYOK) |
 
-## Database (19 active tables)
+## Database (20 active tables)
 
 Core: workspaces, agents, sessions (has `mode`: 'ask'|'build'), rounds, responses, syntheses
 GitHub: repo_connections, execution_runs, approval_requests
 Security: provider_connections, encrypted_secrets, audit_events
 Sprint B: design_artifacts, build_lanes, bouncer_events, build_reports, concierge_decisions
+Build v2: build_tasks (per-file task queue — status, prompt_slice, retry/reroute metadata)
 Legacy (unused): agent_skills, flags
 
 ## Agent Roster
@@ -106,6 +108,8 @@ Legacy (unused): agent_skills, flags
 - **Truncation guard**: github-execute rejects file content containing `// ... existing code` patterns. Catches LLM laziness but can false-positive on legitimate comments — known tradeoff, accepted.
 - **Build spec locking**: `sessions.build_spec_locked` must be true before build phase. github-execute checks server-side. Prevents mid-build spec mutations.
 - **Lane scope is authoritative in build mode**: `build_lanes.lane_paths` determines what files an agent can write, not `agents.scoped_paths`. Lanes are populated from Architect.md parsing.
+- **Build v2 task queue**: Build v2 decomposes ARCHITECT.md into per-file `build_tasks` rows. Orchestrate has a `build_task` mode (lighter prompt, 8192 max tokens, no ARCHITECT.md injection). Execution loop in `useBuildExecution.ts` dispatches one file at a time per builder. Eliminates 504 timeouts from v1's all-files-at-once approach.
+- **Build tasks are NOT rounds**: `build_tasks` is a separate table from `rounds`/`responses`. Build tasks don't create council rounds. This prevents semantic overloading of the existing data model.
 - **Edge auth is enforced in-function, not at the gateway**: With Supabase JWT Signing Keys, all protected functions set `verify_jwt = false` in `supabase/config.toml`, enter `supabase/functions/_shared/auth.ts`, and expect the frontend to call them through `supabase.functions.invoke(...)` so the real user session token is attached.
 
 ## Patterns & Conventions
@@ -159,6 +163,11 @@ Legacy (unused): agent_skills, flags
 | `github-execute` now routes execution through empty-repo default-branch bootstrap before Maestro branches/PRs, allowing first-build execution into a new repo | 2026-04-13 (code verified, `npm run typecheck`) |
 | 504 root cause resolved: `concierge` `buildDeterministicBuildPlan()` no longer double-injects ARCHITECT.MD into `build_prompt` (already in system prompt via `orchestrate`); `build_prompt` is now ~80 tokens | 2026-04-13 (`supabase functions deploy concierge`, commit `71da7a9`) |
 | Continuation chain wired: `BuildWorkspace` reads `complete:false`/`continuation_prompt` from `signals`, shows "Continue Build" in reviewing stage for incomplete agents | 2026-04-13 (code verified, `npm run typecheck`) |
+| Build v2 task queue: `build_tasks` migration applied, `BuildTask` type added, concierge `decompose_tasks` phase parses ARCHITECT.md into per-file tasks with LLM prompt slices | 2026-04-14 (`supabase functions deploy concierge`, `npm run typecheck`) |
+| Build v2 orchestrate `build_task` mode: lighter single-file prompt, 8192 max output tokens, no ARCHITECT.md injection | 2026-04-14 (`supabase functions deploy orchestrate`, `npm run typecheck`) |
+| Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
+| Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
+| Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 
@@ -166,12 +175,9 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| **🚨 MIGRATION DRIFT — blocks lane name matching**: `20260410143000_promote_gpt54_builder.sql` unapplied. GPT-5.4 slot 1 still has old `display_name` in DB. `architect` resolves `build_lanes.agent_name` from `match.display_name`, so lane names don't match what broadcast responses report. Name fallback in both `BuildWorkspace` and `github-execute` will miss. Apply this migration before trusting GPT-5.4 builder lanes. | 2026-04-13 | Unassigned |
-| **🚨 MIGRATION PENDING**: `20260412200000_add_session_mode.sql` unapplied. `sessions.mode` column missing in remote DB; `activeSession.mode === 'build'` checks silently return `undefined`. | 2026-04-12 | Unassigned |
-| Build broadcast → Execute flow untested end-to-end (504 root cause fixed; needs live smoke) | 2026-04-12 | Unassigned |
+| Build v2 task-queued flow needs live end-to-end smoke test (decompose → dispatch → execute to GitHub) | 2026-04-14 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
-| Build orchestration is still synchronous end-to-end; UI status is clearer now, but provider retries/reroutes are not yet queued mid-flight | 2026-04-13 | Unassigned |
 | Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
 | Concierge auto-trigger after build broadcast may double-fire | ~~Pre-existing~~ Fixed `41fa2dd` | — |
@@ -192,15 +198,53 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. Smoke test the full Build flow: Pre-Build lock → Build broadcast → review responses → Execute Build → verify files written to GitHub
-2. If patches reach github-execute correctly, test bouncer gate after build completes
-3. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
+1. **Live smoke test Build v2**: Pre-Build lock → plan review → "Build (File by File)" → watch task board → Execute to GitHub → verify files written
+2. If v2 task build works, test bouncer gate after build completes
+3. Retire legacy broadcast path once v2 is proven (currently available as "Broadcast (Legacy)" button)
+4. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
 
 ---
 
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-14 — GitHub Copilot (Opus 4.6)
+
+**What was done**: Implemented Build v2 task-queued execution system (Steps 0–6 of BUILD_V2_SPEC.md). This replaces the v1 approach of asking agents to generate entire lanes of files in one shot (which caused 504 timeouts) with a per-file task queue where each orchestrate call handles exactly one file in 3–8 seconds.
+
+**Step 1**: Created `build_tasks` migration (`20260414040000_build_tasks.sql`) with RLS, indexes, status/operation constraints, failure/reroute metadata columns. Added `BuildTask` interface and `BuildTaskStatus` type to `src/types/index.ts`. Applied migration to remote Supabase.
+
+**Step 2**: Added `decompose_tasks` phase to concierge edge function. Parses ARCHITECT.md file tree using existing `parseFilesFromArchitectMd()`, assigns files to builder lanes via `matchFilesToLane()`, generates per-file prompt slices (LLM via Sonnet 4.6 when API key available, deterministic fallback otherwise), writes `build_tasks` rows to DB. Handles dependency ordering (config/types → lib → routes → components → entry points), fallback builder assignment across providers, and unassigned file catch-all.
+
+**Step 3**: Added `build_task` mode to orchestrate edge function. Lighter single-file prompt template (no ARCHITECT.md injection — prompt_slice has the context), 8192 max output tokens (capped from buildOutputTokens), structured JSON output format for single files. Updated `OrchestrationMode` type in both backend and frontend.
+
+**Step 4**: Created `src/hooks/useBuildExecution.ts` — the execution loop hook. Dispatch/collect/retry/reroute loop with parallel dispatch (2 tasks at a time, one per builder). Dependency-aware ordering, fallback agent rerouting on failure, abort control, manifest collection. Exposes `{ tasks, progress, isRunning, decompose, execute, abort, skipTask, retryTask, collectManifest }`.
+
+**Step 5**: Wired task board UI into BuildWorkspace. Added `task_decomposing` and `task_building` stages. Plan review now shows two buttons: "Build (File by File)" as primary, "Broadcast (Legacy)" as secondary. Task building stage shows progress bar, per-file task list with status icons and builder agent names, retry/skip actions on failed tasks, pause/resume/execute controls, and concierge chat panel.
+
+**Step 6**: Wired completed task manifest to github-execute. `handleTaskExecuteToGithub` formats collected `build_tasks` results as `AgentPatch[]` with `conductor_approved=true`, creates execution run, calls github-execute, updates UI state from exec result.
+
+Also confirmed all pending migrations (including `20260410143000` and `20260412200000`) were already applied to remote — MAESTRO_STATE.md was stale on this claim. Updated BUILD_V2_SPEC.md with OpenAI's six refinements before implementation.
+
+Deployed `concierge` and `orchestrate` to remote. Ran `npm run typecheck` and `npm run build` clean. Committed as `6c84d18`, `e066959`, `177bd4a`.
+
+**Files created**: `src/hooks/useBuildExecution.ts`, `supabase/migrations/20260414040000_build_tasks.sql`, `BUILD_V2_SPEC.md`
+
+**Files modified**: `src/types/index.ts`, `src/components/reveal/BuildWorkspace.tsx`, `supabase/functions/concierge/index.ts`, `supabase/functions/orchestrate/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Build tasks are NOT rounds — separate `build_tasks` table prevents semantic overloading of `rounds`/`responses` data model.
+- Frontend execution loop (v2) with plan for worker/job model (v2.5) — pragmatic first step.
+- Pre-Build locks the builder cast, Build never re-casts (Rule #1 from spec).
+- Continuation is an escape hatch for oversized single files, not the normal path.
+- Kept legacy broadcast as a fallback button during v2 proving period.
+- LLM prompt slices (Sonnet 4.6) with deterministic fallback — never blocks on slice generation failure.
+- Max 2 parallel dispatches to avoid overwhelming providers; dependency-aware ordering prevents config/types race conditions.
+
+**What didn't work**: Build v2 is code-complete but untested end-to-end in production. Needs live smoke test: Pre-Build → plan review → file-by-file build → execute to GitHub.
+
+---
 
 ### 2026-04-13 — GitHub Copilot (Sonnet 4.6)
 
