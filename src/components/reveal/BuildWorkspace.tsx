@@ -625,19 +625,39 @@ export default function BuildWorkspace() {
         throw new Error(runErr?.message ?? 'Failed to create execution run');
       }
 
-      // Call github-execute with the collected manifest
+      // Format as patches for github-execute (it expects AgentPatch[] with file_manifest)
+      const patches = [{
+        agent_name: 'Build v2 (task queue)',
+        agent_id: 'build-v2',
+        content: `${manifest.length} files from task-queued build`,
+        scoped_paths: [] as string[],
+        commit_message: `Build v2: ${manifest.length} files for ${session.title ?? 'session'}`,
+        conductor_approved: true,
+        file_manifest: manifest.map(f => ({
+          path: f.path,
+          content: f.content,
+          operation: f.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+          content_hash: null,
+        })),
+      }];
+
       const execResult = await invokeEdgeFunction<{
         status?: string;
         written_files?: string[];
-        prs?: Array<{ url?: string; number?: number }>;
+        prs?: string[];
         errors?: string[];
-        branches?: string[];
+        branches?: Array<{ branch?: string; pr_url?: string }>;
+        backup_branch?: string;
+        skipped_files?: Array<{ path: string; reason: string }>;
+        collisions?: unknown[];
+        handoffs_requested?: Array<{ from_agent: string; path: string }>;
       }>('github-execute', {
         session_id: session.id,
         execution_run_id: (runData as { id: string }).id,
         repo_connection_id: state.activeRepoConnection.id,
-        file_manifest: manifest,
+        patches,
         strategy: 'synthesized',
+        conductor_approved: true,
       });
 
       // Update execution run status
@@ -647,12 +667,19 @@ export default function BuildWorkspace() {
         .update({ status, result: execResult as never } as never)
         .eq('id', (runData as { id: string }).id);
 
+      // Update UI state
+      setWrittenFiles(execResult.written_files ?? []);
+      setSkippedFiles(execResult.skipped_files ?? []);
+      setPrUrls(execResult.prs ?? []);
+      setCollisionCount((execResult.collisions ?? []).length);
+      setHandoffs((execResult.handoffs_requested ?? []) as { from_agent: string; path: string }[]);
+      setBackupBranch(execResult.backup_branch ?? '');
+
       dispatch({
         type: 'ADD_EXECUTION_RUN',
         payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
       });
 
-      // Check if bouncer review is needed
       if (session.current_phase === 'bouncer') {
         setStage('bouncer');
       } else {
