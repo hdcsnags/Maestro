@@ -38,10 +38,19 @@ export default function WorkspacePage() {
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
   const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
-  const streamingAgents = state.isBroadcasting && latestRound
-    ? state.agents.filter(a => state.broadcastingAgents.includes(a.id) && !latestResponses.find(r => r.agent_id === a.id))
+  // Selected round for carousel item count (mirrors FolioCarousel logic)
+  const selectedIdx = state.selectedRoundIndex === -1
+    ? state.rounds.length - 1
+    : Math.min(state.selectedRoundIndex, state.rounds.length - 1);
+  const selectedRound = selectedIdx >= 0 ? state.rounds[selectedIdx] : null;
+  const selectedResponses = selectedRound && selectedRound.id !== latestRound?.id
+    ? state.responses.filter(r => r.round_id === selectedRound.id)
+    : latestResponses;
+  const isViewingLatest = !selectedRound || selectedRound.id === latestRound?.id;
+  const streamingAgents = state.isBroadcasting && latestRound && isViewingLatest
+    ? state.agents.filter(a => state.broadcastingAgents.includes(a.id) && !selectedResponses.find(r => r.agent_id === a.id))
     : [];
-  const totalFolioItems = latestResponses.length + streamingAgents.length;
+  const totalFolioItems = selectedResponses.length + streamingAgents.length;
   const hasContent = totalFolioItems > 0 || state.isBroadcasting;
   const activeAgentCount = state.agents.filter(a => a.is_active).length;
   const orbState = deriveOrbState(state, latestResponses, activeAgentCount);
@@ -148,11 +157,33 @@ export default function WorkspacePage() {
         dispatch({ type: 'SET_FOLIO_INDEX', payload: prev });
         return;
       }
+
+      // Up/Down arrows: round navigation
+      if (e.key === 'ArrowUp' && state.rounds.length > 1) {
+        const currentIdx = state.selectedRoundIndex === -1
+          ? state.rounds.length - 1
+          : state.selectedRoundIndex;
+        if (currentIdx > 0) {
+          dispatch({ type: 'SET_SELECTED_ROUND', payload: currentIdx - 1 });
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowDown' && state.rounds.length > 1) {
+        const currentIdx = state.selectedRoundIndex === -1
+          ? state.rounds.length - 1
+          : state.selectedRoundIndex;
+        if (currentIdx < state.rounds.length - 1) {
+          const next = currentIdx + 1;
+          dispatch({ type: 'SET_SELECTED_ROUND', payload: next === state.rounds.length - 1 ? -1 : next });
+        }
+        return;
+      }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.patchModalOpen, state.executionModalOpen, dispatch]);
+  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, dispatch]);
 
   if (state.initError) {
     return (

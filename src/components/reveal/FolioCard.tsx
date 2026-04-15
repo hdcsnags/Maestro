@@ -7,7 +7,6 @@ import ArtifactDownload from './ArtifactDownload';
 
 interface Props {
   response: MaestroResponse;
-  roundNumber: number;
 }
 
 const unescape = (s: string) =>
@@ -66,7 +65,7 @@ function tryExtractFromJson(text: string): string | null {
   return null;
 }
 
-export default function FolioCard({ response, roundNumber }: Props) {
+export default function FolioCard({ response }: Props) {
   const { dispatch } = useMaestro();
   const [flagging, setFlagging] = useState(false);
   const [signalsExpanded, setSignalsExpanded] = useState(false);
@@ -109,7 +108,6 @@ export default function FolioCard({ response, roundNumber }: Props) {
   const signals = response.signals || {};
   const signalEntries = Object.entries(signals).filter(([, v]) => v).slice(0, 3);
   const fileManifest: FileManifestEntry[] = response.file_manifest || [];
-  const roundLabel = `Round ${String(roundNumber).padStart(2, '0')}`;
   const artifacts = response.artifacts || [];
   const displayContent = getDisplayContent(response.content);
 
@@ -127,11 +125,11 @@ export default function FolioCard({ response, roundNumber }: Props) {
             style={{ width: '9px', height: '9px', borderRadius: '50%', background: response.agent_color, boxShadow: `0 0 18px ${response.agent_color}` }}
           />
           <div className="min-w-0">
-            <div className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: response.agent_color, whiteSpace: 'nowrap' }}>
-              {response.agent_name} -- {response.agent_role}
+            <div style={{ fontSize: '13px', fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap' }}>
+              {response.agent_role || 'Agent'}
             </div>
-            <div className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
-              {roundLabel}
+            <div className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: response.agent_color, whiteSpace: 'nowrap' }}>
+              {response.agent_name}
             </div>
           </div>
         </div>
@@ -235,8 +233,8 @@ export default function FolioCard({ response, roundNumber }: Props) {
         {/* Footer */}
         <div className="flex items-center gap-3 pt-6" style={{ color: 'var(--text-dim)', marginTop: 'auto' }}>
           <div style={{ height: '1px', width: '72px', background: 'linear-gradient(90deg, rgba(255,255,255,0.22), transparent)' }} />
-          <span className="font-mono-dm" style={{ fontSize: '11px', letterSpacing: '0.18em', textTransform: 'uppercase' as const }}>
-            {response.agent_name} -- {response.model}
+          <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' as const, opacity: 0.6 }}>
+            {response.model}
           </span>
         </div>
       </div>

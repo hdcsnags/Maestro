@@ -21,30 +21,37 @@ export default function FolioCarousel() {
   const { state, dispatch } = useMaestro();
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
-  const latestResponses = useMemo(
-    () => latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [],
-    [latestRound, state.responses],
+  // Use selected round for carousel content (supports round navigation)
+  const selectedIdx = state.selectedRoundIndex === -1
+    ? state.rounds.length - 1
+    : Math.min(state.selectedRoundIndex, state.rounds.length - 1);
+  const selectedRound = selectedIdx >= 0 ? state.rounds[selectedIdx] : null;
+  const isViewingLatest = !selectedRound || selectedRound.id === latestRound?.id;
+
+  const selectedResponses = useMemo(
+    () => selectedRound ? state.responses.filter(r => r.round_id === selectedRound.id) : [],
+    [selectedRound, state.responses],
   );
-  const roundNumber = latestRound?.round_number ?? 0;
+  const roundNumber = selectedRound?.round_number ?? 0;
 
   const broadcastingAgentObjs = state.agents.filter(a => state.broadcastingAgents.includes(a.id));
   const streamingAgents = useMemo(
-    () => state.isBroadcasting && latestRound
-      ? broadcastingAgentObjs.filter(a => !latestResponses.find(r => r.agent_id === a.id))
+    () => state.isBroadcasting && latestRound && isViewingLatest
+      ? broadcastingAgentObjs.filter(a => !selectedResponses.find(r => r.agent_id === a.id))
       : [],
-    [state.isBroadcasting, latestRound, broadcastingAgentObjs, latestResponses],
+    [state.isBroadcasting, latestRound, isViewingLatest, broadcastingAgentObjs, selectedResponses],
   );
 
   const items: FolioItem[] = useMemo(() => {
     const result: FolioItem[] = [];
-    for (const r of latestResponses) {
+    for (const r of selectedResponses) {
       result.push({ type: 'response', color: r.agent_color, response: r, roundNumber });
     }
     for (const a of streamingAgents) {
       result.push({ type: 'streaming', color: a.color, agentName: a.display_name || a.name, agentRole: a.role, agentProvider: a.provider, agentModel: a.model, agentDisplayName: a.display_name || a.name, roundNumber });
     }
     return result;
-  }, [latestResponses, streamingAgents, roundNumber]);
+  }, [selectedResponses, streamingAgents, roundNumber]);
 
   const safeIndex = Math.min(state.folioIndex, Math.max(items.length - 1, 0));
 
@@ -85,7 +92,7 @@ export default function FolioCarousel() {
               onClick={() => handleFolioClick(i)}
             >
               {item.type === 'response' ? (
-                <FolioCard response={item.response!} roundNumber={item.roundNumber} />
+                <FolioCard response={item.response!} />
               ) : (
                 <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} />
               )}

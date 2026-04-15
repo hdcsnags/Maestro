@@ -43,6 +43,7 @@ export interface MaestroState {
   activeDrawer: DrawerTarget;
   shortcutOverlayOpen: boolean;
   folioIndex: number;
+  selectedRoundIndex: number; // -1 = auto-follow latest round
   patchModalOpen: boolean;
   executionModalOpen: boolean;
   focusMode: boolean;
@@ -97,6 +98,7 @@ type Action =
   | { type: 'CLOSE_TRANSIENT' }
   | { type: 'TOGGLE_SHORTCUTS' }
   | { type: 'SET_FOLIO_INDEX'; payload: number }
+  | { type: 'SET_SELECTED_ROUND'; payload: number }
   | { type: 'SET_PATCH_MODAL'; payload: boolean }
   | { type: 'SET_EXECUTION_MODAL'; payload: boolean }
   | { type: 'TOGGLE_FOCUS_MODE' }
@@ -135,6 +137,7 @@ const initial: MaestroState = {
   activeDrawer: null,
   shortcutOverlayOpen: false,
   folioIndex: 0,
+  selectedRoundIndex: -1,
   patchModalOpen: false,
   executionModalOpen: false,
   focusMode: false,
@@ -182,6 +185,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         conciergeVisible: false,
         broadcastingAgents: [],
         folioIndex: 0,
+        selectedRoundIndex: -1,
         triageResult: null,
         isTriaging: false,
         buildPlan: null,
@@ -193,7 +197,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         : state;
     case 'SET_SESSIONS': return { ...state, sessions: action.payload };
     case 'SET_ROUNDS': return { ...state, rounds: action.payload };
-    case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload] };
+    case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload], selectedRoundIndex: -1, folioIndex: 0 };
     case 'SET_RESPONSES': return { ...state, responses: action.payload };
     case 'ADD_RESPONSE': return { ...state, responses: [...state.responses, action.payload] };
     case 'UPDATE_RESPONSE':
@@ -253,7 +257,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_AUTO_SHOW_CAROUSEL': return { ...state, autoShowCarousel: action.payload };
     case 'SHOW_TOAST': return { ...state, toastMessage: action.payload };
     case 'CLEAR_TOAST': return { ...state, toastMessage: null };
-    case 'CLEAR_STAGE': return { ...state, folioIndex: 0, triageResult: null, isTriaging: false, buildPlan: null };
+    case 'CLEAR_STAGE': return { ...state, folioIndex: 0, selectedRoundIndex: -1, triageResult: null, isTriaging: false, buildPlan: null };
     case 'SET_VIEW_MODE': return { ...state, viewMode: action.payload };
     case 'OPEN_DRAWER': {
       const isSame = state.activeDrawer === action.payload;
@@ -262,6 +266,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'CLOSE_TRANSIENT': return { ...state, activeDrawer: null, shortcutOverlayOpen: false };
     case 'TOGGLE_SHORTCUTS': return { ...state, shortcutOverlayOpen: !state.shortcutOverlayOpen, activeDrawer: null };
     case 'SET_FOLIO_INDEX': return { ...state, folioIndex: action.payload };
+    case 'SET_SELECTED_ROUND': return { ...state, selectedRoundIndex: action.payload, folioIndex: 0 };
     case 'SET_PATCH_MODAL': return { ...state, patchModalOpen: action.payload };
     case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
     case 'TOGGLE_FOCUS_MODE': return { ...state, focusMode: !state.focusMode };
