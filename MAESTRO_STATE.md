@@ -166,6 +166,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 task queue: `build_tasks` migration applied, `BuildTask` type added, concierge `decompose_tasks` phase parses ARCHITECT.md into per-file tasks with LLM prompt slices | 2026-04-14 (`supabase functions deploy concierge`, `npm run typecheck`) |
 | Build v2 orchestrate `build_task` mode: lighter single-file prompt, 8192 max output tokens, no ARCHITECT.md injection | 2026-04-14 (`supabase functions deploy orchestrate`, `npm run typecheck`) |
 | Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
+| Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
 | Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
@@ -209,6 +210,27 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-15 — GitHub Copilot (Opus 4.6) — Council UX Sprint
+
+**What was done**: Implemented Phase 3 (highest-value slice) of the council/orchestration UX overhaul — round navigation, role-first cards, prompt visibility.
+
+**Changes**:
+- `MaestroContext.tsx`: Added `selectedRoundIndex` state field (-1 = auto-follow latest). New `SET_SELECTED_ROUND` action. Auto-resets to -1 on `ADD_ROUND` (new broadcast always shows latest). Resets folioIndex to 0 on round change. Reset in `SET_ACTIVE_SESSION` and `CLEAR_STAGE`.
+- `HeroContext.tsx`: Replaced "Round XX -- Y voices" with interactive round navigator (`◁ Round 2 / 5 ▷`). Shows "latest" badge when auto-following. Displays the selected round's original prompt (truncated ~180 chars, italicized). Removed empty `<p>` tag. Tighter vertical spacing.
+- `FolioCarousel.tsx`: Uses `selectedRound` instead of `latestRound` for filtering responses. Streaming placeholders only appear when viewing the latest round during broadcast.
+- `WorkspacePage.tsx`: Added selectedRound computation (mirrors carousel logic). Up/Down arrow keys dispatch `SET_SELECTED_ROUND`. Updated `useEffect` dep array for round navigation state.
+- `FolioCard.tsx`: Header is now role-first (role in 13px white, agent name colored below). Removed round label from header (now in HeroContext navigator). Footer shows only model name at 10px/60% opacity. Removed unused `roundNumber` prop.
+
+**Design decisions**:
+- `-1` as "auto-follow latest" is cleaner than a tracked index that might go stale — it's a conceptual "follow mode" vs "pinned mode"
+- Round navigation uses arrow keys (Up/Down) to avoid conflict with Left/Right carousel navigation — natural spatial metaphor (rounds = vertical timeline, cards = horizontal carousel)
+- Role-first card headers align with product doctrine: "models as seats/roles, not raw providers"
+- Prompt preview in HeroContext gives immediate session recovery context without reopening drawers
+
+**Files touched**: `src/context/MaestroContext.tsx`, `src/components/reveal/HeroContext.tsx`, `src/components/reveal/FolioCarousel.tsx`, `src/pages/WorkspacePage.tsx`, `src/components/reveal/FolioCard.tsx`, `MAESTRO_STATE.md`
+
+---
 
 ### 2026-04-15 — GitHub Copilot (Opus 4.6)
 
