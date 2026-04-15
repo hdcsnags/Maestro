@@ -166,6 +166,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 task queue: `build_tasks` migration applied, `BuildTask` type added, concierge `decompose_tasks` phase parses ARCHITECT.md into per-file tasks with LLM prompt slices | 2026-04-14 (`supabase functions deploy concierge`, `npm run typecheck`) |
 | Build v2 orchestrate `build_task` mode: lighter single-file prompt, 8192 max output tokens, no ARCHITECT.md injection | 2026-04-14 (`supabase functions deploy orchestrate`, `npm run typecheck`) |
 | Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
+| Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -175,7 +176,7 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| Build v2 task-queued flow needs live end-to-end smoke test (decompose → dispatch → execute to GitHub) | 2026-04-14 | Unassigned |
+| Build v2 task-queued flow: decompose works, dispatch stale-closure fixed — needs live smoke to confirm tasks actually complete via orchestrate build_task mode | 2026-04-15 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
 | Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
@@ -208,6 +209,35 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-15 — GitHub Copilot (Opus 4.6)
+
+**What was done**: Fixed critical Build v2 dispatch blocker — task queue created successfully but execution loop never started.
+
+**Root cause**: Classic React stale-closure bug. `handleTaskBuild` calls `decompose()` (which sets tasks via `setTasks`) then immediately calls `execute()`. But `execute()` reads `tasks` from its `useCallback` closure, which is still `[]` — React batches `setTasks` updates and hasn't flushed yet. The `execute` loop sees 0 tasks, breaks immediately, and silently transitions to `ready` stage. User then clicks Execute to GitHub → "No completed tasks to execute."
+
+**Secondary bug**: The mid-loop state sync trick (`setTasks(prev => { currentTasks = prev; return prev })`) was also unreliable under React 18 automatic batching — the updater function runs during render, not synchronously during `setState` call.
+
+**Fix applied**:
+- Added `tasksRef` (`useRef<BuildTask[]>`) as synchronous truth — all mutations write to ref first, then to state (for UI re-renders)
+- `execute()` reads from `tasksRef.current` instead of closure `tasks`
+- Belt-and-suspenders: if ref is empty at execute start, re-fetches from DB
+- Added `isRunningRef` to prevent double-execution across stale closures
+- `recountProgress()` re-reads from ref on every call
+- `collectManifest()` reads from ref instead of state
+- `handleTaskBuild` stays on `task_building` stage after execution (no silent `ready` transition)
+- "Execute to GitHub" button wired directly from `task_building` stage header
+
+**Files touched**: `src/hooks/useBuildExecution.ts`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Refs are the correct pattern for async-loop state that must be synchronously current. React state is for UI rendering; refs are for imperative logic.
+- DB re-fetch safety net adds one query but prevents silent 0-task execution in any edge case (page reload, race condition, etc.)
+- Staying on `task_building` after execution completes is better UX — user sees results, can resume failed tasks, then explicitly clicks Execute to GitHub.
+
+**What didn't work**: N/A — diagnosis was straightforward. Build v2 dispatch path is now structurally correct but needs live smoke to confirm orchestrate `build_task` calls actually return valid results.
+
+---
 
 ### 2026-04-14 — GitHub Copilot (Opus 4.6)
 
