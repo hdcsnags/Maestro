@@ -586,8 +586,8 @@ export default function BuildWorkspace() {
       setStage('task_building');
       // Start execution loop
       await buildExec.execute();
-      // After completion, transition to execution stage
-      setStage('ready');
+      // Stay on task_building so user can see results before executing to GitHub
+      // (the header buttons handle the "Execute to GitHub" transition)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Task decomposition failed.');
       setStage('plan_review');
@@ -1210,7 +1210,7 @@ export default function BuildWorkspace() {
                       background: 'var(--gold)', color: 'var(--void)',
                       borderColor: 'transparent', fontWeight: 500,
                     }}
-                    onClick={() => setStage('ready')}
+                    onClick={handleTaskExecuteToGithub}
                   >
                     <Play size={14} />
                     Execute to GitHub ({buildExec.progress.completed} files)

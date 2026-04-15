@@ -59,10 +59,12 @@ export function useBuildExecution() {
   const { user, session } = useAuth();
 
   const [tasks, setTasks] = useState<BuildTask[]>([]);
+  const tasksRef = useRef<BuildTask[]>([]); // synchronous truth — avoids stale-closure bugs
   const [progress, setProgress] = useState<BuildProgress>({
     total: 0, completed: 0, failed: 0, skipped: 0, dispatched: 0, queued: 0,
   });
   const [isRunning, setIsRunning] = useState(false);
+  const isRunningRef = useRef(false); // synchronous guard against double-execution
   const [isDecomposing, setIsDecomposing] = useState(false);
   const abortRef = useRef(false);
 
@@ -99,6 +101,7 @@ export function useBuildExecution() {
         .order('created_at', { ascending: true });
 
       const loaded = (taskRows ?? []) as unknown as BuildTask[];
+      tasksRef.current = loaded;
       setTasks(loaded);
       setProgress({
         total: loaded.length,
@@ -134,9 +137,11 @@ export function useBuildExecution() {
       .update(updates as never)
       .eq('id', taskId);
 
-    setTasks(prev => prev.map(t =>
+    const updated = tasksRef.current.map(t =>
       t.id === taskId ? { ...t, status, ...extras } as BuildTask : t
-    ));
+    );
+    tasksRef.current = updated;
+    setTasks(updated);
   }, []);
 
   const parseTaskResult = (raw: OrchestrateTaskResult): TaskResult | null => {
@@ -244,15 +249,38 @@ export function useBuildExecution() {
   // ── Main execution loop ──────────────────────────────────────────────
 
   const execute = useCallback(async () => {
-    if (isRunning) return;
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
     setIsRunning(true);
     abortRef.current = false;
 
     try {
-      // Reload tasks from state (may have been updated)
-      let currentTasks = [...tasks];
+      // Read from ref (synchronous truth — avoids stale-closure bug)
+      let currentTasks = [...tasksRef.current];
+
+      // Safety: if ref is empty (stale closure edge case), re-fetch from DB
+      if (currentTasks.length === 0 && state.activeSession?.id) {
+        const { data: fallback } = await supabase
+          .from('build_tasks')
+          .select('*')
+          .eq('session_id', state.activeSession.id)
+          .order('created_at', { ascending: true });
+        if (fallback && fallback.length > 0) {
+          currentTasks = fallback as unknown as BuildTask[];
+          tasksRef.current = currentTasks;
+          setTasks(currentTasks);
+        }
+      }
+
+      if (currentTasks.length === 0) {
+        console.warn('[Build v2] execute() called with 0 tasks — nothing to dispatch');
+        return;
+      }
+
+      console.log(`[Build v2] Dispatch starting: ${currentTasks.length} tasks, ${currentTasks.filter(t => t.status === 'queued').length} queued`);
 
       const recountProgress = () => {
+        currentTasks = [...tasksRef.current]; // always re-read from ref
         const p: BuildProgress = {
           total: currentTasks.length,
           completed: currentTasks.filter(t => t.status === 'completed').length,
@@ -320,20 +348,17 @@ export function useBuildExecution() {
             await dispatchTask(task);
           }));
 
-          // Refresh tasks from local state
-          setTasks(prev => {
-            currentTasks = prev;
-            return prev;
-          });
+          // Refresh from ref (synchronous — no React batching delay)
           recountProgress();
         }
       }
 
       recountProgress();
     } finally {
+      isRunningRef.current = false;
       setIsRunning(false);
     }
-  }, [isRunning, tasks, dispatchTask]);
+  }, [dispatchTask, state.activeSession?.id]);
 
   // ── Manual actions ───────────────────────────────────────────────────
 
@@ -368,7 +393,7 @@ export function useBuildExecution() {
   // ── Collect completed tasks into file_manifest format ────────────────
 
   const collectManifest = useCallback(() => {
-    return tasks
+    return tasksRef.current
       .filter(t => t.status === 'completed' && t.result_content)
       .map(t => ({
         path: t.file_path,
@@ -376,7 +401,7 @@ export function useBuildExecution() {
         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
         content_hash: null,
       }));
-  }, [tasks]);
+  }, []);
 
   const _unusedDispatch = dispatch;
   const _unusedUser = user;
