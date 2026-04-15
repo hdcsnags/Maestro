@@ -216,9 +216,26 @@ export default function SessionSwitcher() {
                       >
                         {session.title}
                       </div>
-                      <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px' }}>
-                        {new Date(session.created_at).toLocaleDateString()} — {session.mode ?? 'build'}
+                      <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{new Date(session.created_at).toLocaleDateString()} — {session.mode ?? 'build'}</span>
+                        {isActive && state.rounds.length > 0 && (
+                          <span style={{ color: 'rgba(201,168,76,0.6)' }}>{state.rounds.length}R</span>
+                        )}
                       </div>
+                      {isActive && state.rounds.length > 0 && state.rounds[0]?.prompt && (
+                        <div style={{
+                          fontSize: '10px',
+                          color: 'var(--text-dim)',
+                          marginTop: '3px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          opacity: 0.6,
+                          fontStyle: 'italic',
+                        }}>
+                          {state.rounds[0].prompt.slice(0, 60)}{state.rounds[0].prompt.length > 60 ? '…' : ''}
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={e => {

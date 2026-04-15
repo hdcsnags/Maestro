@@ -1,9 +1,11 @@
 import { Response as MaestroResponse, FileManifestEntry } from '../../types';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Flag, Star, ChevronDown, ChevronUp, Pin, FileCode } from 'lucide-react';
 import ArtifactDownload from './ArtifactDownload';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Props {
   response: MaestroResponse;
@@ -110,6 +112,7 @@ export default function FolioCard({ response }: Props) {
   const fileManifest: FileManifestEntry[] = response.file_manifest || [];
   const artifacts = response.artifacts || [];
   const displayContent = getDisplayContent(response.content);
+  const remarkPlugins = useMemo(() => [remarkGfm], []);
 
   return (
     <div className="h-full flex flex-col" style={{ position: 'relative', zIndex: 2 }}>
@@ -159,8 +162,8 @@ export default function FolioCard({ response }: Props) {
           </h2>
         )}
 
-        <div style={{ fontSize: '17px', lineHeight: 1.72, color: 'rgba(232,230,224,0.88)', fontWeight: 300, whiteSpace: 'pre-wrap' }}>
-          {displayContent}
+        <div className="folio-prose" style={{ fontSize: '15px', lineHeight: 1.72, color: 'rgba(232,230,224,0.88)', fontWeight: 300 }}>
+          <ReactMarkdown remarkPlugins={remarkPlugins}>{displayContent}</ReactMarkdown>
         </div>
 
         {/* F1.2 — Files to write panel, collapsed by default */}

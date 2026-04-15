@@ -7,9 +7,6 @@ export default function RevealTopbar() {
   const { state, dispatch } = useMaestro();
   const { signOut } = useAuth();
 
-  const activeAgentCount = state.agents.filter(a => a.is_active).length;
-  const currentRound = state.rounds.length;
-
   return (
     <header
       className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between"
@@ -32,13 +29,6 @@ export default function RevealTopbar() {
 
       <div className="flex items-center gap-3">
         <SessionSwitcher />
-        <div style={{ width: '1px', height: '14px', background: 'rgba(255,255,255,0.08)' }} className="hidden sm:block" />
-        <span className="font-mono-dm hidden sm:block" style={{ fontSize: '11px', letterSpacing: '0.14em', color: 'var(--text-dim)', textTransform: 'uppercase' as const }}>
-          {currentRound > 0 ? `R${String(currentRound).padStart(2, '0')}` : ''}
-        </span>
-        <span className="font-mono-dm hidden sm:block" style={{ fontSize: '11px', letterSpacing: '0.14em', color: 'var(--text-dim)', textTransform: 'uppercase' as const }}>
-          {activeAgentCount} active
-        </span>
       </div>
 
       <div className="flex items-center gap-2">
