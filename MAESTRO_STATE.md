@@ -167,6 +167,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 orchestrate `build_task` mode: lighter single-file prompt, 8192 max output tokens, no ARCHITECT.md injection | 2026-04-14 (`supabase functions deploy orchestrate`, `npm run typecheck`) |
 | Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
+| Council UX: markdown rendering in FolioCard via react-markdown + remark-gfm, topbar chrome reduced, session switcher shows round count + prompt | 2026-04-15 (`npm run build`, commit `9aebc8c`) |
 | Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
@@ -185,7 +186,7 @@ Legacy (unused): agent_skills, flags
 | Concierge auto-trigger after build broadcast may double-fire | ~~Pre-existing~~ Fixed `41fa2dd` | — |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
 | GitHub App install UX still manual — backend capability exists, in-app detection/prompt does not | Pre-existing | — |
-| No markdown rendering in FolioCard response content | Pre-existing | — |
+| No markdown rendering in FolioCard response content | ~~Pre-existing~~ Fixed `9aebc8c` | — |
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
 | Legacy tables (agent_skills, flags) still in schema but unused | Pre-existing | — |
 
