@@ -37,6 +37,9 @@ interface ArtifactResult {
   filename: string;
   content_type: string;
   content: string;
+  raw_content?: string;
+  normalized?: boolean;
+  extraction_method?: string;
 }
 
 interface SignalMap {
@@ -367,6 +370,77 @@ function coerceString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function normalizeArtifactContent(raw: string, contentType: string): { content: string; method: string; changed: boolean } {
+  if (!raw || typeof raw !== "string") return { content: raw, method: "passthrough", changed: false };
+
+  let decoded = raw;
+  let method = "passthrough";
+
+  // Strip code fences wrapping the content
+  const fenced = decoded.trim().match(/^```(?:html|markdown|md|json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    decoded = fenced[1];
+    method = "fence_strip";
+  }
+
+  // If content looks like a JSON string (double-encoded), unwrap it
+  if (decoded.trim().startsWith('"') && decoded.trim().endsWith('"')) {
+    try {
+      const unwrapped = JSON.parse(decoded);
+      if (typeof unwrapped === "string") {
+        decoded = unwrapped;
+        method = "json_string_unwrap";
+      }
+    } catch { /* not valid JSON string */ }
+  }
+
+  // Unescape common escape sequences (up to 3 passes for double/triple encoding)
+  for (let i = 0; i < 3; i++) {
+    const next = decoded
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+    if (next === decoded) break;
+    decoded = next;
+    if (method === "passthrough") method = "unescape";
+  }
+
+  // For HTML content, try to extract the HTML document if wrapped in other content
+  if (contentType.includes("html")) {
+    const htmlStart = decoded.search(/<!doctype html|<html[\s>]/i);
+    if (htmlStart > 0) {
+      const htmlEnd = decoded.toLowerCase().lastIndexOf("</html>");
+      decoded = htmlEnd === -1 ? decoded.slice(htmlStart) : decoded.slice(htmlStart, htmlEnd + 7);
+      method = "html_extract";
+    }
+  }
+
+  return { content: decoded, method, changed: decoded !== raw };
+}
+
+function normalizeArtifacts(raw: unknown[]): ArtifactResult[] {
+  return raw.map((a) => {
+    if (!a || typeof a !== "object") return null;
+    const art = a as Record<string, unknown>;
+    const filename = coerceString(art.filename);
+    const content_type = coerceString(art.content_type, "text/plain");
+    const rawContent = coerceString(art.content);
+    if (!filename || !rawContent) return null;
+
+    const norm = normalizeArtifactContent(rawContent, content_type);
+    return {
+      filename,
+      content_type,
+      content: norm.content,
+      raw_content: norm.changed ? rawContent : undefined,
+      normalized: norm.changed,
+      extraction_method: norm.method !== "passthrough" ? norm.method : undefined,
+    };
+  }).filter(Boolean) as ArtifactResult[];
+}
+
 function looksTruncated(content: string): boolean {
   return TRUNCATION_PATTERNS.some((p) => p.test(content));
 }
@@ -461,7 +535,7 @@ function parseResult(rawText: string, agentName: string): OrchestrateResult {
         title: coerceString(p.title, `${agentName}'s Analysis`),
         content: coerceString(p.content, rawText),
         signals: (p.signals && typeof p.signals === "object" ? p.signals : {}) as SignalMap,
-        artifacts: Array.isArray(p.artifacts) ? p.artifacts as ArtifactResult[] : [],
+        artifacts: Array.isArray(p.artifacts) ? normalizeArtifacts(p.artifacts) : [],
         file_manifest,
         complete: typeof p.complete === "boolean" ? p.complete : true,
         continuation_prompt: coerceString(p.continuation_prompt),

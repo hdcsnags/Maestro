@@ -10,10 +10,17 @@ const corsHeaders = {
 type Trigger = "file_count" | "risky_change" | "end_of_build" | "conductor";
 type Severity = "minor" | "critical_pause" | "critical_approved";
 
+interface BuildFile {
+  path: string;
+  content: string;
+  operation?: string;
+}
+
 interface BouncerRequest {
   session_id: string;
   trigger: Trigger;
   files?: string[];
+  build_files?: BuildFile[];
 }
 
 interface Finding {
@@ -28,19 +35,23 @@ interface BouncerResult {
   overall_severity: Severity;
   summary: string;
   model_used: string;
+  review_source: "build_tasks" | "github_files" | "file_names_only";
 }
 
 const SYSTEM_PROMPT = `You are the security and code quality bouncer for this build.
 
-Review the following files that were written in this build session.
+Review the files provided below. You may receive full file contents (preferred) or just file paths.
 
 Check for:
 1. Hardcoded secrets, API keys, or credentials
-2. Missing input validation
+2. Missing input validation or sanitization
 3. SQL injection vectors
 4. Exposed sensitive routes without auth
 5. RLS policies that are too permissive
 6. Environment variables that should not be in code
+7. Unsafe use of eval, dangerouslySetInnerHTML, or equivalent
+8. Missing error handling on critical paths
+9. Dependency on unvalidated external input
 
 For each finding, classify as:
 - minor: worth noting, not blocking
@@ -55,6 +66,9 @@ Return JSON only:
   "overall_severity": "minor | critical_pause | critical_approved",
   "summary": "2-3 sentence overall assessment"
 }`;
+
+const MAX_FILES = 30;
+const MAX_LINES_PER_FILE = 300;
 
 const VALID_SEV: Severity[] = ["minor", "critical_pause", "critical_approved"];
 
@@ -135,8 +149,39 @@ Deno.serve(async (req: Request) => {
     }
 
     const model = "claude-opus-4-6";
-    const fileList = (body.files ?? []).map((f) => `- ${f}`).join("\n") || "(no files reported)";
-    const userMessage = `Trigger: ${body.trigger}\n\nFiles written this build:\n${fileList}`;
+
+    // Determine review source: prefer build_files (full content) over file paths
+    let userMessage: string;
+    let reviewSource: "build_tasks" | "github_files" | "file_names_only";
+
+    const buildFiles = (body.build_files ?? []).filter(f => f.content && f.path);
+
+    if (buildFiles.length > 0) {
+      // Build v2 path: we have actual file contents to review
+      reviewSource = "build_tasks";
+      const fileSections = buildFiles.slice(0, MAX_FILES).map(f => {
+        const lines = f.content.split("\n");
+        const truncated = lines.length > MAX_LINES_PER_FILE;
+        const content = truncated
+          ? lines.slice(0, MAX_LINES_PER_FILE).join("\n") + `\n... (${lines.length - MAX_LINES_PER_FILE} more lines truncated)`
+          : f.content;
+        return `=== ${f.path} (${f.operation ?? "create"}) ===\n${content}`;
+      }).join("\n\n");
+
+      const overflow = buildFiles.length > MAX_FILES
+        ? `\n\n(${buildFiles.length - MAX_FILES} additional files not shown)`
+        : "";
+
+      userMessage = `Trigger: ${body.trigger}\n\nReview these ${buildFiles.length} files from the build:\n\n${fileSections}${overflow}`;
+    } else if ((body.files ?? []).length > 0) {
+      // Legacy path: only file paths (post-push)
+      reviewSource = "github_files";
+      const fileList = body.files!.map(f => `- ${f}`).join("\n");
+      userMessage = `Trigger: ${body.trigger}\n\nFiles written this build (paths only — no content available):\n${fileList}`;
+    } else {
+      reviewSource = "file_names_only";
+      userMessage = `Trigger: ${body.trigger}\n\nNo staged or written files were found for review. The build may still be in progress, or no files were generated.`;
+    }
 
     const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -147,7 +192,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 2048,
+        max_tokens: reviewSource === "build_tasks" ? 4096 : 2048,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -168,7 +213,7 @@ Deno.serve(async (req: Request) => {
     const rawText: string = anthropicData?.content?.[0]?.text ?? "";
     const parsed = parseBouncer(rawText);
 
-    const result: BouncerResult = { ...parsed, model_used: model };
+    const result: BouncerResult = { ...parsed, model_used: model, review_source: reviewSource };
 
     const { error: insertError } = await adminClient
       .from("bouncer_events")

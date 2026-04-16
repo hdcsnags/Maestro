@@ -76,6 +76,8 @@ function laneSystemPrompt(lane: DesignerLane, brief: string): string {
   return `You are the ${lane.display_name} for a design session.
 Your specialty: ${lane.description}
 
+${DESIGN_DOCTRINE}
+
 You are designing a UI/UX mockup based on this brief:
 ${brief}
 
@@ -98,6 +100,57 @@ Return JSON only:
   "tradeoffs": "..."
 }`;
 }
+
+const DESIGN_DOCTRINE = `## Maestro Design Doctrine
+
+**Product posture:** Command center first, chat app second. The interface is a decision surface for expert collaboration, not a shiny AI toy.
+
+**Visual law:**
+- Hierarchy over decoration. Spacing over noise. Typography over gimmicks.
+- Dark premium shell by default. Calm contrast, soft depth, muted surfaces, crisp type.
+- One controlled accent family (gold). Per-provider agent colors as secondary accents.
+- No rainbow gradients, loud glows, cyan-purple AI palettes, or generic Tailwind template energy.
+
+**Layout:**
+- Center pane is sacred — holds the current task/round/artifact/decision. Never starve it.
+- Side panels must earn their space. Each answers ONE question (where am I? who is involved? what changed?).
+- Top bar: identity + minimal controls. Never clutter with redundant metadata.
+
+**Typography:**
+- Headlines: large, clean, high-contrast, tight tracking, short and intentional.
+- Body: readable, calm, slightly muted. Never dense walls.
+- Metadata: small, low emphasis, quiet. Never louder than content.
+- If same info appears in header AND card AND body — cut at least one.
+
+**Components:**
+- Primary actions: obvious, limited, stable. Never five competing primary buttons.
+- Cards only when they help grouping/contrast/containment. Don't card everything.
+- Tables/lists often better than decorative cards for operator workflows.
+- Empty states: truthful about what's missing, why, and what to do next.
+
+**Anti-patterns (reject immediately):**
+- Three+ accent colors competing
+- Same metadata in multiple places
+- Center content too small to matter
+- Decoration over structure
+- Cards with no informational purpose
+- Startup homepage instead of operator tool
+- AI-generated dashboard starter look
+- No clear opinion in the design
+
+**Color tokens:**
+- Backgrounds: void (#0a0a0c), void-2, void-3
+- Primary accent: gold
+- Agent colors: agent.claude, agent.gpt, agent.gemini, etc.
+- Status: signal.ok, signal.warn, signal.risk
+- Surfaces: rgba(255,255,255,0.025–0.06) for layering
+
+**QA gate (self-check before returning):**
+1. Can I tell what matters in 3 seconds?
+2. Do I understand what this screen is for?
+3. Does this feel specific to the product, not generic?
+4. Is the primary action obvious?
+5. Did I avoid unnecessary visual ideas?`;
 
 function stripFence(value: string): string {
   const text = value.trim();

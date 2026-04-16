@@ -5,12 +5,13 @@ import { useOrchestration } from '../../hooks/useOrchestration';
 import { useBuildExecution } from '../../hooks/useBuildExecution';
 import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
+import { checkBuildCompleteness, type CompletenessResult } from '../../lib/buildCompleteness';
 import type { BuildLaneRole, BuildPlan, SessionPhase, Response } from '../../types';
 import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
   Pause, XCircle, ThumbsUp, GitBranch, RotateCcw,
-  FileCode, SkipForward,
+  FileCode, SkipForward, ClipboardCheck,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -35,6 +36,7 @@ interface BouncerResult {
   overall_severity: string;
   summary: string;
   model_used: string;
+  review_source?: 'build_tasks' | 'github_files' | 'file_names_only';
 }
 
 type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done' | 'task_decomposing' | 'task_building';
@@ -200,6 +202,7 @@ export default function BuildWorkspace() {
   const [bouncerResult, setBouncerResult] = useState<BouncerResult | null>(null);
   const [bouncerError, setBouncerError] = useState('');
   const [findingsExpanded, setFindingsExpanded] = useState(true);
+  const [completenessResult, setCompletenessResult] = useState<CompletenessResult | null>(null);
 
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -218,6 +221,7 @@ export default function BuildWorkspace() {
     setBouncerResult(null);
     setBouncerError('');
     setBouncerLoading(false);
+    setCompletenessResult(null);
   }, [session?.id, isVisible]);
 
   const normalizedBuildPlan: NormalizedBuildPlan | null = useMemo(() => {
@@ -989,10 +993,23 @@ export default function BuildWorkspace() {
     dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'bouncer' } });
 
     try {
+      // Prefer build_tasks manifest (pre-push content) over writtenFiles (post-push paths)
+      const manifest = buildExec.collectManifest();
+      const buildFiles = manifest
+        .filter(m => m.content && m.operation !== 'delete')
+        .map(m => ({ path: m.path, content: m.content!, operation: m.operation }));
+
+      // Run completeness gate (client-side, no API cost)
+      if (buildFiles.length > 0) {
+        const completeness = checkBuildCompleteness(buildFiles);
+        setCompletenessResult(completeness);
+      }
+
       const data = await invokeEdgeFunction<BouncerResult & { error?: string; message?: string }>('bouncer', {
         session_id: session.id,
         trigger: 'end_of_build',
         files: writtenFiles,
+        build_files: buildFiles.length > 0 ? buildFiles : undefined,
       });
 
       if (data.error === 'ANTHROPIC_KEY_MISSING') throw new Error('Add an Anthropic API key in the Vault to run bouncer review.');
@@ -1004,7 +1021,7 @@ export default function BuildWorkspace() {
     } finally {
       setBouncerLoading(false);
     }
-  }, [session, writtenFiles, dispatch]);
+  }, [session, writtenFiles, buildExec, dispatch]);
 
   /* ── Conductor decisions ─────────────────────────────────── */
   const handleConductorDecision = useCallback(async (decision: string) => {
@@ -1975,6 +1992,58 @@ export default function BuildWorkspace() {
             </section>
           )}
 
+          {/* ── Completeness Gate ─────────────────────────── */}
+          {completenessResult && (stage === 'bouncer' || stage === 'done') && (
+            <section style={{ marginBottom: '20px' }}>
+              <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
+                <ClipboardCheck size={14} style={{
+                  color: completenessResult.verdict === 'complete' ? 'var(--signal-ok, #4ade80)'
+                    : completenessResult.verdict === 'scaffold_only' ? 'var(--gold)'
+                    : 'var(--risk, #ef4444)',
+                }} />
+                <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                  Completeness Gate
+                </span>
+                <span className="font-mono-dm" style={{
+                  fontSize: '9px', marginLeft: '8px',
+                  color: completenessResult.verdict === 'complete' ? 'var(--signal-ok, #4ade80)'
+                    : completenessResult.verdict === 'scaffold_only' ? 'var(--gold)'
+                    : 'var(--risk, #ef4444)',
+                }}>
+                  {completenessResult.verdict.replace(/_/g, ' ')}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', lineHeight: 1.5, color: 'rgba(232,230,224,0.7)', marginBottom: '10px' }}>
+                {completenessResult.summary}
+              </p>
+              {completenessResult.missing_critical.length > 0 && (
+                <div style={{ padding: '8px 12px', borderRadius: '10px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)', marginBottom: '8px' }}>
+                  <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--risk, #ef4444)', marginBottom: '4px', letterSpacing: '0.1em' }}>
+                    MISSING CRITICAL
+                  </div>
+                  {completenessResult.missing_critical.map(f => (
+                    <div key={f} style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '2px 0' }}>• {f}</div>
+                  ))}
+                </div>
+              )}
+              {completenessResult.import_issues.length > 0 && (
+                <div style={{ padding: '8px 12px', borderRadius: '10px', background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.12)' }}>
+                  <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--gold)', marginBottom: '4px', letterSpacing: '0.1em' }}>
+                    IMPORT ISSUES ({completenessResult.import_issues.length})
+                  </div>
+                  {completenessResult.import_issues.slice(0, 5).map((issue, i) => (
+                    <div key={i} style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '2px 0' }}>• {issue}</div>
+                  ))}
+                  {completenessResult.import_issues.length > 5 && (
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', padding: '2px 0' }}>
+                      + {completenessResult.import_issues.length - 5} more
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
           {/* ── Bouncer findings ───────────────────────────── */}
           {bouncerResult && (stage === 'bouncer' || stage === 'done') && (
             <section style={{ marginBottom: '28px' }}>
@@ -1989,6 +2058,7 @@ export default function BuildWorkspace() {
                 </span>
                 <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginLeft: '8px' }}>
                   {bouncerResult.findings.length} finding{bouncerResult.findings.length !== 1 ? 's' : ''}
+                  {bouncerResult.review_source && ` · ${bouncerResult.review_source === 'build_tasks' ? 'code review' : bouncerResult.review_source === 'github_files' ? 'paths only' : 'no files'}`}
                 </span>
                 {findingsExpanded ? <ChevronUp size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} /> : <ChevronDown size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} />}
               </button>

@@ -91,6 +91,9 @@ export interface ResponseArtifact {
   filename: string;
   content_type: string;
   content: string;
+  raw_content?: string;
+  normalized?: boolean;
+  extraction_method?: string;
 }
 
 export interface FileManifestEntry {
