@@ -19,6 +19,7 @@ interface OrchestrateTaskResult {
   text?: string;
   path?: string;
   operation?: string;
+  file_manifest?: Array<{ path: string; content: string; operation?: string }>;
   usage?: { total_tokens?: number };
 }
 
@@ -144,25 +145,49 @@ export function useBuildExecution() {
     setTasks(updated);
   }, []);
 
-  const parseTaskResult = (raw: OrchestrateTaskResult): TaskResult | null => {
-    // Try direct JSON fields first (build_task mode returns path/content/operation)
-    if (raw.path && typeof raw.content === 'string') {
+  const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
+    // Strategy 1: Direct path/content fields (build_task mode with server-side fix)
+    if (raw.path && typeof raw.content === 'string' && raw.content.length > 0) {
       return { path: raw.path, content: raw.content, operation: raw.operation ?? 'create' };
     }
 
-    // Fall back to parsing JSON from text content
-    const text = raw.content ?? raw.text ?? '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.path && typeof parsed.content === 'string') {
-          return { path: parsed.path, content: parsed.content, operation: parsed.operation ?? 'create' };
-        }
-      } catch {
-        // not valid JSON
+    // Strategy 2: file_manifest[0] (if orchestrate wrapped it in a manifest)
+    if (raw.file_manifest && raw.file_manifest.length > 0) {
+      const entry = raw.file_manifest[0];
+      if (entry.path && typeof entry.content === 'string' && entry.content.length > 0) {
+        return { path: entry.path, content: entry.content, operation: entry.operation ?? 'create' };
       }
     }
+
+    // Strategy 3: Parse JSON from text content (handles code fences + leading text)
+    const text = raw.content ?? raw.text ?? '';
+    if (text) {
+      // Strip markdown code fences if present
+      const stripped = text
+        .replace(/^```(?:json|JSON)?\s*\n?/m, '')
+        .replace(/\n?```\s*$/m, '')
+        .trim();
+
+      const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.path && typeof parsed.content === 'string') {
+            return { path: parsed.path, content: parsed.content, operation: parsed.operation ?? 'create' };
+          }
+        } catch {
+          // not valid JSON
+        }
+      }
+
+      // Strategy 4: Content is the raw file itself (path lost in parseResult).
+      // Use task.file_path as path. Only accept if content looks non-empty and
+      // doesn't look like a model refusal/explanation.
+      if (text.length > 5 && !text.startsWith('I cannot') && !text.startsWith('I\'m unable')) {
+        return { path: taskFilePath, content: text, operation: 'create' };
+      }
+    }
+
     return null;
   };
 
@@ -188,7 +213,7 @@ export function useBuildExecution() {
         session_id: state.activeSession?.id,
       });
 
-      const parsed = parseTaskResult(result);
+      const parsed = parseTaskResult(result, task.file_path);
       if (!parsed || !parsed.content) {
         // Retry with fallback agent if available
         if (task.fallback_owner && (task.retry_count ?? 0) < (task.max_retries ?? 2)) {
@@ -196,7 +221,7 @@ export function useBuildExecution() {
             retry_count: (task.retry_count ?? 0) + 1,
             rerouted_from: task.lane_owner,
             lane_owner: task.fallback_owner,
-            failure_reason: 'Primary builder returned empty/unparseable result',
+            failure_reason: 'Primary builder returned empty/unparseable result — raw: ' + JSON.stringify(result).slice(0, 300),
           } as Partial<BuildTask>);
           // Re-queue for next pass
           return false;

@@ -62,6 +62,9 @@ interface OrchestrateResult {
   complete?: boolean;
   continuation_prompt?: string;
   manifest_errors?: Array<{ path: string; reason: string }>;
+  // build_task mode fields — preserved so frontend can extract single-file result
+  path?: string;
+  operation?: string;
 }
 
 const PROVIDER_MAP: Record<string, string> = {
@@ -463,6 +466,9 @@ function parseResult(rawText: string, agentName: string): OrchestrateResult {
         complete: typeof p.complete === "boolean" ? p.complete : true,
         continuation_prompt: coerceString(p.continuation_prompt),
         manifest_errors,
+        // Preserve build_task single-file fields when present
+        path: typeof p.path === "string" ? p.path : undefined,
+        operation: typeof p.operation === "string" ? p.operation : undefined,
       };
     }
   } catch { /* fall through */ }
