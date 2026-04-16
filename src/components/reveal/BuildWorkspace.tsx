@@ -656,7 +656,7 @@ export default function BuildWorkspace() {
         execution_run_id: (runData as { id: string }).id,
         repo_connection_id: state.activeRepoConnection.id,
         patches,
-        strategy: 'synthesized',
+        mode: 'synthesized',
         conductor_approved: true,
       });
 
