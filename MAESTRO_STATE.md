@@ -8,8 +8,8 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Build v2 task parsing fix pushed — orchestrate edge function needs redeployment |
-| Last verified deploy | `concierge` + `orchestrate` redeployed 2026-04-14 (Build v2: decompose_tasks + build_task mode); `github-execute` redeployed 2026-04-13; 14 protected functions redeployed 2026-04-12 |
+| Active blockers | None — Build v2 proven end-to-end |
+| Last verified deploy | `orchestrate` redeployed 2026-04-16 (task parsing fix: path/operation preserved); `concierge` redeployed 2026-04-14; `github-execute` redeployed 2026-04-13 |
 | Unapplied migrations | None — all migrations applied to remote including `20260414040000_build_tasks.sql` |
 | Active locks | None |
 
@@ -169,6 +169,9 @@ Legacy (unused): agent_skills, flags
 | Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
 | Council UX: markdown rendering in FolioCard via react-markdown + remark-gfm, topbar chrome reduced, session switcher shows round count + prompt | 2026-04-15 (`npm run build`, commit `9aebc8c`) |
 | Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
+| Build v2 task parsing fix: orchestrate preserves path/operation fields from build_task JSON, frontend 4-strategy fallback chain | 2026-04-16 (`supabase functions deploy orchestrate`, `npm run build`, commit `5dbfe09`) |
+| Build v2 github-execute mode fix: Build v2 path sends `mode: 'synthesized'` not `strategy` | 2026-04-16 (`npm run build`, commit `628d449`) |
+| Build v2 end-to-end proven: fresh project → broadcast → 76/76 tasks complete → PR created → merged | 2026-04-16 (live smoke test) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -178,17 +181,15 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| Build v2 task-queued flow: decompose works, dispatch stale-closure fixed — needs live smoke to confirm tasks actually complete via orchestrate build_task mode | 2026-04-15 | Unassigned |
 | Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
 | Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
-| Concierge auto-trigger after build broadcast may double-fire | ~~Pre-existing~~ Fixed `41fa2dd` | — |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
 | GitHub App install UX still manual — backend capability exists, in-app detection/prompt does not | Pre-existing | — |
-| No markdown rendering in FolioCard response content | ~~Pre-existing~~ Fixed `9aebc8c` | — |
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
 | Legacy tables (agent_skills, flags) still in schema but unused | Pre-existing | — |
+| GitHub execute requires non-empty repo (at least one commit) — no auto-init | 2026-04-16 | — |
 
 ## Known Drift Risks
 
@@ -201,10 +202,11 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **Live smoke test Build v2**: Pre-Build lock → plan review → "Build (File by File)" → watch task board → Execute to GitHub → verify files written
-2. If v2 task build works, test bouncer gate after build completes
-3. Retire legacy broadcast path once v2 is proven (currently available as "Broadcast (Legacy)" button)
-4. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
+1. **Sprint C — Concierge-driven build flow**: Triage (simple asks skip council), auto-lane assignment, concierge build trigger
+2. **Design preview fallback**: iframe blank detection + prominent download/open buttons
+3. **MaestroClaw**: Local execution node — poll-based worker with adapters for Claude Code/Copilot CLI/Codex. Eliminates double-paying (API tokens + subscriptions) and edge function timeout limits.
+4. Retire legacy broadcast path once v2 is battle-tested across multiple projects
+5. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
 
 ---
 
