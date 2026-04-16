@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Build v2 task-queued flow implemented — needs live end-to-end smoke test |
+| Active blockers | Build v2 task parsing fix pushed — orchestrate edge function needs redeployment |
 | Last verified deploy | `concierge` + `orchestrate` redeployed 2026-04-14 (Build v2: decompose_tasks + build_task mode); `github-execute` redeployed 2026-04-13; 14 protected functions redeployed 2026-04-12 |
 | Unapplied migrations | None — all migrations applied to remote including `20260414040000_build_tasks.sql` |
 | Active locks | None |
@@ -211,6 +211,32 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-15 — GitHub Copilot (Opus 4.6) — Build v2 Task Parsing Fix
+
+**What was done**: Fixed the Build v2 blocker where single-file tasks dispatched successfully but all failed with "Builder returned empty or unparseable result."
+
+**Root cause**: Two-sided contract mismatch:
+1. **Server** (`orchestrate/index.ts`): `parseResult()` parsed the model's JSON correctly, extracting `content`, but silently discarded `path` and `operation` because they weren't in the `OrchestrateResult` interface. Frontend received `{ title: "...", content: "<file content>" }` with no path.
+2. **Client** (`useBuildExecution.ts`): `parseTaskResult()` checked `raw.path` → undefined → fell to regex extraction → `.env` files have no JSON braces → returned null → "empty or unparseable."
+
+**Server fix** (`supabase/functions/orchestrate/index.ts`):
+- Added `path?: string` and `operation?: string` to `OrchestrateResult` interface
+- `parseResult()` now preserves these fields when present in the parsed JSON
+
+**Client fix** (`src/hooks/useBuildExecution.ts`):
+- `parseTaskResult()` rewritten with 4-strategy fallback chain:
+  1. Direct `path`/`content` fields (primary — works with server fix)
+  2. `file_manifest[0]` extraction
+  3. JSON from content with markdown code fence stripping
+  4. Raw content + `task.file_path` recovery (for .env files etc.)
+- Failure reason now includes raw response snippet (first 300 chars) for debugging
+- Added `file_manifest` to `OrchestrateTaskResult` type
+
+**Commit**: `5dbfe09` — pushed to main
+**Deploy needed**: `supabase functions deploy orchestrate --no-verify-jwt` to activate server-side fix
+
+---
 
 ### 2026-04-15 — GitHub Copilot (Opus 4.6) — Council UX Sprint
 
