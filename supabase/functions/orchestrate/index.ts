@@ -85,28 +85,28 @@ interface ModelCapabilities {
 
 const DEFAULT_CAPABILITIES: ModelCapabilities = {
   buildOutputTokens: 12000,
-  defaultOutputTokens: 4096,
+  defaultOutputTokens: 16384,
   jsonMode: false,
 };
 
 function capabilitiesFor(provider: string, model: string): ModelCapabilities {
   if (provider === "openai") {
-    if (model === "gpt-5.4") return { buildOutputTokens: 24000, defaultOutputTokens: 8192, jsonMode: true };
-    if (model.startsWith("gpt-5.4-mini")) return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: true };
-    return { buildOutputTokens: 12000, defaultOutputTokens: 4096, jsonMode: true };
+    if (model === "gpt-5.4") return { buildOutputTokens: 24000, defaultOutputTokens: 16384, jsonMode: true };
+    if (model.startsWith("gpt-5.4-mini")) return { buildOutputTokens: 16000, defaultOutputTokens: 16384, jsonMode: true };
+    return { buildOutputTokens: 12000, defaultOutputTokens: 16384, jsonMode: true };
   }
   if (provider === "anthropic") {
-    if (model.includes("sonnet") || model.includes("opus")) return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: false };
-    return { buildOutputTokens: 8192, defaultOutputTokens: 4096, jsonMode: false };
+    if (model.includes("sonnet") || model.includes("opus")) return { buildOutputTokens: 16000, defaultOutputTokens: 16384, jsonMode: false };
+    return { buildOutputTokens: 8192, defaultOutputTokens: 16384, jsonMode: false };
   }
   if (provider === "google") {
-    return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: true };
+    return { buildOutputTokens: 16000, defaultOutputTokens: 16384, jsonMode: true };
   }
   if (provider === "openrouter") {
     if (model.includes("gpt-5.4") || model.includes("claude-sonnet")) {
-      return { buildOutputTokens: 16000, defaultOutputTokens: 4096, jsonMode: false };
+      return { buildOutputTokens: 16000, defaultOutputTokens: 16384, jsonMode: false };
     }
-    return { buildOutputTokens: 8192, defaultOutputTokens: 4096, jsonMode: false };
+    return { buildOutputTokens: 8192, defaultOutputTokens: 16384, jsonMode: false };
   }
   return DEFAULT_CAPABILITIES;
 }
@@ -748,7 +748,11 @@ Deno.serve(async (req: Request) => {
       if (!response.ok) throw new Error(data.error?.message || 'Anthropic API error');
 
       const rawText = data.content?.[0]?.text ?? '';
+      const truncated = data.stop_reason === 'max_tokens';
       result = parseResult(rawText, agentName);
+      if (truncated) {
+        result.signals = { ...result.signals, risk: 'Response was truncated (hit token limit) — artifacts may be incomplete' };
+      }
 
     } else if (provider === 'openai') {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -772,7 +776,11 @@ Deno.serve(async (req: Request) => {
       if (!response.ok) throw new Error(data.error?.message || 'OpenAI API error');
 
       const rawText = data.choices?.[0]?.message?.content ?? '';
+      const truncated = data.choices?.[0]?.finish_reason === 'length';
       result = parseResult(rawText, agentName);
+      if (truncated) {
+        result.signals = { ...result.signals, risk: 'Response was truncated (hit token limit) — artifacts may be incomplete' };
+      }
 
     } else if (provider === 'google') {
       const geminiModel = effectiveModel;
@@ -793,7 +801,11 @@ Deno.serve(async (req: Request) => {
       if (!response.ok) throw new Error(data.error?.message || 'Gemini API error');
 
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      const truncated = data.candidates?.[0]?.finishReason === 'MAX_TOKENS';
       result = parseResult(rawText, agentName);
+      if (truncated) {
+        result.signals = { ...result.signals, risk: 'Response was truncated (hit token limit) — artifacts may be incomplete' };
+      }
 
     } else if (provider === 'openrouter') {
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -807,8 +819,6 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({
           model: effectiveModel,
           max_tokens: maxOutputTokens,
-          // No response_format: not all OpenRouter models (esp. :free) honor JSON mode.
-          // parseResult() handles non-JSON via regex fallback.
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
@@ -820,7 +830,11 @@ Deno.serve(async (req: Request) => {
       if (!response.ok) throw new Error(data.error?.message || 'OpenRouter API error');
 
       const rawText = data.choices?.[0]?.message?.content ?? '';
+      const truncated = data.choices?.[0]?.finish_reason === 'length';
       result = parseResult(rawText, agentName);
+      if (truncated) {
+        result.signals = { ...result.signals, risk: 'Response was truncated (hit token limit) — artifacts may be incomplete' };
+      }
 
     } else {
       return new Response(
