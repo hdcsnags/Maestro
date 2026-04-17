@@ -316,12 +316,6 @@ const TRUNCATION_PATTERNS = [
   /\b(TODO|stub|placeholder)\b.*\b(implement|fill|replace)\b/i,
 ];
 
-function stripFence(value: string): string {
-  const text = value.trim();
-  const fenced = text.match(/^```(?:json|text)?\s*([\s\S]*?)\s*```$/i);
-  return (fenced?.[1] ?? text).trim();
-}
-
 function tryParseJson(value: string): unknown {
   try {
     return JSON.parse(value);
@@ -331,23 +325,46 @@ function tryParseJson(value: string): unknown {
 }
 
 function extractJsonCandidate(rawText: string): string | null {
-  const text = stripFence(rawText);
-  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
+  const text = rawText.trim();
 
-  const start = text.indexOf("{");
-  if (start === -1) return null;
+  // Strategy 1: Direct JSON.parse on full text (handles clean JSON responses)
+  const direct = tryParseJson(text);
+  if (direct && typeof direct === "object") return text;
+
+  // Strategy 2: Strip outermost code fences with GREEDY inner match
+  // The greedy (.*) + $ anchor ensures we match the LAST closing fence
+  const fenceMatch = text.match(/^```(?:json|JSON|text)?\s*\n?([\s\S]+)\n?\s*```\s*$/);
+  if (fenceMatch) {
+    const inner = fenceMatch[1].trim();
+    const parsed = tryParseJson(inner);
+    if (parsed && typeof parsed === "object") return inner;
+  }
+
+  // Strategy 3: Find first { and last }, try JSON.parse
+  // This handles preamble/postamble text around the JSON
+  const body = fenceMatch ? fenceMatch[1].trim() : text;
+  const firstBrace = body.indexOf("{");
+  const lastBrace = body.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = body.slice(firstBrace, lastBrace + 1);
+    const parsed = tryParseJson(candidate);
+    if (parsed && typeof parsed === "object") return candidate;
+  }
+
+  // Strategy 4: String-aware brace extraction (handles cases where
+  // JSON.parse fails due to trailing commas or minor formatting issues)
+  if (firstBrace === -1) return null;
 
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i];
+  for (let i = firstBrace; i < body.length; i += 1) {
+    const ch = body[i];
     if (escaped) {
       escaped = false;
       continue;
     }
-    if (ch === "\\") {
+    if (ch === "\\" && inString) {
       escaped = true;
       continue;
     }
@@ -359,11 +376,11 @@ function extractJsonCandidate(rawText: string): string | null {
     if (ch === "{") depth += 1;
     if (ch === "}") {
       depth -= 1;
-      if (depth === 0) return text.slice(start, i + 1);
+      if (depth === 0) return body.slice(firstBrace, i + 1);
     }
   }
 
-  return text.slice(start);
+  return null;
 }
 
 function coerceString(value: unknown, fallback = ""): string {
@@ -523,27 +540,61 @@ function normalizeManifest(rawManifest: unknown, rawText: string): {
   return { file_manifest, manifest_errors };
 }
 
+function looksLikeBrokenTitle(title: string | undefined): boolean {
+  if (!title) return false;
+  const t = title.trim();
+  return t === "{" || t === "[" || t.startsWith("```") || t.startsWith("``");
+}
+
+function buildResultFromParsed(
+  p: Record<string, unknown>,
+  rawText: string,
+  agentName: string,
+): OrchestrateResult {
+  const { file_manifest, manifest_errors } = normalizeManifest(p.file_manifest, rawText);
+  return {
+    artifact_protocol: coerceString(p.artifact_protocol),
+    title: coerceString(p.title, `${agentName}'s Analysis`),
+    content: coerceString(p.content, rawText),
+    signals: (p.signals && typeof p.signals === "object" ? p.signals : {}) as SignalMap,
+    artifacts: Array.isArray(p.artifacts) ? normalizeArtifacts(p.artifacts) : [],
+    file_manifest,
+    complete: typeof p.complete === "boolean" ? p.complete : true,
+    continuation_prompt: coerceString(p.continuation_prompt),
+    manifest_errors,
+    path: typeof p.path === "string" ? p.path : undefined,
+    operation: typeof p.operation === "string" ? p.operation : undefined,
+  };
+}
+
 function parseResult(rawText: string, agentName: string): OrchestrateResult {
   try {
     const jsonCandidate = extractJsonCandidate(rawText);
     const parsed = jsonCandidate ? tryParseJson(jsonCandidate) : null;
     if (parsed && typeof parsed === "object") {
       const p = parsed as Record<string, unknown>;
-      const { file_manifest, manifest_errors } = normalizeManifest(p.file_manifest, rawText);
-      return {
-        artifact_protocol: coerceString(p.artifact_protocol),
-        title: coerceString(p.title, `${agentName}'s Analysis`),
-        content: coerceString(p.content, rawText),
-        signals: (p.signals && typeof p.signals === "object" ? p.signals : {}) as SignalMap,
-        artifacts: Array.isArray(p.artifacts) ? normalizeArtifacts(p.artifacts) : [],
-        file_manifest,
-        complete: typeof p.complete === "boolean" ? p.complete : true,
-        continuation_prompt: coerceString(p.continuation_prompt),
-        manifest_errors,
-        // Preserve build_task single-file fields when present
-        path: typeof p.path === "string" ? p.path : undefined,
-        operation: typeof p.operation === "string" ? p.operation : undefined,
-      };
+
+      // Rescue: if title looks broken, the "content" field may itself be
+      // the real JSON (double-wrapped by the model)
+      if (looksLikeBrokenTitle(p.title as string | undefined)) {
+        const innerCandidate = extractJsonCandidate(
+          typeof p.content === "string" ? p.content : ""
+        );
+        const innerParsed = innerCandidate ? tryParseJson(innerCandidate) : null;
+        if (
+          innerParsed &&
+          typeof innerParsed === "object" &&
+          !looksLikeBrokenTitle((innerParsed as Record<string, unknown>).title as string | undefined)
+        ) {
+          return buildResultFromParsed(
+            innerParsed as Record<string, unknown>,
+            rawText,
+            agentName,
+          );
+        }
+      }
+
+      return buildResultFromParsed(p, rawText, agentName);
     }
   } catch { /* fall through */ }
 
