@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts (may need prompt trimming or dedicated artifact mode); Kimi still showing bracket title intermittently |
-| Last verified deploy | `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | None — all migrations applied to remote including `20260414040000_build_tasks.sql` |
+| Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
+| Unapplied migrations | None — all migrations applied to remote including MaestroClaw tables (`20260417160000` through `20260417160300`) |
 | Active locks | None |
 
 ---
@@ -168,6 +168,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
 | Council UX: markdown rendering in FolioCard via react-markdown + remark-gfm, topbar chrome reduced, session switcher shows round count + prompt | 2026-04-15 (`npm run build`, commit `9aebc8c`) |
+| MaestroClaw v0.1: local execution node — `executors`, `executor_jobs`, `executor_job_events` tables, `executor-api` edge function (8 actions), worker package with poll loop + adapter system (shell_stub, claude_code) | 2026-04-17 (`npm run typecheck`, migrations applied, `executor-api` deployed, commit `16203aa`) |
 | Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
 | Build v2 task parsing fix: orchestrate preserves path/operation fields from build_task JSON, frontend 4-strategy fallback chain | 2026-04-16 (`supabase functions deploy orchestrate`, `npm run build`, commit `5dbfe09`) |
 | Build v2 github-execute mode fix: Build v2 path sends `mode: 'synthesized'` not `strategy` | 2026-04-16 (`npm run build`, commit `628d449`) |
@@ -195,7 +196,7 @@ Legacy (unused): agent_skills, flags
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
 | Legacy tables (agent_skills, flags) still in schema but unused | Pre-existing | — |
 | GitHub execute requires non-empty repo (at least one commit) — no auto-init | 2026-04-16 | — |
-| API cost pressure: ~$30 over 5 days of testing with BYOK — MaestroClaw (local execution node) is priority to reduce spend | 2026-04-17 | Next priority |
+| API cost pressure: ~$30 over 5 days of testing with BYOK — MaestroClaw deployed, needs first real smoke test | 2026-04-17 | Ready to test |
 
 ## Known Drift Risks
 
@@ -208,8 +209,9 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **MaestroClaw**: Local execution node — poll-based worker with adapters for Claude Code/Copilot CLI/Codex. Eliminates double-paying (API tokens + subscriptions) and edge function timeout limits. **Priority: HIGH** — $30/5 days testing burn rate makes this urgent.
-2. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
+1. **MaestroClaw smoke test**: Register executor, submit a shell_stub job, verify full lifecycle (poll → claim → run → complete). Then test claude_code adapter with a real prompt.
+2. **MaestroClaw UI panel**: Add executor status + job queue visibility to Vault drawer or a new drawer so users can monitor jobs from the web.
+3. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
 3. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
 4. Retire legacy broadcast path once v2 is battle-tested across multiple projects
 5. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed

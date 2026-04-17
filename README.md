@@ -13,6 +13,7 @@ Maestro is a "society of mind" tool. You write a single prompt, broadcast it to 
   - *Synthesized PR*: one combined branch with the merged output
 - **Download artifacts** -- agents can generate MD/HTML files you download directly, useful for planning and UX design stages
 - **Scope agents to paths** -- restrict each agent to specific directories (e.g. frontend agent only touches `src/**`); the server blocks writes outside declared scopes
+- **Run locally with MaestroClaw** -- a poll-based execution node that runs on your machine, routing jobs through your existing Claude Code / Copilot CLI subscriptions instead of burning API tokens
 
 ## Tech Stack
 
@@ -25,6 +26,7 @@ Maestro is a "society of mind" tool. You write a single prompt, broadcast it to 
 | Auth        | Supabase email/password authentication    |
 | AI Providers| Anthropic, OpenAI, Google Gemini, Moonshot (Kimi), Qwen, OpenRouter |
 | VCS         | GitHub OAuth App + GitHub REST API        |
+| Local Exec  | MaestroClaw (Node.js worker in `packages/maestroclaw/`) |
 
 ## Getting Started
 
@@ -103,6 +105,11 @@ supabase/
     20260406150000_reseed_agents_5x3.sql             # Canonical 5x3 = 15 agents per workspace
     20260406150100_unique_agent_slots.sql            # UNIQUE(workspace_id, provider_group, slot_index)
     20260406160000_fix_stale_model_slugs.sql         # Qwen + Gemini slug refresh
+    20260414040000_build_tasks.sql                    # Build v2 task queue
+    20260417160000_maestroclaw_executors.sql           # MaestroClaw executor registration
+    20260417160100_maestroclaw_jobs.sql                # MaestroClaw job queue
+    20260417160200_maestroclaw_events.sql              # MaestroClaw audit events
+    20260417160300_maestroclaw_bridge.sql              # Build task → executor bridge
 
   functions/
     orchestrate/index.ts          # Core AI agent execution (multi-provider)
@@ -112,4 +119,30 @@ supabase/
     github-repos/index.ts         # List user's GitHub repos
     github-execute/index.ts       # Create branches, commits, PRs on GitHub
     github-create-repo/index.ts   # Create a new repo on the user's account (Build mode)
+    executor-api/index.ts         # MaestroClaw control plane (register, poll, claim, complete)
+
+packages/
+  maestroclaw/
+    src/
+      index.ts                    # CLI entry point — poll loop + graceful shutdown
+      config.ts                   # Env var loader
+      auth.ts                     # Supabase email/password auth
+      api.ts                      # Edge function API client (heartbeat, poll, claim, complete)
+      executor.ts                 # Job runner — workspace setup, adapter dispatch, cleanup
+      adapters/
+        types.ts                  # Adapter interface
+        index.ts                  # Adapter registry
+        shell-stub.ts             # Echo adapter for smoke testing
+        claude-code.ts            # Claude Code CLI adapter
+```
+
+## MaestroClaw (Local Execution)
+
+MaestroClaw is a local worker that polls Maestro for jobs and runs them on your machine. See [`packages/maestroclaw/README.md`](packages/maestroclaw/README.md) for setup instructions.
+
+```bash
+cd packages/maestroclaw
+cp .env.example .env   # Fill in Supabase URL, credentials, executor token
+npm install
+npm run dev            # Start polling for jobs
 ```
