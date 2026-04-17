@@ -15,6 +15,9 @@ verify_jwt = false
 [functions.design]
 verify_jwt = false
 
+[functions."executor-api"]
+verify_jwt = false
+
 [functions."github-auth"]
 verify_jwt = false
 

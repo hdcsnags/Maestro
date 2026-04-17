@@ -1,0 +1,25 @@
+{
+  "name": "maestroclaw",
+  "version": "0.1.0",
+  "description": "MaestroClaw — local execution node for Maestro AI orchestration",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "maestroclaw": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "tsx": "^4.19.4",
+    "@types/node": "^22.15.0"
+  }
+}
