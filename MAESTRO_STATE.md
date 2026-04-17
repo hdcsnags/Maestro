@@ -8,8 +8,8 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | None — Build v2 proven end-to-end |
-| Last verified deploy | `orchestrate` redeployed 2026-04-16 (task parsing fix: path/operation preserved); `concierge` redeployed 2026-04-14; `github-execute` redeployed 2026-04-13 |
+| Active blockers | Sonnet timeouts on artifact-heavy prompts (may need prompt trimming or dedicated artifact mode); Kimi still showing bracket title intermittently |
+| Last verified deploy | `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None — all migrations applied to remote including `20260414040000_build_tasks.sql` |
 | Active locks | None |
 
@@ -172,6 +172,10 @@ Legacy (unused): agent_skills, flags
 | Build v2 task parsing fix: orchestrate preserves path/operation fields from build_task JSON, frontend 4-strategy fallback chain | 2026-04-16 (`supabase functions deploy orchestrate`, `npm run build`, commit `5dbfe09`) |
 | Build v2 github-execute mode fix: Build v2 path sends `mode: 'synthesized'` not `strategy` | 2026-04-16 (`npm run build`, commit `628d449`) |
 | Build v2 end-to-end proven: fresh project → broadcast → 76/76 tasks complete → PR created → merged | 2026-04-16 (live smoke test) |
+| 4-spec sprint: bouncer v2 (content review), artifact normalization (server+client), build completeness gate, UI design skill pack | 2026-04-16 (`supabase functions deploy bouncer orchestrate design`, `npm run build`, commit `d529104`) |
+| JSON parser rewrite: 4-strategy `extractJsonCandidate` (direct parse → greedy fence strip → first-{-to-last-} → string-aware brace extraction), broken title rescue, `escaped` flag fix | 2026-04-17 (`supabase functions deploy orchestrate`, commit `b111771`) |
+| Token limit fix: `defaultOutputTokens` 4096→16384 for all providers, truncation detection per API (Anthropic stop_reason, OpenAI finish_reason, Gemini finishReason) | 2026-04-17 (`supabase functions deploy orchestrate`, commit `e009716`) |
+| GPT and Gemini artifact extraction confirmed working after token limit + parser fix | 2026-04-17 (live smoke test) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -181,15 +185,17 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| Council auth fixes landed but still need live smoke test after `supabase.functions.invoke` migration | 2026-04-12 | Unassigned |
+| Sonnet timeouts on artifact-heavy analysis prompts (possibly needs prompt trimming or dedicated artifact mode) | 2026-04-17 | Unassigned |
+| Kimi K2 intermittently shows bracket `{` as title despite parser fix — may be model-side output discipline | 2026-04-17 | Unassigned |
+| Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
-| Design phase can still drop a designer preview when the returned payload does not match the expected HTML/JSON extraction path (reported in live smoke) | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
 | GitHub App install UX still manual — backend capability exists, in-app detection/prompt does not | Pre-existing | — |
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
 | Legacy tables (agent_skills, flags) still in schema but unused | Pre-existing | — |
 | GitHub execute requires non-empty repo (at least one commit) — no auto-init | 2026-04-16 | — |
+| API cost pressure: ~$30 over 5 days of testing with BYOK — MaestroClaw (local execution node) is priority to reduce spend | 2026-04-17 | Next priority |
 
 ## Known Drift Risks
 
@@ -202,9 +208,9 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **Sprint C — Concierge-driven build flow**: Triage (simple asks skip council), auto-lane assignment, concierge build trigger
-2. **Design preview fallback**: iframe blank detection + prominent download/open buttons
-3. **MaestroClaw**: Local execution node — poll-based worker with adapters for Claude Code/Copilot CLI/Codex. Eliminates double-paying (API tokens + subscriptions) and edge function timeout limits.
+1. **MaestroClaw**: Local execution node — poll-based worker with adapters for Claude Code/Copilot CLI/Codex. Eliminates double-paying (API tokens + subscriptions) and edge function timeout limits. **Priority: HIGH** — $30/5 days testing burn rate makes this urgent.
+2. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
+3. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
 4. Retire legacy broadcast path once v2 is battle-tested across multiple projects
 5. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
 
@@ -213,6 +219,50 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-17 — GitHub Copilot (Opus 4.6) — JSON Parser Rewrite + Token Limit Fix
+
+**What was done**: Fixed critical bug where artifact extraction failed for most AI providers (Gemini, GPT, Claude, Kimi). Two root causes found and fixed.
+
+**Root cause 1 — Naive JSON extraction** (`extractJsonCandidate`):
+- The internal ` ```json\s*([\s\S]*?)``` ` regex used LAZY matching → matched at the FIRST internal ` ``` ` inside JSON string values (e.g., markdown artifacts containing code fences) → truncated candidate
+- The `escaped` flag triggered OUTSIDE strings, desyncing string boundary tracking
+- Rewrote with 4-strategy approach:
+  1. Direct `JSON.parse` on full text (handles clean JSON — GPT OSS)
+  2. Strip outermost code fences with GREEDY + `$` anchor (handles Claude wrapping)
+  3. First-`{` to last-`}` with `JSON.parse` validation (handles preamble/postamble)
+  4. String-aware brace extraction with escape fix (fallback)
+- Added `looksLikeBrokenTitle()` + rescue: if parsed title is `"{"` or `` "```json" ``, attempts to unwrap double-wrapped JSON from content field
+
+**Root cause 2 — Token truncation** (`defaultOutputTokens: 4096`):
+- When prompts request HTML + markdown artifacts, models need 5000-7000+ tokens
+- 4096 cap meant responses got truncated mid-JSON → incomplete JSON → no parser can save it
+- Kimi happened to fit (~2500-3300 tokens, more concise) while Claude/GPT/Gemini exceeded the limit
+- **Fix**: Bumped `defaultOutputTokens` from 4096 → 16384 for ALL providers (well within model limits: Claude 64K, GPT 32K, Gemini 65K)
+- Added per-provider truncation detection:
+  - Anthropic: `data.stop_reason === 'max_tokens'`
+  - OpenAI: `data.choices[0].finish_reason === 'length'`
+  - Google: `data.candidates[0].finishReason === 'MAX_TOKENS'`
+  - OpenRouter: `data.choices[0].finish_reason === 'length'`
+- When truncation detected, `signals.risk` annotated with warning
+
+**Also deployed this session** (from prior context):
+- 4-spec sprint: bouncer v2, artifact normalization, build completeness gate, UI design skill pack (commit `d529104`)
+- All 3 edge functions: `bouncer`, `orchestrate`, `design`
+
+**Smoke test results after fix**:
+- GPT ✅ — artifacts populated, clean titles
+- Gemini ✅ — artifacts populated, clean titles
+- Kimi ✅ — consistently working
+- Sonnet ❌ — timing out (separate issue, not parser-related)
+- Kimi intermittent ❌ — bracket title `{` still appears occasionally (model output discipline)
+
+**Commits**: `d529104` (4-spec sprint), `b111771` (parser rewrite), `e009716` (token limit + truncation detection)
+**Deploys**: `bouncer`, `orchestrate`, `design` edge functions all redeployed
+
+**Cost note**: $30 API spend over 5 days of testing. MaestroClaw (local execution node) is now highest priority to reduce burn rate.
+
+---
 
 ### 2026-04-15 — GitHub Copilot (Opus 4.6) — Build v2 Task Parsing Fix
 
