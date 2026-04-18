@@ -44,6 +44,10 @@ export default function ExecutorSection() {
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [showSubmit, setShowSubmit] = useState(false);
+  const [jobPrompt, setJobPrompt] = useState('');
+  const [jobAdapter, setJobAdapter] = useState('claude_code');
+  const [submitting, setSubmitting] = useState(false);
 
   const executors = state.executors;
   const jobs = state.executorJobs;
@@ -89,6 +93,25 @@ export default function ExecutorSection() {
     dispatch({ type: 'SET_EXECUTORS', payload: executors.filter(e => e.id !== id) });
   };
 
+  const handleSubmitJob = async () => {
+    if (!jobPrompt.trim()) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const data = await invokeEdgeFunction<{ job: ExecutorJob }>(
+        'executor-api?action=submit',
+        { prompt: jobPrompt.trim(), adapter: jobAdapter, approval_required: false }
+      );
+      dispatch({ type: 'SET_EXECUTOR_JOBS', payload: [data.job, ...jobs] });
+      setJobPrompt('');
+      setShowSubmit(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submit failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const copyToken = () => {
     if (!newToken) return;
     navigator.clipboard.writeText(newToken);
@@ -113,13 +136,22 @@ export default function ExecutorSection() {
             <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
           </button>
           <button
-            onClick={() => { setShowRegister(!showRegister); setNewToken(null); setError(''); }}
+            onClick={() => { setShowRegister(!showRegister); setNewToken(null); setError(''); setShowSubmit(false); }}
             className="reveal-pill primary"
             style={{ padding: '4px 10px', fontSize: '11px' }}
           >
             <Plus size={12} style={{ marginRight: '4px' }} />
             Register
           </button>
+          {executors.length > 0 && (
+            <button
+              onClick={() => { setShowSubmit(!showSubmit); setShowRegister(false); setError(''); }}
+              className="reveal-pill"
+              style={{ padding: '4px 10px', fontSize: '11px', background: 'rgba(212,175,55,0.15)', color: 'var(--gold)', border: '1px solid rgba(212,175,55,0.3)' }}
+            >
+              Submit Job
+            </button>
+          )}
         </div>
       </div>
 
@@ -193,6 +225,65 @@ export default function ExecutorSection() {
                 </button>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Submit job form */}
+      {showSubmit && (
+        <div
+          className="rounded-xl p-3 mb-3"
+          style={{ background: 'rgba(212,175,55,0.04)', border: '1px solid rgba(212,175,55,0.15)' }}
+        >
+          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>
+            Submit a job to your local executor
+          </div>
+          <textarea
+            value={jobPrompt}
+            onChange={e => setJobPrompt(e.target.value)}
+            placeholder="Enter a prompt (e.g. Create an index.html with a landing page...)"
+            rows={3}
+            style={{
+              width: '100%',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '8px',
+              padding: '8px 10px',
+              color: 'white',
+              fontSize: '13px',
+              outline: 'none',
+              resize: 'vertical',
+              fontFamily: 'inherit',
+            }}
+          />
+          <div className="flex items-center justify-between mt-2">
+            <select
+              value={jobAdapter}
+              onChange={e => setJobAdapter(e.target.value)}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '8px',
+                padding: '4px 8px',
+                color: 'white',
+                fontSize: '12px',
+                outline: 'none',
+              }}
+            >
+              <option value="claude_code">Claude Code</option>
+              <option value="shell_stub">Shell Stub (test)</option>
+            </select>
+            <button
+              onClick={handleSubmitJob}
+              disabled={submitting || !jobPrompt.trim()}
+              className="reveal-pill primary"
+              style={{ padding: '6px 14px', fontSize: '12px' }}
+            >
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : 'Send to Executor'}
+            </button>
+          </div>
+          {error && (
+            <div style={{ color: 'var(--risk)', fontSize: '12px', marginTop: '6px' }}>{error}</div>
           )}
         </div>
       )}

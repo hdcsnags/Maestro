@@ -13,7 +13,10 @@ export class ClaudeCodeAdapter implements Adapter {
 
   async check(): Promise<boolean> {
     try {
-      await execFileAsync("claude", ["--version"], { timeout: 5000 });
+      await execFileAsync("claude", ["--version"], {
+        timeout: 5000,
+        shell: true,
+      });
       return true;
     } catch {
       return false;
@@ -39,6 +42,7 @@ export class ClaudeCodeAdapter implements Adapter {
           cwd: workDir,
           timeout: timeoutMs,
           maxBuffer: 10 * 1024 * 1024, // 10MB
+          shell: true,
         }
       );
 
