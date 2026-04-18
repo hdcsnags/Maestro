@@ -8,6 +8,7 @@ export interface ClawConfig {
   executorToken: string;
   pollIntervalMs: number;
   workspaceDir: string;
+  keepSucceededWorkspaces: boolean;
 }
 
 function required(key: string): string {
@@ -31,5 +32,7 @@ export function loadConfig(): ClawConfig {
     workspaceDir:
       process.env.WORKSPACE_DIR ??
       `${process.env.HOME ?? process.env.USERPROFILE}/.maestroclaw/workspaces`,
+    keepSucceededWorkspaces:
+      (process.env.KEEP_SUCCEEDED_WORKSPACES ?? "true").toLowerCase() === "true",
   };
 }

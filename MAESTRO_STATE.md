@@ -169,6 +169,9 @@ Legacy (unused): agent_skills, flags
 | Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
 | Council UX: markdown rendering in FolioCard via react-markdown + remark-gfm, topbar chrome reduced, session switcher shows round count + prompt | 2026-04-15 (`npm run build`, commit `9aebc8c`) |
 | MaestroClaw v0.1: local execution node — `executors`, `executor_jobs`, `executor_job_events` tables, `executor-api` edge function (8 actions), worker package with poll loop + adapter system (shell_stub, claude_code) | 2026-04-17 (`npm run typecheck`, migrations applied, `executor-api` deployed, commit `16203aa`) |
+| MaestroClaw full round-trip smoke test: web UI → submit job → Supabase queue → MaestroClaw polls → Claude Code runs → results back → status visible in Vault | 2026-04-17 (live smoke test, commit `29323b1`) |
+| MaestroClaw workspace preservation: succeeded jobs keep workspace files for browsing, configurable via `KEEP_SUCCEEDED_WORKSPACES` env var (default: true) | 2026-04-17 (`npm run typecheck`) |
+| BUILD_V3_SPEC.md written: MaestroClaw-routed builds, execution backend routing, context bundling, job chains, project lifecycle, Docker isolation roadmap, security model | 2026-04-17 |
 | Build v2 stale-closure dispatch fix: `tasksRef` (useRef) as synchronous truth, DB re-fetch safety net, `isRunningRef` double-exec guard — tasks now actually dispatch after decompose | 2026-04-15 (`npm run typecheck`, `npm run build`, commit `76b8873`) |
 | Build v2 task parsing fix: orchestrate preserves path/operation fields from build_task JSON, frontend 4-strategy fallback chain | 2026-04-16 (`supabase functions deploy orchestrate`, `npm run build`, commit `5dbfe09`) |
 | Build v2 github-execute mode fix: Build v2 path sends `mode: 'synthesized'` not `strategy` | 2026-04-16 (`npm run build`, commit `628d449`) |
@@ -196,7 +199,7 @@ Legacy (unused): agent_skills, flags
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
 | Legacy tables (agent_skills, flags) still in schema but unused | Pre-existing | — |
 | GitHub execute requires non-empty repo (at least one commit) — no auto-init | 2026-04-16 | — |
-| API cost pressure: ~$30 over 5 days of testing with BYOK — MaestroClaw deployed, needs first real smoke test | 2026-04-17 | Ready to test |
+| API cost pressure: ~$30 over 5 days of testing with BYOK — MaestroClaw deployed and smoke-tested, workspace preservation working | 2026-04-17 | Mitigated (MaestroClaw routes through local CLI) |
 
 ## Known Drift Risks
 
@@ -209,12 +212,14 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **MaestroClaw smoke test**: Register executor, submit a shell_stub job, verify full lifecycle (poll → claim → run → complete). Then test claude_code adapter with a real prompt.
-2. **MaestroClaw UI panel**: Add executor status + job queue visibility to Vault drawer or a new drawer so users can monitor jobs from the web.
-3. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
-3. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
-4. Retire legacy broadcast path once v2 is battle-tested across multiple projects
-5. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
+1. **BUILD_V3_SPEC council review**: Send `BUILD_V3_SPEC.md` to the AI council for feedback on security model, routing heuristics, chain failure recovery, and Docker isolation approach.
+2. **Build v3 Phase 1 — Routing layer**: Add `execution_backend` to sessions + `executor_job_id` to build_tasks, implement `dispatchTask()` branching in `useBuildExecution.ts`, poll-based job completion.
+3. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job, prior-output injection.
+4. **Build v3 Phase 3 — Pre-Build UI**: Execution backend selector, project type gate (new vs existing), executor status in topbar.
+5. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
+6. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
+7. Retire legacy broadcast path once v2 is battle-tested across multiple projects
+8. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
 
 ---
 

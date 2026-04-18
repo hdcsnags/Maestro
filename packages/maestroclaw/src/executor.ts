@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
@@ -15,6 +15,7 @@ export async function executeJob(
 ): Promise<void> {
   const jobDir = join(config.workspaceDir, job.id);
   let workDir = jobDir;
+  let jobSucceeded = false;
 
   try {
     // Report running
@@ -80,6 +81,7 @@ export async function executeJob(
       artifact_manifest: result.artifacts,
     });
 
+    jobSucceeded = result.success;
     console.log(
       result.success
         ? `  ✅ Job ${job.id.slice(0, 8)} succeeded`
@@ -96,12 +98,23 @@ export async function executeJob(
       console.error("  Failed to report error:", reportErr);
     }
   } finally {
-    // Clean up workspace
+    // Preserve workspace on success if configured, otherwise clean up
     if (existsSync(jobDir)) {
-      try {
-        rmSync(jobDir, { recursive: true, force: true });
-      } catch {
-        console.warn(`  ⚠ Could not clean up ${jobDir}`);
+      if (jobSucceeded && config.keepSucceededWorkspaces) {
+        try {
+          const label = job.repo_name ?? "job";
+          const namedDir = join(config.workspaceDir, `${label}-${job.id.slice(0, 8)}`);
+          renameSync(jobDir, namedDir);
+          console.log(`  📁 Workspace preserved: ${namedDir}`);
+        } catch {
+          console.warn(`  ⚠ Could not rename workspace ${jobDir}`);
+        }
+      } else {
+        try {
+          rmSync(jobDir, { recursive: true, force: true });
+        } catch {
+          console.warn(`  ⚠ Could not clean up ${jobDir}`);
+        }
       }
     }
   }
