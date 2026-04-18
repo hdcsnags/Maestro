@@ -10,7 +10,7 @@
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts (may need prompt trimming or dedicated artifact mode); Kimi still showing bracket title intermittently |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | None — all migrations applied to remote including MaestroClaw tables (`20260417160000` through `20260417160300`) |
+| Unapplied migrations | `20260418230000_build_v3_routing.sql` (V3 routing columns) |
 | Active locks | None |
 
 ---
@@ -74,6 +74,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | `github-read` | Read repo tree/files |
 | `github-execute` | Branch, commit, PR creation from patches |
 | `vault` | API key CRUD (BYOK) |
+| `executor-api` | MaestroClaw control plane (register, heartbeat, claim, complete, events) |
 
 ## Database (20 active tables)
 
@@ -82,6 +83,7 @@ GitHub: repo_connections, execution_runs, approval_requests
 Security: provider_connections, encrypted_secrets, audit_events
 Sprint B: design_artifacts, build_lanes, bouncer_events, build_reports, concierge_decisions
 Build v2: build_tasks (per-file task queue — status, prompt_slice, retry/reroute metadata)
+MaestroClaw: executors, executor_jobs, executor_job_events
 Legacy (unused): agent_skills, flags
 
 ## Agent Roster
@@ -181,7 +183,10 @@ Legacy (unused): agent_skills, flags
 | Token limit fix: `defaultOutputTokens` 4096→16384 for all providers, truncation detection per API (Anthropic stop_reason, OpenAI finish_reason, Gemini finishReason) | 2026-04-17 (`supabase functions deploy orchestrate`, commit `e009716`) |
 | GPT and Gemini artifact extraction confirmed working after token limit + parser fix | 2026-04-17 (live smoke test) |
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
-| Build v2 github-execute wiring: collected task manifests formatted as patches with `conductor_approved=true`, UI state updated from exec result | 2026-04-14 (`npm run typecheck`, `npm run build`) |
+| Build v3 Phase 1 routing layer: `dispatchTask()` branches on `execution_backend` (edge/local/auto), `resolveBackend()` picks route, `pollExecutorJob()` polls for MaestroClaw completion, local→edge fallback on failure | 2026-04-18 (`npm run typecheck`) |
+| Build v3 execution backend selector: Pre-Build "Lock" screen shows Edge/Local/Auto toggle, persists to `sessions.execution_backend`, shows executor online status | 2026-04-18 (`npm run typecheck`) |
+| Build v3 auto-routing: simple rule — local if any executor online (heartbeat < 60s), edge otherwise | 2026-04-18 (code verified) |
+| Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 
@@ -212,10 +217,10 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **BUILD_V3_SPEC council review**: Send `BUILD_V3_SPEC.md` to the AI council for feedback on security model, routing heuristics, chain failure recovery, and Docker isolation approach.
-2. **Build v3 Phase 1 — Routing layer**: Add `execution_backend` to sessions + `executor_job_id` to build_tasks, implement `dispatchTask()` branching in `useBuildExecution.ts`, poll-based job completion.
+1. **Apply V3 migration to remote**: `npx supabase db push` — migration `20260418230000` adds `execution_backend` to sessions, `executor_job_id` to build_tasks, `context_bundle` to executor_jobs.
+2. **Build v3 Phase 1 smoke test**: Set session to local → decompose tasks → verify executor_jobs created → MaestroClaw picks up → results flow back to build_tasks → `collectManifest` produces correct output.
 3. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job, prior-output injection.
-4. **Build v3 Phase 3 — Pre-Build UI**: Execution backend selector, project type gate (new vs existing), executor status in topbar.
+4. **Build v3 Phase 3 — Pre-Build UX enhancements**: Executor status in topbar, project type gate (new vs existing repo).
 5. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
 6. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
 7. Retire legacy broadcast path once v2 is battle-tested across multiple projects
@@ -226,6 +231,24 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-18 — GitHub Copilot (Opus 4.6) — Build V3 Phase 1 Routing Layer
+
+**What was done**: Implemented the V3 routing layer that allows build tasks to execute via MaestroClaw (local CLI tools) instead of edge functions (API calls).
+
+**Core changes**:
+- **`useBuildExecution.ts`**: Added `resolveBackend()` (picks edge/local/auto per task/session), `dispatchTaskLocal()` (creates `executor_jobs` row with `status: 'approved'`), `pollExecutorJob()` (2s poll, 10min timeout), local→edge fallback on first failure
+- **`PreBuildPanel.tsx`**: Added execution backend selector (Edge/Local/Auto) in the "Build Spec Locked" section — persists to `sessions.execution_backend`, shows executor online status
+- **Migration `20260418230000`**: `execution_backend` on sessions, `executor_job_id` on build_tasks, `context_bundle` on executor_jobs, widened constraint to include 'auto'
+- **Types**: `execution_backend` and `executor_job_id` added to `BuildTask` and `Session` interfaces
+
+**Design decisions** (per council review — Claude + OpenAI):
+- Auto-routing = simple: local if any executor online (heartbeat < 60s), edge otherwise
+- No smart heuristics until telemetry exists
+- Local dispatch creates `executor_jobs` with `approval_required: false` → MaestroClaw picks up immediately
+- Fallback: if local execution fails on first try, task re-queues as `edge` backend
+
+**Migration not yet applied to remote** — run `npx supabase db push` before smoke testing.
 
 ### 2026-04-17 — GitHub Copilot (Opus 4.6) — JSON Parser Rewrite + Token Limit Fix
 

@@ -98,6 +98,26 @@ export default function PreBuildPanel() {
   const [architectError, setArchitectError] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // V3: Execution backend selector
+  const [executionBackend, setExecutionBackend] = useState<'edge' | 'local' | 'auto'>(
+    state.activeSession?.execution_backend ?? 'edge',
+  );
+  const hasOnlineExecutor = useMemo(
+    () => state.executors.some(e =>
+      e.status === 'online' && e.last_seen_at &&
+      Date.now() - new Date(e.last_seen_at).getTime() < 60_000
+    ),
+    [state.executors],
+  );
+  const handleBackendChange = useCallback(async (backend: 'edge' | 'local' | 'auto') => {
+    setExecutionBackend(backend);
+    if (state.activeSession) {
+      await supabase.from('sessions').update({ execution_backend: backend } as never)
+        .eq('id', state.activeSession.id);
+      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { execution_backend: backend } });
+    }
+  }, [state.activeSession, dispatch]);
+
   // Scaffold generation cycling messages
   const [scaffoldMsgIdx, setScaffoldMsgIdx] = useState(0);
   const scaffoldTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1173,6 +1193,41 @@ export default function PreBuildPanel() {
                 Build Spec Locked ✓
               </span>
             </div>
+
+            {/* V3: Execution backend selector */}
+            <div style={{ marginBottom: '14px' }}>
+              <span className="section-label" style={{ fontSize: '9px', marginBottom: '6px', display: 'block' }}>
+                EXECUTION BACKEND
+              </span>
+              <div className="flex gap-2">
+                {(['edge', 'local', 'auto'] as const).map(opt => (
+                  <button
+                    key={opt}
+                    className="reveal-pill"
+                    style={{
+                      height: '26px', fontSize: '10px', padding: '0 12px',
+                      background: executionBackend === opt ? 'var(--gold)' : 'transparent',
+                      color: executionBackend === opt ? 'var(--void)' : 'var(--text-dim)',
+                      borderColor: executionBackend === opt ? 'transparent' : 'var(--border)',
+                      fontWeight: executionBackend === opt ? 500 : 400,
+                    }}
+                    onClick={() => handleBackendChange(opt)}
+                  >
+                    {opt === 'edge' ? '☁️ Edge' : opt === 'local' ? '🖥️ Local' : '⚡ Auto'}
+                  </button>
+                ))}
+              </div>
+              <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                {executionBackend === 'edge' && 'Tasks run via API (costs per token)'}
+                {executionBackend === 'local' && (hasOnlineExecutor
+                  ? 'Tasks route to your MaestroClaw worker'
+                  : '⚠️ No executor online — start MaestroClaw first')}
+                {executionBackend === 'auto' && (hasOnlineExecutor
+                  ? 'Local executor online — tasks will route locally'
+                  : 'No executor online — tasks will fall back to edge')}
+              </span>
+            </div>
+
             <button
               className="reveal-pill"
               style={{

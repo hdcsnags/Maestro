@@ -68,6 +68,7 @@ export interface Session {
   build_spec_locked?: boolean;
   project_type?: 'new' | 'existing';
   architect_md?: string;
+  execution_backend?: 'edge' | 'local' | 'auto';
 }
 
 export interface Round {
@@ -160,6 +161,10 @@ export interface BuildTask {
   result_operation?: 'create' | 'update' | 'delete' | null;
   result_builder?: string | null;
   completed_at?: string | null;
+
+  // V3 routing
+  execution_backend?: 'edge' | 'local' | 'auto';
+  executor_job_id?: string | null;
 
   created_at?: string;
   updated_at?: string;

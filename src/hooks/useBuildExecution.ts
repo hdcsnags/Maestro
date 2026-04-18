@@ -3,7 +3,7 @@ import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { BuildTask, BuildTaskStatus, Agent } from '../types';
+import { BuildTask, BuildTaskStatus, Agent, Executor } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +119,134 @@ export function useBuildExecution() {
     }
   }, [ensureSession]);
 
+  // ── Local execution helpers (V3 routing) ───────────────────────────
+
+  const findOnlineExecutor = useCallback((): Executor | null => {
+    const STALE_MS = 60_000; // 60s — if heartbeat older than this, treat as offline
+    return state.executors.find(e => {
+      if (e.status !== 'online') return false;
+      if (!e.last_seen_at) return false;
+      return Date.now() - new Date(e.last_seen_at).getTime() < STALE_MS;
+    }) ?? null;
+  }, [state.executors]);
+
+  const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
+    const backend = task.execution_backend
+      ?? state.activeSession?.execution_backend
+      ?? 'edge';
+    if (backend === 'local') return 'local';
+    if (backend === 'auto') return findOnlineExecutor() ? 'local' : 'edge';
+    return 'edge';
+  }, [state.activeSession?.execution_backend, findOnlineExecutor]);
+
+  const pollExecutorJob = useCallback(async (
+    jobId: string,
+    task: BuildTask,
+  ): Promise<boolean> => {
+    const POLL_MS = 2_000;
+    const TIMEOUT_MS = 600_000; // 10 minutes
+    const start = Date.now();
+
+    while (Date.now() - start < TIMEOUT_MS) {
+      if (abortRef.current) return false;
+
+      const { data: job } = await supabase
+        .from('executor_jobs')
+        .select('status, artifact_manifest, error_text, result_summary')
+        .eq('id', jobId)
+        .single();
+
+      if (!job) return false;
+
+      if (job.status === 'succeeded') {
+        const artifacts = (job.artifact_manifest ?? []) as Array<{
+          path: string; content: string; operation?: string;
+        }>;
+
+        if (artifacts.length === 0) {
+          await updateTaskStatus(task.id, 'failed', {
+            failure_reason: 'Executor produced no artifacts',
+          } as Partial<BuildTask>);
+          return false;
+        }
+
+        const entry = artifacts[0];
+        await updateTaskStatus(task.id, 'completed', {
+          result_content: entry.content,
+          result_operation: (entry.operation ?? 'create') as BuildTask['result_operation'],
+          result_builder: task.lane_owner,
+          executor_job_id: jobId,
+        } as Partial<BuildTask>);
+        return true;
+      }
+
+      if (job.status === 'failed') {
+        await updateTaskStatus(task.id, 'failed', {
+          failure_reason: job.error_text || 'Executor job failed',
+          provider_error: job.result_summary,
+          executor_job_id: jobId,
+        } as Partial<BuildTask>);
+        return false;
+      }
+
+      // Still running — wait and poll again
+      await new Promise(r => setTimeout(r, POLL_MS));
+    }
+
+    // Timed out waiting for executor
+    await updateTaskStatus(task.id, 'failed', {
+      failure_reason: 'Executor job timed out after 10 minutes',
+      executor_job_id: jobId,
+    } as Partial<BuildTask>);
+    return false;
+  }, [updateTaskStatus]);
+
+  const dispatchTaskLocal = useCallback(async (
+    task: BuildTask,
+  ): Promise<boolean> => {
+    // Find repo context from the active session
+    const repoConn = state.activeRepoConnection;
+    const sessionId = state.activeSession?.id;
+    const cloneUrl = repoConn ? `https://github.com/${repoConn.owner}/${repoConn.repo}.git` : null;
+
+    const { data: job, error: jobError } = await supabase
+      .from('executor_jobs')
+      .insert({
+        session_id: sessionId,
+        requested_by: user?.id,
+        job_type: 'build_task',
+        adapter: 'claude_code',
+        prompt: task.prompt_slice,
+        repo_url: cloneUrl,
+        repo_name: repoConn?.repo ?? null,
+        branch: repoConn?.default_branch ?? 'main',
+        allowed_paths: [task.file_path],
+        timeout_seconds: 600,
+        approval_required: false,
+        approved_at: new Date().toISOString(),
+        build_task_id: task.id,
+        status: 'approved',
+      })
+      .select()
+      .single();
+
+    if (jobError || !job) {
+      await updateTaskStatus(task.id, 'failed', {
+        failure_reason: `Failed to create executor job: ${jobError?.message ?? 'unknown'}`,
+      } as Partial<BuildTask>);
+      return false;
+    }
+
+    // Update task with executor_job_id
+    await supabase
+      .from('build_tasks')
+      .update({ executor_job_id: job.id } as never)
+      .eq('id', task.id);
+
+    // Poll for job completion
+    return await pollExecutorJob(job.id, task);
+  }, [state.activeRepoConnection, state.activeSession?.id, user?.id, updateTaskStatus, pollExecutorJob]);
+
   // ── Step 2: Dispatch loop — one orchestrate call per task ─────────────
 
   const resolveAgent = useCallback((agentId: string): Agent | undefined => {
@@ -202,6 +330,32 @@ export function useBuildExecution() {
 
     await updateTaskStatus(task.id, 'dispatched');
 
+    // ── V3: Route based on execution backend ─────────────────────────
+    const backend = resolveBackend(task);
+
+    if (backend === 'local') {
+      try {
+        return await dispatchTaskLocal(task);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // Fall back to edge on local failure if we haven't retried yet
+        if ((task.retry_count ?? 0) < 1) {
+          console.warn(`[Build v3] Local dispatch failed, falling back to edge: ${errMsg}`);
+          await updateTaskStatus(task.id, 'queued', {
+            retry_count: (task.retry_count ?? 0) + 1,
+            execution_backend: 'edge',
+            failure_reason: `Local execution failed, retrying via edge: ${errMsg.slice(0, 200)}`,
+          } as Partial<BuildTask>);
+          return false;
+        }
+        await updateTaskStatus(task.id, 'failed', {
+          failure_reason: errMsg.slice(0, 500),
+        } as Partial<BuildTask>);
+        return false;
+      }
+    }
+
+    // ── Edge execution (unchanged v2 path) ───────────────────────────
     try {
       const result = await invokeEdgeFunction<OrchestrateTaskResult>('orchestrate', {
         prompt: task.prompt_slice,
@@ -269,7 +423,7 @@ export function useBuildExecution() {
       } as Partial<BuildTask>);
       return false;
     }
-  }, [resolveAgent, updateTaskStatus, state.activeSession?.id]);
+  }, [resolveAgent, updateTaskStatus, state.activeSession?.id, resolveBackend, dispatchTaskLocal]);
 
   // ── Main execution loop ──────────────────────────────────────────────
 
@@ -429,9 +583,7 @@ export function useBuildExecution() {
   }, []);
 
   const _unusedDispatch = dispatch;
-  const _unusedUser = user;
   void _unusedDispatch;
-  void _unusedUser;
 
   return {
     tasks,
