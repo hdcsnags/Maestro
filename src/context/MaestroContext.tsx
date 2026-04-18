@@ -4,7 +4,7 @@ import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
-  TriageResult, BuildPlan,
+  TriageResult, BuildPlan, Executor, ExecutorJob,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -25,6 +25,8 @@ export interface MaestroState {
   repoConnections: RepoConnection[];
   activeRepoConnection: RepoConnection | null;
   executionRuns: ExecutionRun[];
+  executors: Executor[];
+  executorJobs: ExecutorJob[];
   executionMode: ExecutionMode;
   executionStrategy: ExecutionStrategy;
   orchestrationMode: OrchestrationMode;
@@ -80,6 +82,9 @@ type Action =
   | { type: 'SET_EXECUTION_RUNS'; payload: ExecutionRun[] }
   | { type: 'ADD_EXECUTION_RUN'; payload: ExecutionRun }
   | { type: 'UPDATE_EXECUTION_RUN'; payload: Partial<ExecutionRun> & { id: string } }
+  | { type: 'SET_EXECUTORS'; payload: Executor[] }
+  | { type: 'ADD_EXECUTOR'; payload: Executor }
+  | { type: 'SET_EXECUTOR_JOBS'; payload: ExecutorJob[] }
   | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
@@ -119,6 +124,8 @@ const initial: MaestroState = {
   repoConnections: [],
   activeRepoConnection: null,
   executionRuns: [],
+  executors: [],
+  executorJobs: [],
   executionMode: 'pr_flow',
   executionStrategy: 'synthesized',
   orchestrationMode: 'analysis',
@@ -245,6 +252,9 @@ function reducer(state: MaestroState, action: Action): MaestroState {
           r.id === action.payload.id ? { ...r, ...action.payload } : r
         ),
       };
+    case 'SET_EXECUTORS': return { ...state, executors: action.payload };
+    case 'ADD_EXECUTOR': return { ...state, executors: [...state.executors, action.payload] };
+    case 'SET_EXECUTOR_JOBS': return { ...state, executorJobs: action.payload };
     case 'SET_BROADCASTING_AGENTS': return { ...state, broadcastingAgents: action.payload };
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };

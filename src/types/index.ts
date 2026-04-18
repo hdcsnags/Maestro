@@ -263,6 +263,43 @@ export interface RepoConnection {
   created_at: string;
 }
 
+export interface Executor {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  kind: string;
+  status: 'offline' | 'online' | 'busy' | 'error';
+  last_seen_at: string | null;
+  capabilities: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExecutorJob {
+  id: string;
+  session_id: string | null;
+  executor_id: string | null;
+  requested_by: string;
+  job_type: string;
+  adapter: string;
+  prompt: string;
+  repo_url: string | null;
+  repo_name: string | null;
+  branch: string | null;
+  allowed_paths: string[];
+  timeout_seconds: number;
+  approval_required: boolean;
+  status: 'queued' | 'approved' | 'claimed' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired';
+  result_summary: string | null;
+  error_text: string | null;
+  artifact_manifest: unknown;
+  build_task_id: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 export interface ExecutionRun {
   id: string;
   session_id: string;

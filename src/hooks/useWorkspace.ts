@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { AGENT_DEFAULTS, Agent, AgentSkill, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode } from '../types';
+import { AGENT_DEFAULTS, Agent, AgentSkill, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode, Executor, ExecutorJob } from '../types';
 
 export function useWorkspace() {
   const { state, dispatch } = useMaestro();
@@ -171,6 +171,27 @@ export function useWorkspace() {
     dispatch({ type: 'SET_REPO_CONNECTIONS', payload: repos });
     const active = repos.find(r => r.is_active) ?? null;
     dispatch({ type: 'SET_ACTIVE_REPO_CONNECTION', payload: active });
+  }, [user, dispatch]);
+
+  const loadExecutors = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('executors')
+      .select('*')
+      .eq('owner_user_id', user.id)
+      .order('created_at', { ascending: false });
+    dispatch({ type: 'SET_EXECUTORS', payload: (data ?? []) as Executor[] });
+  }, [user, dispatch]);
+
+  const loadExecutorJobs = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('executor_jobs')
+      .select('*')
+      .eq('requested_by', user.id)
+      .order('created_at', { ascending: false })
+      .limit(20);
+    dispatch({ type: 'SET_EXECUTOR_JOBS', payload: (data ?? []) as ExecutorJob[] });
   }, [user, dispatch]);
 
   const loadSessionHistory = useCallback(async (sessionId: string) => {
@@ -350,6 +371,8 @@ export function useWorkspace() {
           loadProviderConnections(),
           loadAgentSkills(),
           loadRepoConnections(ws.id),
+          loadExecutors(),
+          loadExecutorJobs(),
         ]);
         // Option A — do NOT auto-load the latest active session on sign-in.
         // Land in a clean state. The user picks a session from the switcher
@@ -359,7 +382,7 @@ export function useWorkspace() {
         dispatch({ type: 'SET_INIT_ERROR', payload: msg });
       }
     })();
-  }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadAgentSkills, loadRepoConnections]);
+  }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadAgentSkills, loadRepoConnections, loadExecutors, loadExecutorJobs]);
 
   return {
     ensureWorkspace,
@@ -370,6 +393,8 @@ export function useWorkspace() {
     loadProviderConnections,
     loadAgentSkills,
     loadRepoConnections,
+    loadExecutors,
+    loadExecutorJobs,
     createSession,
     switchSession,
     renameSession,

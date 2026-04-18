@@ -5,6 +5,7 @@ import { invokeEdgeFunction } from '../../lib/functions';
 import { PROVIDER_REGISTRY, ProviderConnection, PROVIDER_COLORS } from '../../types';
 import { Eye, EyeOff, Check, Loader2, Trash2, Database } from 'lucide-react';
 import RepoSection from './RepoSection';
+import ExecutorSection from './ExecutorSection';
 
 export default function VaultDrawer() {
   const { state, dispatch } = useMaestro();
@@ -107,6 +108,8 @@ export default function VaultDrawer() {
       )}
 
       <RepoSection />
+
+      <ExecutorSection />
 
       <SupabaseSection />
 
