@@ -1,6 +1,6 @@
 # MaestroClaw v1 — Local Execution Node Specification
 
-*Status: DESIGN REVIEW — Not yet implemented*
+*Status: V0.1 SHIPPED — Smoke-tested 2026-04-17. See MAESTRO_STATE.md for current status.*
 
 ---
 
