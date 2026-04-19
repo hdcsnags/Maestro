@@ -119,6 +119,32 @@ export function useBuildExecution() {
     }
   }, [ensureSession]);
 
+  // ── Step 2: Dispatch loop — one orchestrate call per task ─────────────
+
+  const resolveAgent = useCallback((agentId: string): Agent | undefined => {
+    return state.agents.find(a => a.id === agentId);
+  }, [state.agents]);
+
+  const updateTaskStatus = useCallback(async (
+    taskId: string,
+    status: BuildTaskStatus,
+    extras: Partial<BuildTask> = {},
+  ) => {
+    const updates: Record<string, unknown> = { status, ...extras };
+    if (status === 'completed') updates.completed_at = new Date().toISOString();
+
+    await supabase
+      .from('build_tasks')
+      .update(updates as never)
+      .eq('id', taskId);
+
+    const updated = tasksRef.current.map(t =>
+      t.id === taskId ? { ...t, status, ...extras } as BuildTask : t
+    );
+    tasksRef.current = updated;
+    setTasks(updated);
+  }, []);
+
   // ── Local execution helpers (V3 routing) ───────────────────────────
 
   const findOnlineExecutor = useCallback((): Executor | null => {
@@ -246,32 +272,6 @@ export function useBuildExecution() {
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
   }, [state.activeRepoConnection, state.activeSession?.id, user?.id, updateTaskStatus, pollExecutorJob]);
-
-  // ── Step 2: Dispatch loop — one orchestrate call per task ─────────────
-
-  const resolveAgent = useCallback((agentId: string): Agent | undefined => {
-    return state.agents.find(a => a.id === agentId);
-  }, [state.agents]);
-
-  const updateTaskStatus = useCallback(async (
-    taskId: string,
-    status: BuildTaskStatus,
-    extras: Partial<BuildTask> = {},
-  ) => {
-    const updates: Record<string, unknown> = { status, ...extras };
-    if (status === 'completed') updates.completed_at = new Date().toISOString();
-
-    await supabase
-      .from('build_tasks')
-      .update(updates as never)
-      .eq('id', taskId);
-
-    const updated = tasksRef.current.map(t =>
-      t.id === taskId ? { ...t, status, ...extras } as BuildTask : t
-    );
-    tasksRef.current = updated;
-    setTasks(updated);
-  }, []);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)
