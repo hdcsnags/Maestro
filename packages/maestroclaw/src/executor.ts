@@ -1,10 +1,21 @@
 import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
 import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
+
+function resolveSafeArtifactPath(rootDir: string, filePath: string): string {
+  const resolvedRoot = resolve(rootDir);
+  const resolvedPath = resolve(rootDir, filePath);
+
+  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(resolvedRoot + sep)) {
+    throw new Error(`Artifact path escapes workspace: ${filePath}`);
+  }
+
+  return resolvedPath;
+}
 
 /**
  * Runs a single executor job: set up workspace → run adapter → report result.
@@ -92,7 +103,7 @@ export async function executeJob(
     if (Object.keys(artifacts).length > 0) {
       // Write artifacts to the per-job workspace
       for (const [filePath, content] of Object.entries(artifacts)) {
-        const fullPath = join(jobDir, filePath);
+        const fullPath = resolveSafeArtifactPath(jobDir, filePath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, content, "utf-8");
         console.log(`  💾 Wrote ${filePath} to workspace`);
@@ -103,7 +114,7 @@ export async function executeJob(
       if (job.session_id) {
         const buildDir = join(config.workspaceDir, "builds", job.session_id.slice(0, 8));
         for (const [filePath, content] of Object.entries(artifacts)) {
-          const fullPath = join(buildDir, filePath);
+          const fullPath = resolveSafeArtifactPath(buildDir, filePath);
           mkdirSync(dirname(fullPath), { recursive: true });
           writeFileSync(fullPath, content, "utf-8");
         }
