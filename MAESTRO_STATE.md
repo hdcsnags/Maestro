@@ -210,6 +210,7 @@ Legacy (unused): agent_skills, flags
 | **Claw Mode Phase 0** — thread foundation + concierge chat: migration for `threads`/`thread_messages` tables + `agent_role` column on agents, `useThreads` hook, `ClawMode` full-screen chat component with model picker, Claw button in composer, Escape to close | 2026-04-20 (`npm run typecheck`, `npm run build`, migration applied, commits `ba41ed1`→`ff25942`) |
 | **Claw Mode Phase 1** — broadcast from chat + carousel + direct agent chat: three-view system (Concierge/Carousel/Focus), Broadcast button dispatches to council agents, FolioCarousel embedded in Claw Mode, agent quick-focus bar for direct chat, Synthesize merges threads back to concierge, `sendToAgent()` for direct thread conversations, `ClawView` type + state management | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | **Claw Mode Phase 2** — execution in chat: `executeFromChat()` + `submitExecutionJob()` + `approveExecutionJob()` + `pollJobStatus()` in `useThreads`, Execute ⚡ button in ClawMode concierge view, approval card with Approve/Reject UI, `TRUSTED_COMMANDS` allowlist (14 patterns), `classifyCommandTrust()`, `EXECUTION_INTENT_PROMPT`, `callExecutorApi()` helper for query-param edge functions, `ApprovedShellAdapter` for real command execution in MaestroClaw, `ADD_EXECUTOR_JOB`/`UPDATE_EXECUTOR_JOB`/`SET_PENDING_EXECUTION` context actions, agent role enforcement (council excluded from execution, executor excluded from broadcast) | 2026-04-20 (`npm run typecheck`, `npm run build`) |
+| **Claw Mode Phase 3** — build from chat: `buildFromChat()` flow (plan → review → build → commit), `BUILD_PLAN_PROMPT` for structured plan generation, `ChatBuildPlan`/`ChatBuildFile`/`ChatBuildPhase` types, `generateBuildPlan()` + `executeBuildPlan()` + `approveBuildPlan()` + `cancelBuildPlan()` in `useThreads`, Build 🏗️ button in concierge view (only visible when repo connected), build plan approval card with file list + commit message preview, per-file progress messages in thread, GitHub PR creation via `github-execute` edge function, `SET_CHAT_BUILD_PLAN`/`SET_CHAT_BUILD_PHASE` context actions | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | CLAW_MODE_SPEC.md: council-approved architecture spec for Maestro v2 — thread-first model, Council/Claw hard split, 3 views (Orb/Carousel/Focus), 4-phase build plan, all 7 open questions resolved | 2026-04-20 (council-approved, commits `2d8cbd9`→`9380300`) |
 
 ## What's Broken or Incomplete
@@ -244,7 +245,8 @@ These areas change often and should be re-verified after any significant work se
 
 1. ~~**Claw Mode Phase 1 — Broadcast from Chat**~~ ✅ Done
 2. ~~**Claw Mode Phase 2 — Execution in Chat**~~ ✅ Done
-3. **Claw Mode Phase 3 — Build from Chat**: GitHub repo creation/scan through concierge, Supabase setup, scaffold via MaestroClaw, full build lifecycle from chat.
+3. ~~**Claw Mode Phase 3 — Build from Chat**~~ ✅ Done
+4. **Claw Mode Phase 4 — Polish + Migration**: Orb View with orbital agent nodes, thread sidebar, archive/pin UX, migrate legacy rounds to broadcast threads, retire old phase-gate UI.
 4. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
 5. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
 6. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion).

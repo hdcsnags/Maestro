@@ -5,7 +5,7 @@ import {
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
-  ClawView, ExecutionIntent,
+  ClawView, ExecutionIntent, ChatBuildPlan, ChatBuildPhase,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -60,6 +60,8 @@ export interface MaestroState {
   conciergeModel: string;
   isConciergeSending: boolean;
   pendingExecution: { jobId: string; intent: ExecutionIntent; threadId: string } | null;
+  chatBuildPlan: ChatBuildPlan | null;
+  chatBuildPhase: ChatBuildPhase;
 }
 
 type Action =
@@ -133,7 +135,9 @@ type Action =
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
-  | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean };
+  | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
+  | { type: 'SET_CHAT_BUILD_PLAN'; payload: ChatBuildPlan | null }
+  | { type: 'SET_CHAT_BUILD_PHASE'; payload: ChatBuildPhase };
 
 const initial: MaestroState = {
   workspace: null,
@@ -184,6 +188,8 @@ const initial: MaestroState = {
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
   pendingExecution: null,
+  chatBuildPlan: null,
+  chatBuildPhase: 'idle',
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -348,6 +354,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };
+    case 'SET_CHAT_BUILD_PLAN': return { ...state, chatBuildPlan: action.payload };
+    case 'SET_CHAT_BUILD_PHASE': return { ...state, chatBuildPhase: action.payload };
     default: return state;
   }
 }

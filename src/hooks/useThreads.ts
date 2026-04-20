@@ -3,13 +3,15 @@ import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob } from '../types';
-import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, ChatBuildPlan, ChatBuildFile, FileManifestEntry, ExecutionRun } from '../types';
+import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, BUILD_PLAN_PROMPT } from '../types';
 
 interface OrchestrateResult {
   content?: string;
   text?: string;
+  file_manifest?: FileManifestEntry[];
   title?: string;
+  signals?: Record<string, string | undefined>;
   usage?: { total_tokens?: number };
 }
 
@@ -473,6 +475,243 @@ export function useThreads() {
     }
   }, [user, state.activeSession, addMessage, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
+  // ─── Build from Chat (Phase 3) ──────────────────────────────
+
+  // Generate a build plan from user's description
+  const generateBuildPlan = useCallback(async (
+    threadId: string,
+    userMessage: string,
+  ): Promise<ChatBuildPlan | null> => {
+    try {
+      await ensureAuth();
+      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+        prompt: userMessage,
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        agentName: 'BuildPlanner',
+        agentRole: BUILD_PLAN_PROMPT,
+        mode: 'analysis',
+        session_id: state.activeSession?.id,
+      });
+
+      const raw = result.content ?? result.text ?? '';
+      const cleaned = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+      return JSON.parse(cleaned) as ChatBuildPlan;
+    } catch (err) {
+      console.error('Failed to generate build plan:', err);
+      await addMessage(threadId, 'system', '❌ Could not generate build plan. Try rephrasing.');
+      return null;
+    }
+  }, [state.activeSession, ensureAuth, addMessage]);
+
+  // Execute the build: call orchestrate in build mode for each file, then commit via github-execute
+  const executeBuildPlan = useCallback(async (
+    threadId: string,
+    plan: ChatBuildPlan,
+  ): Promise<void> => {
+    if (!user || !state.activeSession) return;
+
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'building' });
+
+    const activeRepo = state.repoConnections?.find((r: { is_active: boolean }) => r.is_active);
+    if (!activeRepo) {
+      await addMessage(threadId, 'system', '❌ No active repo connection. Connect a repo in the Vault first.');
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+      return;
+    }
+
+    const allManifestEntries: FileManifestEntry[] = [];
+    const buildFiles = plan.files.filter((f: ChatBuildFile) => f.action !== 'delete');
+    const deleteFiles = plan.files.filter((f: ChatBuildFile) => f.action === 'delete');
+
+    // Build each file via orchestrate in build mode
+    for (const file of buildFiles) {
+      await addMessage(threadId, 'system', `🔨 Building \`${file.path}\` — ${file.description}...`);
+
+      try {
+        await ensureAuth();
+        const buildPrompt = `Build the file "${file.path}": ${file.description}\n\nContext from the overall plan: ${plan.description}`;
+
+        const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+          prompt: buildPrompt,
+          provider: 'anthropic',
+          model: state.conciergeModel || 'claude-sonnet-4-6',
+          agentName: 'Builder',
+          agentRole: 'You are a code builder. Write complete, production-ready files.',
+          mode: 'build',
+          session_id: state.activeSession.id,
+          scopedPaths: [file.path],
+        });
+
+        if (result.file_manifest && result.file_manifest.length > 0) {
+          allManifestEntries.push(...result.file_manifest);
+          const lineCount = result.file_manifest.reduce((sum, e) =>
+            sum + (e.content ? e.content.split('\n').length : 0), 0);
+          await addMessage(threadId, 'system', `✅ \`${file.path}\` — ${lineCount} lines`);
+        } else {
+          await addMessage(threadId, 'system', `⚠️ \`${file.path}\` — no file manifest returned, skipping`);
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        await addMessage(threadId, 'system', `❌ \`${file.path}\` failed: ${errorMessage}`);
+      }
+    }
+
+    // Add delete entries
+    for (const file of deleteFiles) {
+      allManifestEntries.push({ path: file.path, content: null, operation: 'delete' });
+      await addMessage(threadId, 'system', `🗑️ Marked for deletion: \`${file.path}\``);
+    }
+
+    if (allManifestEntries.length === 0) {
+      await addMessage(threadId, 'system', '❌ No files were built successfully. Aborting.');
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+      return;
+    }
+
+    // Commit via github-execute
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'committing' });
+    await addMessage(threadId, 'system', `📦 Committing ${allManifestEntries.length} file(s) to GitHub...`);
+
+    try {
+      // Create execution run
+      const { data: run, error: runErr } = await supabase
+        .from('execution_runs')
+        .insert({
+          session_id: state.activeSession.id,
+          user_id: user.id,
+          repo_connection_id: activeRepo.id,
+          execution_mode: 'build',
+          status: 'approved',
+          strategy: 'synthesized',
+          branch_name: plan.branch_name || `maestro/build/${Date.now()}`,
+          requires_approval: false,
+        } as never)
+        .select()
+        .maybeSingle();
+
+      if (runErr || !run) {
+        throw new Error(runErr?.message || 'Failed to create execution run');
+      }
+
+      const execRun = run as unknown as ExecutionRun;
+
+      // Call github-execute
+      const result = await invokeEdgeFunction<{
+        result?: { prs?: Array<{ html_url: string }>; written_files?: string[]; errors?: string[] };
+        error?: string;
+      }>('github-execute', {
+        mode: 'synthesized',
+        repo_connection_id: activeRepo.id,
+        execution_run_id: execRun.id,
+        session_id: state.activeSession.id,
+        patches: [{
+          agent_name: 'ChatBuilder',
+          agent_id: 'chat-build',
+          content: plan.description,
+          scoped_paths: plan.files.map((f: ChatBuildFile) => f.path),
+          commit_message: plan.commit_message,
+          conductor_approved: true,
+          file_manifest: allManifestEntries,
+        }],
+        conductor_approved: true,
+        commit_message: plan.commit_message,
+      });
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      const prUrls = result.result?.prs?.map(p => p.html_url) ?? [];
+      const writtenCount = result.result?.written_files?.length ?? allManifestEntries.length;
+      const errors = result.result?.errors ?? [];
+
+      let summary = `✅ **Build complete!** ${writtenCount} file(s) written.`;
+      if (prUrls.length > 0) {
+        summary += `\n\n🔗 PR: ${prUrls.join('\n')}`;
+      }
+      if (errors.length > 0) {
+        summary += `\n\n⚠️ Warnings: ${errors.join(', ')}`;
+      }
+
+      await addMessage(threadId, 'system', summary);
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'done' });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addMessage(threadId, 'system', `❌ Commit failed: ${errorMessage}`);
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+    }
+  }, [user, state.activeSession, state.conciergeModel, state.repoConnections, ensureAuth, addMessage, dispatch]);
+
+  // Full build-from-chat flow: plan → review → build → commit
+  const buildFromChat = useCallback(async (
+    threadId: string,
+    userMessage: string,
+  ): Promise<void> => {
+    if (!user || !state.activeSession) return;
+
+    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'planning' });
+
+    try {
+      await addMessage(threadId, 'user', `🏗️ ${userMessage}`);
+      await addMessage(threadId, 'system', '📋 Generating build plan...');
+
+      const plan = await generateBuildPlan(threadId, userMessage);
+      if (!plan) {
+        dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+        return;
+      }
+
+      // Store plan and show for review
+      dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: plan });
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'reviewing' });
+
+      // Format plan as a readable message
+      const fileList = plan.files.map((f: ChatBuildFile) => {
+        const icon = f.action === 'create' ? '📄' : f.action === 'update' ? '📝' : '🗑️';
+        return `  ${icon} \`${f.path}\` — ${f.description}`;
+      }).join('\n');
+
+      await addMessage(threadId, 'system',
+        `📋 **Build Plan**\n\n${plan.description}\n\n**Files (${plan.files.length}):**\n${fileList}\n\n**Commit:** ${plan.commit_message}\n\n👆 Click **Approve Build** to proceed or **Cancel** to abort.`
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addMessage(threadId, 'system', `❌ Build planning error: ${errorMessage}`);
+      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+    } finally {
+      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
+    }
+  }, [user, state.activeSession, addMessage, generateBuildPlan, dispatch]);
+
+  // Approve and execute a pending build plan
+  const approveBuildPlan = useCallback(async (
+    threadId: string,
+  ): Promise<void> => {
+    const plan = state.chatBuildPlan;
+    if (!plan) return;
+
+    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
+
+    try {
+      await addMessage(threadId, 'system', '🚀 Build approved — starting execution...');
+      await executeBuildPlan(threadId, plan);
+    } finally {
+      dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
+      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
+    }
+  }, [state.chatBuildPlan, addMessage, executeBuildPlan, dispatch]);
+
+  // Cancel a pending build plan
+  const cancelBuildPlan = useCallback(async (
+    threadId: string,
+  ): Promise<void> => {
+    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
+    await addMessage(threadId, 'system', '🚫 Build cancelled.');
+  }, [addMessage, dispatch]);
+
   return {
     loadThreads,
     loadThreadMessages,
@@ -487,5 +726,8 @@ export function useThreads() {
     approveExecutionJob,
     pollJobStatus,
     executeFromChat,
+    buildFromChat,
+    approveBuildPlan,
+    cancelBuildPlan,
   };
 }

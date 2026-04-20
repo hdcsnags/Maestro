@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle } from 'lucide-react';
+import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer } from 'lucide-react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useOrchestration } from '../../hooks/useOrchestration';
@@ -9,7 +9,7 @@ import FolioCarousel from './FolioCarousel';
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus } = useThreads();
+  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat, approveBuildPlan, cancelBuildPlan } = useThreads();
   const { broadcast, synthesize } = useOrchestration();
   const { createSession } = useWorkspace();
   const [input, setInput] = useState('');
@@ -291,6 +291,32 @@ export default function ClawMode() {
     await loadThreadMessages(pending.threadId);
   }, [state.pendingExecution, addMessage, loadThreadMessages, dispatch]);
 
+  const handleBuild = useCallback(async () => {
+    const text = input.trim();
+    if (!text || state.isConciergeSending) return;
+    setInput('');
+
+    const threadId = state.activeThread?.id;
+    if (!threadId) return;
+
+    await buildFromChat(threadId, text);
+    await loadThreadMessages(threadId);
+  }, [input, state.isConciergeSending, state.activeThread, buildFromChat, loadThreadMessages]);
+
+  const handleApproveBuild = useCallback(async () => {
+    const threadId = state.activeThread?.id;
+    if (!threadId) return;
+    await approveBuildPlan(threadId);
+    await loadThreadMessages(threadId);
+  }, [state.activeThread, approveBuildPlan, loadThreadMessages]);
+
+  const handleCancelBuild = useCallback(async () => {
+    const threadId = state.activeThread?.id;
+    if (!threadId) return;
+    await cancelBuildPlan(threadId);
+    await loadThreadMessages(threadId);
+  }, [state.activeThread, cancelBuildPlan, loadThreadMessages]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -477,6 +503,59 @@ export default function ClawMode() {
               </div>
             )}
 
+            {/* Pending build plan approval card */}
+            {state.chatBuildPhase === 'reviewing' && state.chatBuildPlan && (
+              <div className="mx-auto max-w-md rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 my-3">
+                <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium mb-2">
+                  <Hammer size={14} />
+                  Build Plan Ready
+                </div>
+                <div className="text-white/70 text-sm mb-2">
+                  {state.chatBuildPlan.description}
+                </div>
+                <div className="space-y-1 mb-3">
+                  {state.chatBuildPlan.files.map((f, i) => {
+                    const icon = f.action === 'create' ? '📄' : f.action === 'update' ? '📝' : '🗑️';
+                    return (
+                      <div key={i} className="text-xs text-white/50 font-mono">
+                        {icon} {f.path} — <span className="text-white/30">{f.description}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <code className="block text-xs text-white/40 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
+                  {state.chatBuildPlan.commit_message}
+                </code>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleApproveBuild}
+                    disabled={state.isConciergeSending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 
+                               text-white text-xs transition-all disabled:opacity-50"
+                  >
+                    <Check size={12} /> Approve Build
+                  </button>
+                  <button
+                    onClick={handleCancelBuild}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 
+                               text-red-300 text-xs transition-all"
+                  >
+                    <XCircle size={12} /> Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Build progress indicator */}
+            {(state.chatBuildPhase === 'building' || state.chatBuildPhase === 'committing') && (
+              <div className="mx-auto max-w-md rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 my-3">
+                <div className="flex items-center gap-2 text-emerald-400/70 text-sm">
+                  <Loader2 size={14} className="animate-spin" />
+                  {state.chatBuildPhase === 'building' ? 'Building files...' : 'Committing to GitHub...'}
+                </div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -639,13 +718,28 @@ export default function ClawMode() {
               <span className="hidden sm:inline">Execute</span>
             </button>
           )}
+
+          {/* Build 🏗️ — available in concierge view when repo is connected */}
+          {clawView === 'concierge' && state.repoConnections?.some((r: { is_active: boolean }) => r.is_active) && (
+            <button
+              onClick={handleBuild}
+              disabled={!input.trim() || state.isConciergeSending || state.chatBuildPhase !== 'idle'}
+              className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20
+                         hover:bg-emerald-500/20 text-emerald-400/70 hover:text-emerald-400
+                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs"
+              title="Build &amp; commit to repo (🏗️)"
+            >
+              <Hammer size={14} />
+              <span className="hidden sm:inline">Build</span>
+            </button>
+          )}
         </div>
 
         <div className="text-center mt-2">
           <span className="text-[10px] text-white/15">
             {clawView === 'focus'
               ? 'Enter to send · Esc to close · ← Back to orchestra'
-              : 'Enter to send · Broadcast to ask the orchestra · ⚡ Execute with Claw · Esc to close'}
+              : 'Enter to send · Broadcast · ⚡ Execute · 🏗️ Build · Esc to close'}
           </span>
         </div>
       </div>

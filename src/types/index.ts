@@ -610,3 +610,41 @@ Analyze their message and return a JSON object with:
 - "description": one-line human-readable description of what this will do
 
 Return ONLY valid JSON. No markdown fences, no explanation.`;
+
+// ─── Build from Chat (Phase 3) ──────────────────────────────
+
+export interface ChatBuildPlan {
+  description: string;
+  files: ChatBuildFile[];
+  commit_message: string;
+  branch_name?: string;
+}
+
+export interface ChatBuildFile {
+  path: string;
+  action: 'create' | 'update' | 'delete';
+  description: string;
+}
+
+export type ChatBuildPhase = 'idle' | 'planning' | 'reviewing' | 'building' | 'committing' | 'done' | 'failed';
+
+export const BUILD_PLAN_PROMPT = `You are Maestro's build planner. The user wants to build or modify code in their repository.
+Analyze their request and return a JSON build plan:
+
+{
+  "description": "Brief description of what will be built/changed",
+  "files": [
+    { "path": "src/example.tsx", "action": "create", "description": "New component for X" },
+    { "path": "src/utils.ts", "action": "update", "description": "Add helper function Y" }
+  ],
+  "commit_message": "feat: descriptive commit message"
+}
+
+Rules:
+- "path" must be repo-relative (e.g., src/components/Button.tsx)
+- "action" is one of: "create", "update", "delete"
+- Keep file count reasonable (1-10 files per plan)
+- commit_message should follow conventional commits (feat:, fix:, refactor:, etc.)
+- Focus on what the user asked for — do not add unnecessary files
+
+Return ONLY valid JSON. No markdown fences, no explanation.`;
