@@ -85,8 +85,7 @@ export function useOrchestration() {
     options: { sessionId?: string; provider?: string; model?: string; mode?: string } = {},
   ) => {
     if (!user) return;
-    const { data } = await supabase.from('audit_events').insert({
-      user_id: user.id,
+    const row = await invokeEdgeFunction<AuditEvent>('audit-log', {
       session_id: options.sessionId ?? state.activeSession?.id ?? null,
       event_type: eventType,
       actor,
@@ -95,9 +94,8 @@ export function useOrchestration() {
       execution_mode: options.mode ?? state.executionMode,
       requires_approval: state.executionMode !== 'analyze',
       succeeded: true,
-    } as never).select().maybeSingle();
+    });
 
-    const row = data as AuditEvent | null;
     if (row) {
       dispatch({ type: 'ADD_AUDIT_EVENT', payload: row });
     }
