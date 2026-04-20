@@ -1,5 +1,8 @@
 project_id = "maestro"
 
+[functions."audit-log"]
+verify_jwt = false
+
 [functions.architect]
 verify_jwt = false
 
