@@ -67,19 +67,47 @@ export async function executeJob(
       });
     }
 
-    // Report artifacts
-    if (result.artifacts) {
-      await reportEvent(config, job.id, "artifact", {
-        manifest: result.artifacts,
-      });
+    // Build artifact manifest from adapter output.
+    // CLI adapters (--print mode) return text, not structured artifacts.
+    // If the job specifies allowed_paths, synthesize an artifact from the output.
+    let artifacts = result.artifacts ?? {};
+
+    if (Object.keys(artifacts).length === 0 && result.success && result.output) {
+      const targetPath = job.allowed_paths?.[0];
+      if (targetPath) {
+        // Extract the best code block from Claude's output, or use raw output
+        const extracted = extractFileContent(result.output);
+        if (extracted.length > 0) {
+          artifacts = { [targetPath]: extracted };
+          console.log(`  📄 Synthesized artifact for ${targetPath} (${extracted.length} chars)`);
+        }
+      }
     }
 
-    // Complete the job
-    await completeJob(config, job.id, result.success, {
-      result_summary: result.output.slice(0, 10_000),
-      error_text: result.error,
-      artifact_manifest: result.artifacts,
-    });
+    // Report artifacts
+    if (Object.keys(artifacts).length > 0) {
+      // Convert {path: content} to array format Maestro web expects
+      const manifestArray = Object.entries(artifacts).map(([path, content]) => ({
+        path,
+        content,
+        operation: "create",
+      }));
+      await reportEvent(config, job.id, "artifact", {
+        manifest: manifestArray,
+      });
+
+      // Complete with artifact manifest in array format
+      await completeJob(config, job.id, result.success, {
+        result_summary: result.output.slice(0, 10_000),
+        error_text: result.error,
+        artifact_manifest: manifestArray,
+      });
+    } else {
+      await completeJob(config, job.id, result.success, {
+        result_summary: result.output.slice(0, 10_000),
+        error_text: result.error,
+      });
+    }
 
     jobSucceeded = result.success;
     console.log(
@@ -118,4 +146,39 @@ export async function executeJob(
       }
     }
   }
+}
+
+/**
+ * Extracts file content from CLI adapter text output.
+ * Claude --print mode wraps code in markdown fences. This strips them
+ * and returns the inner content. Falls back to raw output if no fences found.
+ */
+function extractFileContent(output: string): string {
+  // Strategy 1: Find the largest fenced code block
+  const fencePattern = /```[\w]*\n([\s\S]*?)```/g;
+  let bestBlock = "";
+  let match: RegExpExecArray | null;
+
+  while ((match = fencePattern.exec(output)) !== null) {
+    const block = match[1].trim();
+    if (block.length > bestBlock.length) {
+      bestBlock = block;
+    }
+  }
+
+  if (bestBlock.length > 50) return bestBlock;
+
+  // Strategy 2: If output looks like raw code (no markdown prose),
+  // use it directly — Claude sometimes outputs bare code with --print
+  const lines = output.trim().split("\n");
+  const codeIndicators = lines.filter(l =>
+    /^(import |export |const |let |var |function |class |<|\/\/|\/\*|\{|\}|#|@|<!DOCTYPE)/.test(l.trim())
+  ).length;
+
+  if (codeIndicators > lines.length * 0.3) {
+    return output.trim();
+  }
+
+  // Strategy 3: Nothing usable
+  return "";
 }
