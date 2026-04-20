@@ -17,6 +17,11 @@ function json(data: unknown, status = 200) {
 }
 
 function err(message: string, status = 400) {
+  if (status >= 500) {
+    const requestId = crypto.randomUUID();
+    console.error(`[executor-api:${requestId}] internal error`, message);
+    return json({ error: "Internal server error", request_id: requestId }, status);
+  }
   return json({ error: message }, status);
 }
 
@@ -494,8 +499,9 @@ Deno.serve(async (req: Request) => {
 
     return err(`Unknown action: ${action}`, 404);
   } catch (e) {
-    console.error("executor-api error:", e);
-    return err(e?.message ?? "Internal error", 500);
+    const requestId = crypto.randomUUID();
+    console.error(`[executor-api:${requestId}] unhandled error`, e);
+    return json({ error: "Internal server error", request_id: requestId }, 500);
   }
 });
 

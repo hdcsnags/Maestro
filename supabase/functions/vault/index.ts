@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest, respondInternalError } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +20,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const { adminClient, userClient: supabase, userId } = auth;
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
@@ -152,10 +150,6 @@ Deno.serve(async (req: Request) => {
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return respondInternalError("vault", corsHeaders, err);
   }
 });

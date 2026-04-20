@@ -100,3 +100,17 @@ export function respondJson(
 ): Response {
   return jsonResponse(body, status, corsHeaders);
 }
+
+export function respondInternalError(
+  functionName: string,
+  corsHeaders: Record<string, string>,
+  error: unknown,
+): Response {
+  const requestId = crypto.randomUUID();
+  console.error(`[${functionName}:${requestId}] internal error`, error);
+  return jsonResponse(
+    { error: "Internal server error", request_id: requestId },
+    500,
+    corsHeaders,
+  );
+}
