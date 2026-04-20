@@ -116,7 +116,7 @@ export default function VaultDrawer() {
       <div className="reveal-label mb-3" style={{ marginTop: '8px' }}>AI Providers</div>
 
       <div className="flex flex-col gap-3">
-        {PROVIDER_REGISTRY.map(provider => {
+        {PROVIDER_REGISTRY.filter(p => p.id !== 'maestroclaw').map(provider => {
           const conn = getConnection(provider.id);
           const isConnected = conn?.is_connected ?? false;
           const isEditing = editingProvider === provider.id;
