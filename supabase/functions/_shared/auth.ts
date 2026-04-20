@@ -10,11 +10,114 @@ export interface AuthenticatedRequestContext {
   userId: string;
 }
 
+interface RateLimitPolicy {
+  maxRequests: number;
+  windowSeconds: number;
+}
+
+interface RateLimitCheckResult {
+  allowed: boolean;
+  remaining: number;
+  retry_after_seconds: number;
+}
+
+const DEFAULT_RATE_LIMIT_POLICY: RateLimitPolicy = {
+  maxRequests: 60,
+  windowSeconds: 60,
+};
+
+// Keep AI-costly paths tighter while allowing normal UI bursts.
+const RATE_LIMIT_POLICIES: Record<string, RateLimitPolicy> = {
+  "audit-log": { maxRequests: 300, windowSeconds: 60 },
+  architect: { maxRequests: 8, windowSeconds: 300 },
+  bouncer: { maxRequests: 30, windowSeconds: 60 },
+  concierge: { maxRequests: 30, windowSeconds: 60 },
+  "concierge-triage": { maxRequests: 30, windowSeconds: 60 },
+  design: { maxRequests: 8, windowSeconds: 300 },
+  "executor-api": { maxRequests: 120, windowSeconds: 60 },
+  "github-auth": { maxRequests: 20, windowSeconds: 300 },
+  "github-create-repo": { maxRequests: 6, windowSeconds: 300 },
+  "github-execute": { maxRequests: 20, windowSeconds: 300 },
+  "github-read": { maxRequests: 120, windowSeconds: 60 },
+  "github-repos": { maxRequests: 60, windowSeconds: 60 },
+  intake: { maxRequests: 6, windowSeconds: 300 },
+  orchestrate: { maxRequests: 30, windowSeconds: 60 },
+  synthesize: { maxRequests: 20, windowSeconds: 60 },
+  vault: { maxRequests: 20, windowSeconds: 300 },
+};
+
 function jsonResponse(body: unknown, status: number, corsHeaders: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function isRateLimitCheckResult(value: unknown): value is RateLimitCheckResult {
+  return typeof value === "object"
+    && value !== null
+    && "allowed" in value
+    && "remaining" in value
+    && "retry_after_seconds" in value;
+}
+
+function resolveRateLimitPolicy(functionName: string): RateLimitPolicy {
+  return RATE_LIMIT_POLICIES[functionName] ?? DEFAULT_RATE_LIMIT_POLICY;
+}
+
+async function enforceRateLimit(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+  functionName: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response | null> {
+  const policy = resolveRateLimitPolicy(functionName);
+  const { data, error } = await adminClient.rpc("consume_edge_rate_limit", {
+    p_function_name: functionName,
+    p_max_requests: policy.maxRequests,
+    p_user_id: userId,
+    p_window_seconds: policy.windowSeconds,
+  });
+
+  if (error) {
+    const requestId = crypto.randomUUID();
+    console.error(`[auth:${functionName}:${requestId}] rate limit check failed`, error);
+    return jsonResponse(
+      { error: "Internal server error", request_id: requestId },
+      500,
+      corsHeaders,
+    );
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+  if (!isRateLimitCheckResult(result)) {
+    const requestId = crypto.randomUUID();
+    console.error(`[auth:${functionName}:${requestId}] invalid rate limit result`, data);
+    return jsonResponse(
+      { error: "Internal server error", request_id: requestId },
+      500,
+      corsHeaders,
+    );
+  }
+
+  if (result.allowed) {
+    return null;
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: "RATE_LIMIT_EXCEEDED",
+      message: `Too many ${functionName} requests. Retry in ${result.retry_after_seconds} seconds.`,
+    }),
+    {
+      status: 429,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+        "Retry-After": String(result.retry_after_seconds),
+      },
+    },
+  );
 }
 
 function getAuthToken(authHeader: string | null): { token: string } | { error: string } {
@@ -67,10 +170,19 @@ export async function requireAuthenticatedRequest(
   }
 
   const normalizedAuthHeader = `Bearer ${parsed.token}`;
+  const adminClient = createClient(supabaseUrl, serviceRoleKey);
+  const rateLimitResponse = await enforceRateLimit(
+    adminClient,
+    userId,
+    functionName,
+    corsHeaders,
+  );
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
   const userClient = createClient(supabaseUrl, publishableKey, {
     global: { headers: { Authorization: normalizedAuthHeader } },
   });
-  const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
   return {
     adminClient,
