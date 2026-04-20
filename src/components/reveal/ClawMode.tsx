@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch } from 'lucide-react';
+import { type LucideIcon, Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid, FilePlus2, FilePenLine, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
@@ -11,12 +11,71 @@ import FolioCarousel from './FolioCarousel';
 
 type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
 
-const INTENT_CONFIG: Record<ComposerIntent, { label: string; icon: string; color: string; bg: string; border: string }> = {
-  chat:      { label: 'Chat',      icon: '💬', color: 'text-white/70',       bg: 'bg-gold/80',         border: 'border-gold/30' },
-  broadcast: { label: 'Broadcast', icon: '📡', color: 'text-white/60',       bg: 'bg-white/10',        border: 'border-white/10' },
-  execute:   { label: 'Execute',   icon: '⚡', color: 'text-amber-400/80',   bg: 'bg-amber-500/20',    border: 'border-amber-500/20' },
-  build:     { label: 'Build',     icon: '🏗️', color: 'text-emerald-400/80', bg: 'bg-emerald-500/20',  border: 'border-emerald-500/20' },
+interface IntentConfig {
+  label: string;
+  Icon: LucideIcon;
+  actionIcon: LucideIcon;
+  color: string;
+  bg: string;
+  border: string;
+  buttonText: string;
+}
+
+const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
+  chat: {
+    label: 'Chat',
+    Icon: MessageSquare,
+    actionIcon: Send,
+    color: 'text-white/80',
+    bg: 'bg-gold/80',
+    border: 'border-gold/30',
+    buttonText: 'text-void',
+  },
+  broadcast: {
+    label: 'Broadcast',
+    Icon: Radio,
+    actionIcon: Radio,
+    color: 'text-white/70',
+    bg: 'bg-white/10',
+    border: 'border-white/15',
+    buttonText: 'text-white/80',
+  },
+  execute: {
+    label: 'Execute',
+    Icon: Zap,
+    actionIcon: Zap,
+    color: 'text-signal-warn/90',
+    bg: 'bg-signal-warn/15',
+    border: 'border-signal-warn/25',
+    buttonText: 'text-signal-warn/95',
+  },
+  build: {
+    label: 'Build',
+    Icon: Hammer,
+    actionIcon: Hammer,
+    color: 'text-signal-ok/90',
+    bg: 'bg-signal-ok/15',
+    border: 'border-signal-ok/25',
+    buttonText: 'text-signal-ok/95',
+  },
 };
+
+const THREAD_GROUPS = [
+  { type: 'concierge', Icon: Mic, label: 'Concierge' },
+  { type: 'broadcast', Icon: Radio, label: 'Broadcasts' },
+  { type: 'direct', Icon: MessageSquare, label: 'Direct' },
+  { type: 'execution', Icon: Zap, label: 'Execution' },
+] as const;
+
+const iconButtonClass = 'p-1.5 rounded-lg hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
+const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
+const headerButtonClass = 'flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
+
+function getBuildFileIcon(action: 'create' | 'update' | 'delete'): LucideIcon {
+  if (action === 'create') return FilePlus2;
+  if (action === 'update') return FilePenLine;
+  return Trash2;
+}
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
@@ -25,7 +84,12 @@ export default function ClawMode() {
   const { createSession } = useWorkspace();
   const [input, setInput] = useState('');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches,
+  );
   const [composerIntent, setComposerIntent] = useState<ComposerIntent>('chat');
   const [intentMenuOpen, setIntentMenuOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,8 +125,14 @@ export default function ClawMode() {
   );
 
   // Latest round info for carousel view
-  const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
-  const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
+  const latestRound = useMemo(
+    () => (state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null),
+    [state.rounds],
+  );
+  const latestResponses = useMemo(
+    () => (latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : []),
+    [latestRound, state.responses],
+  );
 
   // Close model picker on click outside
   useEffect(() => {
@@ -87,6 +157,22 @@ export default function ClawMode() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [intentMenuOpen]);
+
+  // Below md, the thread sidebar behaves as an overlay instead of consuming the layout.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const applyLayoutMode = (mobile: boolean) => {
+      setIsMobile(mobile);
+      setSidebarOpen(!mobile);
+    };
+
+    applyLayoutMode(mediaQuery.matches);
+    const handleChange = (event: MediaQueryListEvent) => applyLayoutMode(event.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   // Group threads by type for sidebar
   const threadGroups = useMemo(() => {
@@ -164,12 +250,14 @@ export default function ClawMode() {
   useEffect(() => {
     if (state.isBroadcasting) {
       wasBroadcasting.current = true;
-      if (clawView !== 'carousel') {
+      return;
+    }
+
+    if (wasBroadcasting.current && latestResponses.length > 0) {
+      wasBroadcasting.current = false;
+      if (clawView === 'concierge') {
         dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' });
       }
-    } else if (wasBroadcasting.current && latestResponses.length > 0) {
-      wasBroadcasting.current = false;
-      dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' });
     }
   }, [state.isBroadcasting, latestResponses.length, clawView, dispatch]);
 
@@ -205,7 +293,7 @@ export default function ClawMode() {
 
     // Log the broadcast intent in the concierge thread
     if (state.activeThread?.type === 'concierge') {
-      await addMessage(state.activeThread.id, 'user', `📡 Broadcasting: ${text}`);
+      await addMessage(state.activeThread.id, 'user', `Broadcasting: ${text}`);
     }
 
     // Create a broadcast thread and write the prompt as its first message
@@ -217,9 +305,7 @@ export default function ClawMode() {
     // Dispatch to existing broadcast infrastructure
     const agentIds = councilAgents.map(a => a.id);
     await broadcast(text, agentIds, sessionForBroadcast, { skipTriage: true });
-
-    dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' });
-  }, [input, state.isBroadcasting, state.activeSession, state.workspace, state.activeThread, councilAgents, broadcast, createSession, createThread, addMessage, dispatch]);
+  }, [input, state.isBroadcasting, state.activeSession, state.workspace, state.activeThread, councilAgents, broadcast, createSession, createThread, addMessage]);
 
   const handleSynthesize = useCallback(async () => {
     if (state.isSynthesizing || !latestRound) return;
@@ -229,7 +315,7 @@ export default function ClawMode() {
     // Get synthesis from the returned result, not from stale closure state
     const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
     if (conciergeThread && result?.content) {
-      await addMessage(conciergeThread.id, 'concierge', `🔄 **Synthesis**\n\n${result.content}`);
+      await addMessage(conciergeThread.id, 'concierge', `**Synthesis**\n\n${result.content}`);
       dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
     }
 
@@ -315,7 +401,7 @@ export default function ClawMode() {
     let execThreadId = threadId;
     if (state.activeThread?.type === 'concierge' && state.activeSession) {
       const execThread = await createThread(state.activeSession.id, 'execution', {
-        title: `⚡ ${text.slice(0, 50)}`,
+        title: `Execute: ${text.slice(0, 50)}`,
       });
       if (execThread) {
         execThreadId = execThread.id;
@@ -350,7 +436,7 @@ export default function ClawMode() {
   const handleRejectExecution = useCallback(async () => {
     const pending = state.pendingExecution;
     if (!pending) return;
-    await addMessage(pending.threadId, 'system', '🚫 Execution rejected by user.');
+    await addMessage(pending.threadId, 'system', 'Execution rejected by user.');
     dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
     await loadThreadMessages(pending.threadId);
   }, [state.pendingExecution, addMessage, loadThreadMessages, dispatch]);
@@ -400,6 +486,9 @@ export default function ClawMode() {
   const handleThreadClick = useCallback(async (thread: Thread) => {
     dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
     await loadThreadMessages(thread.id);
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
     if (thread.type === 'concierge') {
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
       dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
@@ -409,7 +498,7 @@ export default function ClawMode() {
     } else {
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
     }
-  }, [dispatch, loadThreadMessages]);
+  }, [dispatch, isMobile, loadThreadMessages]);
 
   // ─── Placeholder text based on view + intent ──────────────
   const placeholder = clawView === 'focus' && focusedAgent
@@ -421,18 +510,28 @@ export default function ClawMode() {
 
   const intentCfg = INTENT_CONFIG[composerIntent];
   const hasRepo = !!activeRepo;
+  const IntentIcon = intentCfg.Icon;
+  const SubmitIcon = intentCfg.actionIcon;
+  const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
 
   // ─── Render ───────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full w-full" style={{ isolation: 'isolate' }}>
+    <div
+      className="relative flex flex-col h-full w-full"
+      style={{ isolation: 'isolate' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Claw Mode workspace"
+    >
 
       {/* ─── Context Header ────────────────────────────────── */}
-      <div className="relative z-20 flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]">
-        <div className="flex items-center gap-3">
+      <div className="relative z-20 flex items-center justify-between gap-3 px-4 py-2.5 border-b border-white/[0.06]">
+        <div className="flex min-w-0 items-center gap-3">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+            className={iconButtonClass}
+            aria-label={sidebarOpen ? 'Collapse thread sidebar' : 'Expand thread sidebar'}
             title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
             {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
@@ -442,42 +541,45 @@ export default function ClawMode() {
           {clawView !== 'concierge' && (
             <button
               onClick={clawView === 'focus' ? handleBackToCarousel : handleBackToConcierge}
-              className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+              className={headerButtonClass}
+              aria-label={backLabel}
+              title={backLabel}
             >
               <ArrowLeft size={14} />
+              <span className="hidden sm:inline text-xs">{backLabel}</span>
             </button>
           )}
 
           {/* Thread type badge */}
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-            <span className="text-xs font-medium text-white/60 tracking-wide uppercase">
+            <span className="text-xs font-medium text-white/70 tracking-wide uppercase">
               {threadTypeLabel}
             </span>
           </div>
 
           {/* Context pills */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap" style={{ scrollbarWidth: 'none' }}>
             {clawView === 'focus' && focusedAgent && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/40">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/70">
                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: focusedAgent.color }} />
                 {focusedAgent.display_name || focusedAgent.name}
               </span>
             )}
             {clawView === 'carousel' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/40">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/70">
                 <Radio size={10} />
                 {latestResponses.length} responses
               </span>
             )}
             {state.chatBuildPhase !== 'idle' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-[11px] text-emerald-400/70">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-signal-ok/15 text-[11px] text-signal-ok/90">
                 <Hammer size={10} />
                 {state.chatBuildPhase}
               </span>
             )}
             {hasRepo && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/30">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/65">
                 <GitBranch size={10} />
                 {(activeRepo as { repo_full_name?: string })?.repo_full_name?.split('/')[1] || 'repo'}
               </span>
@@ -491,9 +593,10 @@ export default function ClawMode() {
             <button
               onClick={() => setModelPickerOpen(!modelPickerOpen)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] 
-                         text-[11px] text-white/50 hover:text-white/70 transition-all"
+                         text-[11px] text-white/65 hover:text-white/80 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
               aria-expanded={modelPickerOpen}
               aria-haspopup="listbox"
+              aria-label="Select concierge model"
             >
               <Bot size={11} />
               {currentModelLabel}
@@ -502,7 +605,7 @@ export default function ClawMode() {
 
             {modelPickerOpen && (
               <div
-                style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 224, zIndex: 9999 }}
+                style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 'min(224px, calc(100vw - 32px))', maxWidth: '90vw', zIndex: 9999 }}
                 className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
                 role="listbox"
               >
@@ -512,7 +615,7 @@ export default function ClawMode() {
                     onClick={() => handleModelSelect(m.id)}
                     role="option"
                     aria-selected={m.id === state.conciergeModel}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/50
                       ${m.id === state.conciergeModel
                         ? 'bg-gold/10 text-gold'
                         : 'text-white/60 hover:bg-white/5 hover:text-white/80'
@@ -528,7 +631,7 @@ export default function ClawMode() {
 
           {/* Focus view: agent info badge */}
           {clawView === 'focus' && focusedAgent && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px] text-white/40">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px] text-white/70">
               <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: focusedAgent.color }} />
               {focusedAgent.model}
             </div>
@@ -536,7 +639,8 @@ export default function ClawMode() {
 
           <button
             onClick={handleClose}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+            className={iconButtonClass}
+            aria-label="Exit Claw Mode"
             title="Exit to legacy workspace"
           >
             <X size={15} />
@@ -545,28 +649,37 @@ export default function ClawMode() {
       </div>
 
       {/* ─── Body: Sidebar + Content ───────────────────────── */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="relative flex-1 flex overflow-hidden">
+
+        {isMobile && sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close thread sidebar"
+            className="absolute inset-0 z-20 bg-black/45 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
         {/* Thread Sidebar */}
         {sidebarOpen && (
-          <div className="w-56 flex-shrink-0 border-r border-white/[0.06] overflow-y-auto py-2 claw-sidebar" 
-               style={{ background: 'rgba(0,0,0,0.15)' }}>
+          <div
+            className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-56 max-w-[80vw] shadow-2xl' : 'w-56 flex-shrink-0'} border-r border-white/[0.06] overflow-y-auto py-2 claw-sidebar`}
+            style={{ background: 'rgba(0,0,0,0.15)' }}
+            aria-label="Thread sidebar"
+          >
             {/* Thread groups */}
-            {([
-              { type: 'concierge', icon: '🎙', label: 'Concierge' },
-              { type: 'broadcast', icon: '📡', label: 'Broadcasts' },
-              { type: 'direct',    icon: '💬', label: 'Direct' },
-              { type: 'execution', icon: '⚡', label: 'Execution' },
-            ] as const).map(group => {
+            {THREAD_GROUPS.map(group => {
+              const GroupIcon = group.Icon;
               const threads = threadGroups[group.type] || [];
               if (threads.length === 0 && group.type !== 'concierge') return null;
               return (
                 <div key={group.type} className="mb-1">
-                  <div className="px-3 py-1.5 text-[10px] text-white/35 uppercase tracking-widest font-medium">
-                    {group.icon} {group.label}
+                  <div className="px-3 py-1.5 text-[10px] text-white/55 uppercase tracking-widest font-medium flex items-center gap-1.5">
+                    <GroupIcon size={11} />
+                    {group.label}
                   </div>
                   {threads.length === 0 && (
-                    <div className="px-3 py-1 text-[11px] text-white/25 italic">No threads yet</div>
+                    <div className="px-3 py-1 text-[11px] text-white/50 italic">No threads yet</div>
                   )}
                   {threads.map(thread => {
                     const isActive = state.activeThread?.id === thread.id;
@@ -579,8 +692,8 @@ export default function ClawMode() {
                         className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors rounded-md mx-1 
                           ${isActive
                             ? 'bg-gold/10 text-gold/90 border-l-2 border-gold/40'
-                            : 'text-white/40 hover:bg-white/[0.04] hover:text-white/60 border-l-2 border-transparent'
-                          }`}
+                            : 'text-white/70 hover:bg-white/[0.04] hover:text-white/85 border-l-2 border-transparent'
+                          } ${focusRingClass}`}
                         style={{ width: 'calc(100% - 8px)' }}
                       >
                         <div className="truncate flex items-center gap-1.5">
@@ -604,11 +717,14 @@ export default function ClawMode() {
                   className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors rounded-md mx-1 
                     ${clawView === 'carousel'
                       ? 'bg-white/[0.06] text-white/70'
-                      : 'text-white/30 hover:bg-white/[0.04] hover:text-white/50'
-                    }`}
+                      : 'text-white/65 hover:bg-white/[0.04] hover:text-white/80'
+                    } ${focusRingClass}`}
                   style={{ width: 'calc(100% - 8px)' }}
                 >
-                  🎠 Carousel ({latestResponses.length})
+                  <span className="flex items-center gap-1.5">
+                    <LayoutGrid size={12} />
+                    Carousel ({latestResponses.length})
+                  </span>
                 </button>
               </div>
             )}
@@ -627,7 +743,7 @@ export default function ClawMode() {
                     <Bot size={28} className="text-gold/60" />
                   </div>
                   <h3 className="text-lg font-medium text-white/70 mb-2">Concierge is ready</h3>
-                  <p className="text-sm text-white/40 max-w-md">
+                  <p className="text-sm text-white/60 max-w-md">
                     Chat, broadcast to the orchestra, execute commands, or build to a repo.
                   </p>
                 </div>
@@ -642,7 +758,7 @@ export default function ClawMode() {
                   <div className="w-7 h-7 rounded-full bg-gold/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Bot size={14} className="text-gold/60" />
                   </div>
-                  <div className="flex items-center gap-2 py-3 text-white/30 text-sm">
+                  <div className="flex items-center gap-2 py-3 text-white/60 text-sm">
                     <Loader2 size={14} className="animate-spin" />
                     Thinking...
                   </div>
@@ -651,8 +767,8 @@ export default function ClawMode() {
 
               {/* Pending execution approval card */}
               {state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id && (
-                <div className="mx-auto max-w-md rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 my-3">
-                  <div className="flex items-center gap-2 text-amber-400 text-sm font-medium mb-2">
+                <div className="mx-auto max-w-md rounded-xl border border-signal-warn/30 bg-signal-warn/10 p-4 my-3">
+                  <div className="flex items-center gap-2 text-signal-warn text-sm font-medium mb-2">
                     <Zap size={14} />
                     Approval Required
                   </div>
@@ -660,22 +776,24 @@ export default function ClawMode() {
                     {state.pendingExecution.intent.description}
                   </div>
                   {state.pendingExecution.intent.command && (
-                    <code className="block text-xs text-white/50 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
+                    <code className="block overflow-x-auto text-xs text-white/70 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
                       {state.pendingExecution.intent.command}
                     </code>
                   )}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleApproveExecution}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600/80 hover:bg-green-600 
-                                 text-white text-xs transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-ok/80 hover:bg-signal-ok 
+                                 text-white text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                      aria-label="Approve execution"
                     >
                       <Check size={12} /> Approve
                     </button>
                     <button
                       onClick={handleRejectExecution}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 
-                                 text-red-300 text-xs transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-risk/20 hover:bg-signal-risk/30 
+                                 text-signal-risk text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                      aria-label="Reject execution"
                     >
                       <XCircle size={12} /> Reject
                     </button>
@@ -685,8 +803,8 @@ export default function ClawMode() {
 
               {/* Pending build plan approval card */}
               {state.chatBuildPhase === 'reviewing' && state.chatBuildPlan && (
-                <div className="mx-auto max-w-md rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 my-3">
-                  <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium mb-2">
+                <div className="mx-auto max-w-md rounded-xl border border-signal-ok/30 bg-signal-ok/10 p-4 my-3">
+                  <div className="flex items-center gap-2 text-signal-ok text-sm font-medium mb-2">
                     <Hammer size={14} />
                     Build Plan Ready
                   </div>
@@ -695,30 +813,34 @@ export default function ClawMode() {
                   </div>
                   <div className="space-y-1 mb-3">
                     {state.chatBuildPlan.files.map((f, i) => {
-                      const icon = f.action === 'create' ? '📄' : f.action === 'update' ? '📝' : '🗑️';
+                      const FileActionIcon = getBuildFileIcon(f.action);
                       return (
-                        <div key={i} className="text-xs text-white/50 font-mono">
-                          {icon} {f.path} — <span className="text-white/30">{f.description}</span>
+                        <div key={i} className="text-xs text-white/70 font-mono flex items-center gap-1.5">
+                          <FileActionIcon size={12} className="flex-shrink-0" />
+                          <span className="truncate">
+                            {f.path} — <span className="text-white/60">{f.description}</span>
+                          </span>
                         </div>
                       );
                     })}
                   </div>
-                  <code className="block text-xs text-white/40 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
+                  <code className="block overflow-x-auto text-xs text-white/70 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
                     {state.chatBuildPlan.commit_message}
                   </code>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleApproveBuild}
                       disabled={state.isConciergeSending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 
-                                 text-white text-xs transition-all disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-ok/80 hover:bg-signal-ok 
+                                 text-white text-xs transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                     >
                       <Check size={12} /> Approve Build
                     </button>
                     <button
                       onClick={handleCancelBuild}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 
-                                 text-red-300 text-xs transition-all"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-risk/20 hover:bg-signal-risk/30 
+                                 text-signal-risk text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                      aria-label="Cancel build plan"
                     >
                       <XCircle size={12} /> Cancel
                     </button>
@@ -728,8 +850,8 @@ export default function ClawMode() {
 
               {/* Build progress indicator */}
               {(state.chatBuildPhase === 'building' || state.chatBuildPhase === 'committing') && (
-                <div className="mx-auto max-w-md rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 my-3">
-                  <div className="flex items-center gap-2 text-emerald-400/70 text-sm">
+                <div className="mx-auto max-w-md rounded-xl border border-signal-ok/20 bg-signal-ok/10 p-3 my-3">
+                  <div className="flex items-center gap-2 text-signal-ok/90 text-sm">
                     <Loader2 size={14} className="animate-spin" />
                     {state.chatBuildPhase === 'building' ? 'Building files...' : 'Committing to GitHub...'}
                   </div>
@@ -757,14 +879,14 @@ export default function ClawMode() {
               {/* Agent quick-focus bar */}
               {latestResponses.length > 0 && (
                 <div className="flex items-center gap-2 px-6 py-2 border-t border-white/[0.06] overflow-x-auto flex-shrink-0">
-                  <MessageSquare size={12} className="text-white/35 flex-shrink-0" />
-                  <span className="text-[10px] text-white/35 mr-1 flex-shrink-0">Chat:</span>
+                  <MessageSquare size={12} className="text-white/60 flex-shrink-0" />
+                  <span className="text-[10px] text-white/60 mr-1 flex-shrink-0">Direct chat:</span>
                   {latestResponses.map(r => (
                     <button
                       key={r.id}
                       onClick={() => r.agent_id && handleFocusAgent(r.agent_id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] 
-                                 text-[11px] text-white/40 hover:text-white/70 transition-all flex-shrink-0"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] 
+                                 text-[11px] text-white/70 hover:text-white/85 transition-all flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                     >
                       <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: r.agent_color }} />
                       {r.agent_name}
@@ -780,17 +902,17 @@ export default function ClawMode() {
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 claw-view-enter">
               {messages.length === 0 && !state.isConciergeSending && focusedAgent && (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-                       style={{ backgroundColor: `${focusedAgent.color}15` }}>
-                    <Bot size={28} style={{ color: `${focusedAgent.color}90` }} />
-                  </div>
-                  <h3 className="text-lg font-medium text-white/70 mb-2">
-                    {focusedAgent.display_name || focusedAgent.name}
-                  </h3>
-                  <p className="text-sm text-white/40 max-w-md">
-                    Direct conversation. This thread is preserved and included in synthesis.
-                  </p>
-                </div>
+                   <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+                        style={{ backgroundColor: `${focusedAgent.color}15` }}>
+                     <Bot size={28} style={{ color: `${focusedAgent.color}90` }} />
+                   </div>
+                   <h3 className="text-lg font-medium text-white/70 mb-2">
+                     {focusedAgent.display_name || focusedAgent.name}
+                   </h3>
+                   <p className="text-sm text-white/60 max-w-md">
+                     Direct conversation. This thread is preserved and included in synthesis.
+                   </p>
+                 </div>
               )}
 
               {messages.map(msg => (
@@ -804,14 +926,14 @@ export default function ClawMode() {
 
               {state.isConciergeSending && focusedAgent && (
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                       style={{ backgroundColor: `${focusedAgent.color}15` }}>
-                    <Bot size={14} style={{ color: `${focusedAgent.color}90` }} />
-                  </div>
-                  <div className="flex items-center gap-2 py-3 text-white/30 text-sm">
-                    <Loader2 size={14} className="animate-spin" />
-                    Thinking...
-                  </div>
+                   <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: `${focusedAgent.color}15` }}>
+                     <Bot size={14} style={{ color: `${focusedAgent.color}90` }} />
+                   </div>
+                   <div className="flex items-center gap-2 py-3 text-white/60 text-sm">
+                     <Loader2 size={14} className="animate-spin" />
+                     Thinking...
+                   </div>
                 </div>
               )}
 
@@ -823,40 +945,46 @@ export default function ClawMode() {
 
       {/* ─── Intent-First Composer ──────────────────────────── */}
       <div className="relative z-10 border-t border-white/[0.06] px-4 py-3">
-        <div className="flex items-end gap-2 max-w-4xl mx-auto">
+        <div className="flex flex-wrap items-end gap-2 max-w-4xl mx-auto sm:flex-nowrap">
           {/* Intent selector */}
-          <div ref={intentRef} style={{ position: 'relative' }}>
+          <div ref={intentRef} style={{ position: 'relative' }} className="order-2 sm:order-none">
             <button
               onClick={() => setIntentMenuOpen(!intentMenuOpen)}
               className={`flex items-center gap-1.5 px-3 h-10 rounded-xl ${intentCfg.bg} border ${intentCfg.border}
-                         ${intentCfg.color} transition-all text-xs font-medium flex-shrink-0`}
+                         ${intentCfg.color} transition-all text-xs font-medium flex-shrink-0 ${focusRingClass}`}
               aria-expanded={intentMenuOpen}
+              aria-haspopup="menu"
+              aria-label={`Composer intent: ${intentCfg.label}`}
             >
-              <span>{intentCfg.icon}</span>
+              <IntentIcon size={14} />
               <span className="hidden sm:inline">{intentCfg.label}</span>
               <ChevronDown size={11} className={`transition-transform ${intentMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {intentMenuOpen && (
               <div
-                style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, width: 180, zIndex: 9999 }}
+                style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, width: 180, maxWidth: 'calc(100vw - 32px)', zIndex: 9999 }}
                 className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
+                role="menu"
               >
                 {(Object.keys(INTENT_CONFIG) as ComposerIntent[]).map(intent => {
                   const cfg = INTENT_CONFIG[intent];
+                  const MenuIcon = cfg.Icon;
                   const disabled = intent === 'build' && !hasRepo;
                   return (
                     <button
                       key={intent}
                       onClick={() => { if (!disabled) { setComposerIntent(intent); setIntentMenuOpen(false); } }}
                       disabled={disabled}
-                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2
+                      role="menuitemradio"
+                      aria-checked={composerIntent === intent}
+                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2 ${focusRingClass}
                         ${composerIntent === intent ? 'bg-gold/10 text-gold' : 'text-white/60 hover:bg-white/5 hover:text-white/80'}
                         ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
                     >
-                      <span>{cfg.icon}</span>
+                      <MenuIcon size={14} />
                       <span>{cfg.label}</span>
-                      {disabled && <span className="text-[10px] text-white/30 ml-auto">No repo</span>}
+                      {disabled && <span className="text-[10px] text-white/60 ml-auto">No repo</span>}
                     </button>
                   );
                 })}
@@ -872,9 +1000,9 @@ export default function ClawMode() {
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
-            className="flex-1 resize-none rounded-xl bg-white/[0.04] border border-white/[0.08] 
-                       px-4 py-3 text-sm text-white/90 placeholder:text-white/30
-                       focus:outline-none focus:border-gold/30 focus:ring-1 focus:ring-gold/20
+            className="order-1 basis-full sm:order-none sm:basis-auto sm:flex-1 resize-none rounded-xl bg-white/[0.04] border border-white/[0.08] 
+                       px-4 py-3 text-sm text-white/90 placeholder:text-white/60
+                       focus:outline-none focus:border-gold/30 focus:ring-2 focus:ring-gold/50
                        transition-all min-h-[44px] max-h-[200px]"
             style={{ height: 'auto', overflow: 'hidden' }}
             onInput={(e) => {
@@ -894,11 +1022,12 @@ export default function ClawMode() {
             }}
             disabled={!input.trim() || state.isConciergeSending || state.isBroadcasting}
             className={`flex items-center justify-center w-10 h-10 rounded-xl ${intentCfg.bg}
-                       text-void disabled:opacity-30 disabled:cursor-not-allowed
-                       transition-all flex-shrink-0 hover:brightness-110`}
+                       ${intentCfg.buttonText} disabled:opacity-30 disabled:cursor-not-allowed
+                       transition-all flex-shrink-0 hover:brightness-110 ${focusRingClass}`}
+            aria-label={`${intentCfg.label} (Enter)`}
             title={`${intentCfg.label} (Enter)`}
           >
-            <Send size={15} />
+            <SubmitIcon size={15} />
           </button>
 
           {/* Synthesize — contextual, appears when responses exist */}
@@ -907,8 +1036,9 @@ export default function ClawMode() {
               onClick={handleSynthesize}
               disabled={state.isSynthesizing}
               className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                         hover:bg-white/[0.08] text-white/40 hover:text-white/60
-                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs"
+                         hover:bg-white/[0.08] text-white/70 hover:text-white/85
+                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+              aria-label="Synthesize responses"
               title="Synthesize responses"
             >
               <RefreshCw size={13} className={state.isSynthesizing ? 'animate-spin' : ''} />
@@ -918,8 +1048,8 @@ export default function ClawMode() {
         </div>
 
         <div className="text-center mt-1.5">
-          <span className="text-[10px] text-white/30">
-            Enter to {intentCfg.label.toLowerCase()} · Shift+Enter for newline · Esc to exit
+          <span className="text-[10px] text-white/60">
+            Enter to {intentCfg.label.toLowerCase()} · Shift+Enter for newline · Esc closes menus
           </span>
         </div>
       </div>
@@ -942,10 +1072,10 @@ function MessageBubble({ message, modelLabel, agentColor }: {
   if (isSystem) {
     return (
       <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-          <AlertCircle size={14} className="text-red-400/60" />
+        <div className="w-7 h-7 rounded-full bg-signal-risk/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+          <AlertCircle size={14} className="text-signal-risk/90" />
         </div>
-        <div className="py-2 px-3 rounded-lg bg-red-500/5 border border-red-500/10 text-sm text-red-300/70 max-w-[80%]">
+        <div className="py-2 px-3 rounded-lg bg-signal-risk/10 border border-signal-risk/20 text-sm text-signal-risk/90 max-w-[80%]">
           {message.content}
         </div>
       </div>
@@ -960,7 +1090,7 @@ function MessageBubble({ message, modelLabel, agentColor }: {
           {message.content}
         </div>
         <div className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center flex-shrink-0 mt-0.5">
-          <User size={14} className="text-white/40" />
+          <User size={14} className="text-white/70" />
         </div>
       </div>
     );
@@ -974,7 +1104,7 @@ function MessageBubble({ message, modelLabel, agentColor }: {
         <Bot size={14} style={{ color: `${accentColor}90` }} />
       </div>
       <div className="flex-1 max-w-[80%]">
-        <div className="text-[10px] text-white/40 mb-1">{modelLabel}</div>
+        <div className="text-[10px] text-white/60 mb-1">{modelLabel}</div>
         <div className="py-2.5 px-4 rounded-2xl rounded-bl-sm bg-white/[0.04] border border-white/[0.06] 
                         text-sm text-white/80 leading-relaxed claw-prose">
           <ReactMarkdown remarkPlugins={remarkPlugins}>{message.content}</ReactMarkdown>
