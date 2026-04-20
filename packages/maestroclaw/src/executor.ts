@@ -1,5 +1,5 @@
-import { mkdirSync, rmSync, renameSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
@@ -85,6 +85,14 @@ export async function executeJob(
 
     // Report artifacts
     if (Object.keys(artifacts).length > 0) {
+      // Write artifacts to workspace so files exist on disk
+      for (const [filePath, content] of Object.entries(artifacts)) {
+        const fullPath = join(jobDir, filePath);
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, content, "utf-8");
+        console.log(`  💾 Wrote ${filePath} to workspace`);
+      }
+
       // Convert {path: content} to array format Maestro web expects
       const manifestArray = Object.entries(artifacts).map(([path, content]) => ({
         path,
