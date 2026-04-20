@@ -29,6 +29,76 @@ async function hashToken(token: string): Promise<string> {
     .join("");
 }
 
+const TRUSTED_APPROVED_SHELL_COMMANDS: RegExp[] = [
+  /^git\s+status$/,
+  /^git\s+status\s+--short$/,
+  /^git\s+status\s+-sb$/,
+  /^git\s+branch$/,
+  /^git\s+branch\s+--show-current$/,
+  /^git\s+diff$/,
+  /^git\s+diff\s+--stat$/,
+  /^git\s+log\s+--oneline$/,
+  /^git\s+log\s+--oneline\s+-\d+$/,
+  /^npm\s+list$/,
+  /^npm\s+outdated$/,
+  /^node\s+--version$/,
+  /^gh\s+repo\s+view$/,
+  /^gh\s+issue\s+list$/,
+  /^gh\s+pr\s+list$/,
+];
+
+const UNSAFE_APPROVED_SHELL_PATTERN = /[;&|><`$%()]/;
+const GITHUB_REPO_URL_PATTERN =
+  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/;
+const GIT_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/;
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function hasUnsafeApprovedShellSyntax(command: string): boolean {
+  return /[\r\n]/.test(command) || UNSAFE_APPROVED_SHELL_PATTERN.test(command);
+}
+
+function isTrustedApprovedShellCommand(command: string): boolean {
+  return TRUSTED_APPROVED_SHELL_COMMANDS.some((pattern) => pattern.test(command));
+}
+
+function validateRepoContext(repoUrl: string | null, branch: string | null): string | null {
+  if (!repoUrl && branch) {
+    return "branch requires repo_url";
+  }
+  if (repoUrl && !GITHUB_REPO_URL_PATTERN.test(repoUrl)) {
+    return "repo_url must be a https://github.com/<owner>/<repo>[.git] URL";
+  }
+  if (branch && !GIT_BRANCH_PATTERN.test(branch)) {
+    return "branch contains unsupported characters";
+  }
+  return null;
+}
+
+function getApprovalPolicy(
+  adapter: string,
+  prompt: string,
+): { approvalRequired: boolean; rejectionReason?: string } {
+  if (adapter !== "approved_shell") {
+    return { approvalRequired: false };
+  }
+  if (hasUnsafeApprovedShellSyntax(prompt)) {
+    return {
+      approvalRequired: true,
+      rejectionReason: "approved_shell commands cannot contain shell metacharacters or newlines",
+    };
+  }
+  return {
+    approvalRequired: !isTrustedApprovedShellCommand(prompt),
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -113,7 +183,7 @@ Deno.serve(async (req: Request) => {
         })
         .eq("id", executor.id);
 
-      const { data: jobs } = await supabase
+      const { data: jobs } = await adminClient
         .from("executor_jobs")
         .select("*")
         .eq("status", "approved")
@@ -135,7 +205,7 @@ Deno.serve(async (req: Request) => {
       if (!job_id) return err("job_id is required");
 
       // Atomic claim: only if still approved
-      const { data: job, error: claimErr } = await supabase
+      const { data: job, error: claimErr } = await adminClient
         .from("executor_jobs")
         .update({
           executor_id: executor.id,
@@ -158,7 +228,7 @@ Deno.serve(async (req: Request) => {
         .eq("id", executor.id);
 
       // Emit event
-      await supabase.from("executor_job_events").insert({
+      await adminClient.from("executor_job_events").insert({
         job_id,
         event_type: "claimed",
         payload: { executor_id: executor.id, executor_name: executor.name },
@@ -179,7 +249,7 @@ Deno.serve(async (req: Request) => {
       if (!job_id || !event_type) return err("job_id and event_type required");
 
       // Verify this executor owns this job
-      const { data: job } = await supabase
+      const { data: job } = await adminClient
         .from("executor_jobs")
         .select("id, executor_id, status")
         .eq("id", job_id)
@@ -190,7 +260,7 @@ Deno.serve(async (req: Request) => {
 
       // Status change events update the job itself
       if (event_type === "status_change" && payload?.status === "running") {
-        await supabase
+        await adminClient
           .from("executor_jobs")
           .update({
             status: "running",
@@ -200,7 +270,7 @@ Deno.serve(async (req: Request) => {
           .eq("id", job_id);
       }
 
-      const { error: eventErr } = await supabase
+      const { error: eventErr } = await adminClient
         .from("executor_job_events")
         .insert({
           job_id,
@@ -232,7 +302,7 @@ Deno.serve(async (req: Request) => {
         return err("job_id and success are required");
 
       // Verify ownership
-      const { data: job } = await supabase
+      const { data: job } = await adminClient
         .from("executor_jobs")
         .select("id, executor_id, build_task_id")
         .eq("id", job_id)
@@ -245,7 +315,7 @@ Deno.serve(async (req: Request) => {
       const finalStatus = success ? "succeeded" : "failed";
 
       // Update job
-      const { error: completeErr } = await supabase
+      const { error: completeErr } = await adminClient
         .from("executor_jobs")
         .update({
           status: finalStatus,
@@ -261,7 +331,7 @@ Deno.serve(async (req: Request) => {
       if (completeErr) return err(completeErr.message, 500);
 
       // Emit completion event
-      await supabase.from("executor_job_events").insert({
+      await adminClient.from("executor_job_events").insert({
         job_id,
         event_type: "completed",
         payload: { success, result_summary, error_text },
@@ -269,7 +339,7 @@ Deno.serve(async (req: Request) => {
 
       // Bridge: sync result back to build_task if linked
       if (job.build_task_id) {
-        await supabase
+        await adminClient
           .from("build_tasks")
           .update({
             status: success ? "completed" : "failed",
@@ -299,7 +369,7 @@ Deno.serve(async (req: Request) => {
         .eq("owner_user_id", userId)
         .order("created_at", { ascending: false });
 
-      const { data: recentJobs } = await supabase
+      const { data: recentJobs } = await adminClient
         .from("executor_jobs")
         .select("*")
         .eq("requested_by", userId)
@@ -324,32 +394,67 @@ Deno.serve(async (req: Request) => {
         branch,
         allowed_paths,
         timeout_seconds,
-        approval_required,
         build_task_id,
       } = body;
 
-      if (!prompt) return err("prompt is required");
+      const promptText = typeof prompt === "string" ? prompt.trim() : "";
+      if (!promptText) return err("prompt is required");
 
-      const autoApprove = approval_required === false;
+      const adapterName =
+        typeof adapter === "string" && adapter.trim().length > 0
+          ? adapter.trim()
+          : "shell_stub";
+      const jobType =
+        typeof job_type === "string" && job_type.trim().length > 0
+          ? job_type.trim()
+          : "code_task";
+      const repoUrl =
+        typeof repo_url === "string" && repo_url.trim().length > 0
+          ? repo_url.trim()
+          : null;
+      const repoName =
+        typeof repo_name === "string" && repo_name.trim().length > 0
+          ? repo_name.trim()
+          : null;
+      const branchName =
+        typeof branch === "string" && branch.trim().length > 0
+          ? branch.trim()
+          : null;
+      const allowedPaths = normalizeStringArray(allowed_paths);
+      const timeoutSeconds =
+        typeof timeout_seconds === "number" && Number.isFinite(timeout_seconds)
+          ? Math.max(30, Math.min(3600, Math.round(timeout_seconds)))
+          : 300;
+
+      const repoContextError = validateRepoContext(repoUrl, branchName);
+      if (repoContextError) return err(repoContextError);
+
+      const approvalPolicy = getApprovalPolicy(adapterName, promptText);
+      if (approvalPolicy.rejectionReason) {
+        return err(approvalPolicy.rejectionReason);
+      }
+
+      const approvalRequired = approvalPolicy.approvalRequired;
       const now = new Date().toISOString();
+      const status = approvalRequired ? "queued" : "approved";
 
-      const { data: job, error: submitErr } = await supabase
+      const { data: job, error: submitErr } = await adminClient
         .from("executor_jobs")
         .insert({
           requested_by: userId,
           session_id: session_id ?? null,
-          prompt,
-          adapter: adapter ?? "shell_stub",
-          job_type: job_type ?? "code_task",
-          repo_url: repo_url ?? null,
-          repo_name: repo_name ?? null,
-          branch: branch ?? null,
-          allowed_paths: allowed_paths ?? [],
-          timeout_seconds: timeout_seconds ?? 300,
-          approval_required: !autoApprove,
-          status: autoApprove ? "approved" : "queued",
-          approved_at: autoApprove ? now : null,
-          approved_by: autoApprove ? userId : null,
+          prompt: promptText,
+          adapter: adapterName,
+          job_type: jobType,
+          repo_url: repoUrl,
+          repo_name: repoName,
+          branch: branchName,
+          allowed_paths: allowedPaths,
+          timeout_seconds: timeoutSeconds,
+          approval_required: approvalRequired,
+          status,
+          approved_at: approvalRequired ? null : now,
+          approved_by: approvalRequired ? null : userId,
           build_task_id: build_task_id ?? null,
         })
         .select()
@@ -367,7 +472,7 @@ Deno.serve(async (req: Request) => {
       const { job_id } = body;
       if (!job_id) return err("job_id is required");
 
-      const { data: job, error: approveErr } = await supabase
+      const { data: job, error: approveErr } = await adminClient
         .from("executor_jobs")
         .update({
           status: "approved",

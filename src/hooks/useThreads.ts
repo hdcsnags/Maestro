@@ -331,7 +331,6 @@ export function useThreads() {
     if (!user || !state.activeSession) return null;
 
     try {
-      const autoApprove = intent.trust === 'trusted';
       const prompt = intent.command || `${intent.action}: ${JSON.stringify(intent.params)}`;
 
       const result = await callExecutorApi<{ job: ExecutorJob }>('submit', {
@@ -339,17 +338,18 @@ export function useThreads() {
         adapter: intent.adapter,
         job_type: intent.action,
         session_id: state.activeSession.id,
-        approval_required: !autoApprove,
         timeout_seconds: 120,
       });
 
       if (result.job) {
         dispatch({ type: 'ADD_EXECUTOR_JOB', payload: result.job });
 
-        const statusIcon = autoApprove ? '⚡' : '⏳';
-        const statusText = autoApprove
-          ? `${statusIcon} Executing: ${intent.description}`
-          : `${statusIcon} Awaiting approval: **${intent.description}**\n\nCommand: \`${intent.command || intent.action}\``;
+        const requiresApproval = result.job.approval_required && result.job.status === 'queued';
+
+        const statusIcon = requiresApproval ? '⏳' : '⚡';
+        const statusText = requiresApproval
+          ? `${statusIcon} Awaiting approval: **${intent.description}**\n\nCommand: \`${intent.command || intent.action}\``
+          : `${statusIcon} Executing: ${intent.description}`;
         await addMessage(threadId, 'system', statusText);
       }
 
@@ -443,7 +443,7 @@ export function useThreads() {
       if (!job) return;
 
       // If it needs approval, stop here — UI will show approve button
-      if (intent.trust === 'approval_required') {
+      if (job.approval_required && job.status === 'queued') {
         // Store the pending job info so the UI can render an approval card
         dispatch({ type: 'SET_PENDING_EXECUTION', payload: { jobId: job.id, intent, threadId } });
         return;

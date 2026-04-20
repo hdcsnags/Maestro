@@ -3,7 +3,7 @@ import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { BuildTask, BuildTaskStatus, Agent, Executor } from '../types';
+import { BuildTask, BuildTaskStatus, Agent, Executor, ExecutorJob } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -57,7 +57,7 @@ interface DecomposeResult {
 
 export function useBuildExecution() {
   const { state, dispatch } = useMaestro();
-  const { user, session } = useAuth();
+  const { session } = useAuth();
 
   const [tasks, setTasks] = useState<BuildTask[]>([]);
   const tasksRef = useRef<BuildTask[]>([]); // synchronous truth — avoids stale-closure bugs
@@ -247,11 +247,10 @@ export function useBuildExecution() {
       ? agent.model
       : 'claude_code';
 
-    const { data: job, error: jobError } = await supabase
-      .from('executor_jobs')
-      .insert({
+    let job: ExecutorJob | null = null;
+    try {
+      const result = await invokeEdgeFunction<{ job: ExecutorJob }>('executor-api?action=submit', {
         session_id: sessionId,
-        requested_by: user?.id,
         job_type: 'build_task',
         adapter,
         prompt: task.prompt_slice,
@@ -260,17 +259,26 @@ export function useBuildExecution() {
         branch: repoConn?.default_branch ?? 'main',
         allowed_paths: [task.file_path],
         timeout_seconds: 600,
-        approval_required: false,
-        approved_at: new Date().toISOString(),
         build_task_id: task.id,
-        status: 'approved',
-      })
-      .select()
-      .single();
-
-    if (jobError || !job) {
+      });
+      job = result.job;
+    } catch (err) {
       await updateTaskStatus(task.id, 'failed', {
-        failure_reason: `Failed to create executor job: ${jobError?.message ?? 'unknown'}`,
+        failure_reason: `Failed to create executor job: ${err instanceof Error ? err.message : 'unknown'}`,
+      } as Partial<BuildTask>);
+      return false;
+    }
+
+    if (!job) {
+      await updateTaskStatus(task.id, 'failed', {
+        failure_reason: 'Executor job was not created',
+      } as Partial<BuildTask>);
+      return false;
+    }
+
+    if (job.approval_required || job.status !== 'approved') {
+      await updateTaskStatus(task.id, 'failed', {
+        failure_reason: 'Build task unexpectedly requires manual approval',
       } as Partial<BuildTask>);
       return false;
     }
@@ -283,7 +291,7 @@ export function useBuildExecution() {
 
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
-  }, [state.activeRepoConnection, state.activeSession?.id, user?.id, updateTaskStatus, pollExecutorJob, resolveAgent]);
+  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveAgent]);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)

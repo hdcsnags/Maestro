@@ -100,7 +100,7 @@ export default function ExecutorSection() {
     try {
       const data = await invokeEdgeFunction<{ job: ExecutorJob }>(
         'executor-api?action=submit',
-        { prompt: jobPrompt.trim(), adapter: jobAdapter, approval_required: false }
+        { prompt: jobPrompt.trim(), adapter: jobAdapter }
       );
       dispatch({ type: 'SET_EXECUTOR_JOBS', payload: [data.job, ...jobs] });
       setJobPrompt('');
