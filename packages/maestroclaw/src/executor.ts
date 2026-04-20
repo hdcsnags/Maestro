@@ -85,12 +85,24 @@ export async function executeJob(
 
     // Report artifacts
     if (Object.keys(artifacts).length > 0) {
-      // Write artifacts to workspace so files exist on disk
+      // Write artifacts to the per-job workspace
       for (const [filePath, content] of Object.entries(artifacts)) {
         const fullPath = join(jobDir, filePath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, content, "utf-8");
         console.log(`  💾 Wrote ${filePath} to workspace`);
+      }
+
+      // Also write to session-scoped build folder so all project files
+      // from the same build end up in one directory
+      if (job.session_id) {
+        const buildDir = join(config.workspaceDir, "builds", job.session_id.slice(0, 8));
+        for (const [filePath, content] of Object.entries(artifacts)) {
+          const fullPath = join(buildDir, filePath);
+          mkdirSync(dirname(fullPath), { recursive: true });
+          writeFileSync(fullPath, content, "utf-8");
+        }
+        console.log(`  📂 Project files → builds/${job.session_id.slice(0, 8)}/`);
       }
 
       // Convert {path: content} to array format Maestro web expects
