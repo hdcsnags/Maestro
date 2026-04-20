@@ -1,6 +1,6 @@
 # Claw Mode — Maestro v2 Architecture Spec
 
-*Draft v0.1 — 2026-04-20. Author: GitHub Copilot (Opus 4.6) with Michael. For council review.*
+*Draft v0.1 — 2026-04-20. Author: GitHub Copilot (Opus 4.6) with Michael. Council-approved 2026-04-20 (OpenAI + Claude + Copilot).*
 
 ---
 
@@ -601,21 +601,32 @@ To prevent scope creep, these are explicitly out for this spec:
 
 ---
 
-## 11. Open Questions for Council
+## 11. Resolved Decisions (Council Review — 2026-04-20)
 
-1. **Thread limits**: Should a session have a max number of active threads? Or let them accumulate and rely on context priority to manage token budgets?
+*Reviewed by: OpenAI (GPT-5.4), Claude (Sonnet 4.6), GitHub Copilot (Opus 4.6). All approved.*
 
-2. **Concierge memory**: Should Concierge maintain a running "session summary" that updates after each synthesis? Like a living document it can reference without re-reading all threads?
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| 1 | **Thread limits** | No hard cap | Context priority handles decay. A hard limit creates "which thread do I kill?" anxiety. Let them accumulate. |
+| 2 | **Concierge memory** | Yes — running session summary | After each synthesis, Concierge appends a 2-3 sentence decision summary to its own thread `metadata.session_summary`. Cheaper than re-reading all threads. Makes the "reasoning spine" concrete. |
+| 3 | **Broadcast scope** | All active council agents (default) | User deselects from Orchestra drawer if they want a subset. Don't add friction to the most common action. |
+| 4 | **Direct chat routing** | Through `orchestrate` edge function, single agent | Same infra, just `agents: [oneAgent]` instead of `agents: allActive`. No new endpoint. Thread history sent as context in each `orchestrate` call. |
+| 5 | **Execution approval** | Trusted commands list | Read-only commands auto-execute: `git status`, `git log`, `ls`, `cat`, `npm list`. Write commands require user confirmation: `git push`, `rm`, `npm install`, `gh repo create`. |
+| 6 | **Orb View** | Simple agent circle/arc — no orbital physics | Agents arranged visually around the orb, clickable, show status. Beautiful but not simulated. Polish layout later once chat experience is proven. |
+| 7 | **Design round** | Regular broadcast/direct thread + good prompting | No special thread type. Artifact rendering in chat handles preview. No new infrastructure. |
 
-3. **Broadcast scope**: When broadcasting from Claw Mode, should it go to ALL active council agents or should the user select a subset? Current behavior is all-active.
+### Additional Council Recommendations
 
-4. **Direct chat model**: When in Focus View chatting with "Claude Sonnet," does the message go through the `orchestrate` edge function (same as broadcast, but 1 agent) or through a new direct-chat endpoint?
+**From OpenAI (tightening review):**
+- ✅ `include_in_synthesis` flag added (separates persistence from influence)
+- ✅ Execution threads scoped per task chain (not per session)
+- ✅ Synthesis always authored into concierge thread (spine rule)
+- ✅ Explicit routing controls in Phase 1 (no magic inference early)
 
-5. **Execution approval**: Should all Claw commands require user confirmation, or should Concierge have a "trusted commands" list it can auto-execute (e.g., `git status` is safe, `rm -rf` is not)?
-
-6. **Orb View vs current Orb**: The current orb is visual-only. The new Orb View makes it interactive (click agents). Is the orbital layout worth the engineering cost, or should we start with a simpler agent list and add the orbital layout later?
-
-7. **Design round**: Should mockup generation be a special thread type, or just a regular broadcast/direct thread where the prompt asks for HTML? Leaning toward the latter — no special infrastructure, just good prompting.
+**From Claude (implementation guidance):**
+- Phase 0 first: thread tables + concierge chat + model picker
+- Direct chat reuses `orchestrate` — thread history becomes the context window
+- Concierge session summary stored in `threads.metadata` (not a separate table)
 
 ---
 
@@ -636,4 +647,4 @@ When Claw Mode ships, a user can:
 
 ---
 
-*This spec is a living document. Council feedback welcome. Implementation begins after spec approval.*
+*This spec is council-approved and ready for implementation. Start with Phase 0.*
