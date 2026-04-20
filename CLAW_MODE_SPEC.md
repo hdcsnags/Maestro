@@ -68,7 +68,22 @@ Session
 | `concierge` | 1:1 | Back-and-forth with Concierge. The default thread. Always exists. |
 | `broadcast` | 1:N | Prompt sent to all active council agents. This is today's "round" — same data, new framing. Contains N agent response messages. |
 | `direct` | 1:1 | Back-and-forth with a specific agent. Created when user focuses on a carousel card and starts chatting. |
-| `execution` | 1:Claw | Command/result pairs with MaestroClaw. Concierge dispatches, Claw executes, results appear as messages. |
+| `execution` | 1:Claw | Command/result pairs with MaestroClaw. **One thread per task chain** (e.g., one for repo setup, one for build, one for deploy). Concierge dispatches, Claw executes, results appear as messages. |
+
+### Execution Thread Granularity (Council Feedback — OpenAI)
+
+Execution threads are scoped to a **task chain**, not the entire session. Examples:
+
+| Thread | Contains |
+|--------|----------|
+| "Repo setup" execution thread | `gh repo create`, `git clone`, initial scaffold |
+| "Build: auth module" execution thread | Build tasks for auth-related files |
+| "Build: UI components" execution thread | Build tasks for frontend files |
+| "Deploy" execution thread | Deploy commands, environment config |
+
+This prevents build logs, repo creation, scaffolding, and deploy actions from piling into one unreadable lane. Each execution thread has a clear intent and can be reviewed/archived independently.
+
+Messages within an execution thread reference the `executor_jobs.id` in their metadata for traceability.
 
 ### Thread Lifecycle
 
@@ -81,13 +96,29 @@ Threads persist by default. Never auto-deleted. Lifecycle affects context weight
 | `pinned` | User explicitly marked as important | Always Supporting (never fades) |
 | `archived` | Old, low priority | Background (minimal token allocation) |
 
+### Synthesis Inclusion (Council Feedback — OpenAI)
+
+Thread status controls persistence. A separate flag controls **synthesis inclusion**:
+
+```
+threads.include_in_synthesis: boolean (default: true)
+```
+
+When the user triggers "Synthesize," Concierge reads all threads where `include_in_synthesis = true`, respecting context priority tiers. The user can toggle this per-thread — useful for experimental conversations they want to keep but not feed into decisions.
+
+This separates two concerns:
+- **Persistence**: "Does this thread still exist?" → Always yes (unless archived).
+- **Influence**: "Does this thread affect the next synthesis?" → User-controlled toggle.
+
 ### Rounds → Broadcast Threads (Migration)
 
 Existing `rounds` and `responses` tables don't die. A broadcast thread maps directly:
 
 - `round` → `thread` with `type: 'broadcast'`
 - `response` → `message` within that thread, `role: 'agent'`
-- `synthesis` → `message` with `role: 'concierge'` appended to the broadcast thread (or to the parent concierge thread)
+- `synthesis` → `message` with `role: 'concierge'` authored into the **concierge thread**, with `metadata.source_threads` referencing the broadcast/direct threads it synthesized from
+
+**Synthesis ownership rule (Council Feedback — OpenAI):** Synthesis results ALWAYS live in the concierge thread. Never in broadcast or direct threads. This keeps concierge as the session's reasoning spine — the one thread you can read top-to-bottom and understand every decision. Source threads are referenced, not duplicated.
 
 No data loss. The `rounds`/`responses` tables can remain as backing storage or be migrated incrementally.
 
@@ -147,18 +178,37 @@ Concierge becomes: the user's **primary conversation partner + router + state ma
 
 ### Concierge Routing Logic
 
-When the user sends a message in the concierge thread, Concierge decides:
+**Phase 1 — Explicit controls only (Council Feedback — OpenAI):**
+
+Routing is user-driven through visible action buttons. Concierge does NOT infer intent from messages. The chat bar has explicit action buttons:
+
+```
+[Direct the orchestra...                    ] [▶ Send] [📡 Broadcast] [⚡ Execute] [🔄 Synthesize]
+```
+
+| Button | Action |
+|--------|--------|
+| **Send** | Message goes to current thread (concierge by default, or focused agent) |
+| **Broadcast** | Creates broadcast thread, sends to all active council agents |
+| **Execute** | Creates/appends to execution thread, dispatches to Claw |
+| **Synthesize** | Concierge reads all included threads, writes synthesis to concierge thread |
+
+When in Focus View (direct chat with one agent), Send goes to that agent. Broadcast/Execute/Synthesize remain available.
+
+**Phase 2+ — Smart routing (future):**
+
+Once the explicit controls are proven and we have usage data, Concierge can start inferring intent:
 
 ```
 User message
   ├── Is this a question I can answer directly? → Respond in concierge thread
-  ├── Does this need multiple perspectives? → Create broadcast thread
-  ├── Is this an execution task? → Create execution thread → dispatch to Claw
-  ├── Does this need a specific agent? → Create/resume direct thread
+  ├── Does this need multiple perspectives? → Suggest broadcast (with confirmation)
+  ├── Is this an execution task? → Suggest execute (with confirmation)
+  ├── Does this need a specific agent? → Suggest direct thread
   └── Is this a flow transition? → Update session state, guide next step
 ```
 
-This routing can start **dumb** (explicit buttons: "Broadcast", "Execute", "Ask Claude") and get **smart** later (Concierge infers intent from the message).
+Even in smart mode, Concierge **suggests** actions, never auto-executes without confirmation (except for trusted Claw commands — see Open Questions).
 
 ### Model-Agnostic Concierge
 
@@ -332,11 +382,12 @@ scan the structure or start fresh?
 
 ### Execution Thread
 
-Each Claw dispatch creates an `execution` thread (or appends to an active one). Messages in execution threads:
+Each Claw dispatch creates an `execution` thread **per task chain** (or appends to the active one for that chain). Messages in execution threads:
 
 - `role: 'user'` — the command (from Concierge or user)
 - `role: 'system'` — status updates (running, progress)
 - `role: 'agent'` — Claw's result (output, artifacts, errors)
+- `metadata.executor_job_id` — links each message to its `executor_jobs` row for traceability
 
 ### Claw Capabilities (Phased)
 
@@ -412,6 +463,7 @@ CREATE TABLE threads (
   type text NOT NULL,                    -- 'concierge', 'broadcast', 'direct', 'execution'
   agent_id uuid REFERENCES agents(id),   -- null for concierge/broadcast
   status text NOT NULL DEFAULT 'active', -- 'active', 'completed', 'pinned', 'archived'
+  include_in_synthesis boolean NOT NULL DEFAULT true, -- user-toggleable: does this thread feed into synthesis?
   parent_thread_id uuid REFERENCES threads(id), -- spawned from which thread
   title text,                            -- auto-generated or user-set
   metadata jsonb DEFAULT '{}',           -- type-specific data
