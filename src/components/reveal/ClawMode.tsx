@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Hash } from 'lucide-react';
+import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
@@ -20,7 +20,7 @@ const INTENT_CONFIG: Record<ComposerIntent, { label: string; icon: string; color
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat, approveBuildPlan, cancelBuildPlan } = useThreads();
+  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreads, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat, approveBuildPlan, cancelBuildPlan } = useThreads();
   const { broadcast, synthesize } = useOrchestration();
   const { createSession } = useWorkspace();
   const [input, setInput] = useState('');
@@ -122,7 +122,7 @@ export default function ClawMode() {
     }
   }, [state.activeThread]);
 
-  // Initialize concierge thread on mount
+  // Initialize: load persisted threads + ensure concierge thread
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -135,6 +135,9 @@ export default function ClawMode() {
         sessionId = session.id;
       }
       if (!sessionId) return;
+
+      // Load all persisted threads for the sidebar
+      await loadThreads(sessionId);
 
       const thread = await ensureConciergeThread(sessionId);
       if (thread) {
@@ -191,26 +194,29 @@ export default function ClawMode() {
     if (!text || state.isBroadcasting || councilAgents.length === 0) return;
     setInput('');
 
-    // Ensure session exists
-    let sessionId = state.activeSession?.id;
-    if (!sessionId && state.workspace) {
-      const session = await createSession(state.workspace.id, 'ask');
-      if (!session) return;
-      sessionId = session.id;
+    // Ensure session exists — pass created session directly (not stale state)
+    let sessionForBroadcast = state.activeSession;
+    if (!sessionForBroadcast && state.workspace) {
+      const created = await createSession(state.workspace.id, 'ask');
+      if (!created) return;
+      sessionForBroadcast = created;
     }
-    if (!sessionId) return;
+    if (!sessionForBroadcast) return;
 
     // Log the broadcast intent in the concierge thread
     if (state.activeThread?.type === 'concierge') {
       await addMessage(state.activeThread.id, 'user', `📡 Broadcasting: ${text}`);
     }
 
-    // Create a broadcast thread
-    await createThread(sessionId, 'broadcast', { title: text.slice(0, 60) });
+    // Create a broadcast thread and write the prompt as its first message
+    const broadcastThread = await createThread(sessionForBroadcast.id, 'broadcast', { title: text.slice(0, 60) });
+    if (broadcastThread) {
+      await addMessage(broadcastThread.id, 'user', text);
+    }
 
     // Dispatch to existing broadcast infrastructure
     const agentIds = councilAgents.map(a => a.id);
-    await broadcast(text, agentIds, state.activeSession, { skipTriage: true });
+    await broadcast(text, agentIds, sessionForBroadcast, { skipTriage: true });
 
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' });
   }, [input, state.isBroadcasting, state.activeSession, state.workspace, state.activeThread, councilAgents, broadcast, createSession, createThread, addMessage, dispatch]);
