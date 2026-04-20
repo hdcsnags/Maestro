@@ -183,6 +183,8 @@ export default function ClawMode() {
       t => t.type === 'direct' && t.agent_id === agentId && t.status === 'active'
     );
 
+    const isNewThread = !directThread;
+
     if (!directThread) {
       const agent = state.agents.find(a => a.id === agentId);
       directThread = await createThread(state.activeSession.id, 'direct', {
@@ -193,11 +195,20 @@ export default function ClawMode() {
 
     if (directThread) {
       dispatch({ type: 'SET_ACTIVE_THREAD', payload: directThread });
+
+      if (isNewThread) {
+        // Seed the new thread with the agent's broadcast response so context is preserved
+        const agentResponse = latestResponses.find(r => r.agent_id === agentId);
+        if (agentResponse?.content) {
+          await addMessage(directThread.id, 'concierge', agentResponse.content);
+        }
+      }
+
       await loadThreadMessages(directThread.id);
     }
 
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'focus' });
-  }, [state.activeSession, state.threads, state.agents, createThread, loadThreadMessages, dispatch]);
+  }, [state.activeSession, state.threads, state.agents, latestResponses, createThread, loadThreadMessages, addMessage, dispatch]);
 
   const handleBackToCarousel = useCallback(() => {
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
@@ -245,8 +256,8 @@ export default function ClawMode() {
       <div className="grain-layer" />
       <div className="vignette-layer" />
 
-      {/* Header */}
-      <div className="relative z-10 flex items-center justify-between px-6 py-3 border-b border-white/5">
+      {/* Header — z-20 so model picker dropdown (z-9999 inside this context) paints above z-10 content */}
+      <div className="relative z-20 flex items-center justify-between px-6 py-3 border-b border-white/5">
         <div className="flex items-center gap-3">
           {/* Back button when in carousel/focus */}
           {clawView !== 'concierge' && (

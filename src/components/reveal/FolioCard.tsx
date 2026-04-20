@@ -2,7 +2,7 @@ import { Response as MaestroResponse, FileManifestEntry } from '../../types';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect, useMemo } from 'react';
-import { Flag, Star, ChevronDown, ChevronUp, Pin, FileCode } from 'lucide-react';
+import { Flag, Star, ChevronDown, ChevronUp, Pin, FileCode, Download } from 'lucide-react';
 import ArtifactDownload from './ArtifactDownload';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -107,6 +107,22 @@ export default function FolioCard({ response }: Props) {
     dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: newPinned } });
   };
 
+  const handleDownload = () => {
+    const agentLabel = response.agent_name || response.agent_role || 'agent';
+    const header = `# ${response.title || 'Response'}\n**Agent:** ${agentLabel}\n**Model:** ${response.model}\n**Date:** ${new Date(response.created_at).toLocaleString()}\n\n---\n\n`;
+    const body = displayContent;
+    const manifestSection = fileManifest.length > 0
+      ? `\n\n---\n\n## Files\n\n${fileManifest.map(f => `- \`${f.path}\` (${f.operation})`).join('\n')}`
+      : '';
+    const blob = new Blob([header + body + manifestSection], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${agentLabel.replace(/\s+/g, '-').toLowerCase()}-response.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const signals = response.signals || {};
   const signalEntries = Object.entries(signals).filter(([, v]) => v).slice(0, 3);
   const fileManifest: FileManifestEntry[] = response.file_manifest || [];
@@ -149,6 +165,10 @@ export default function FolioCard({ response }: Props) {
             title={response.is_pinned ? 'Unpin from session context' : 'Pin to session context'}
             style={response.is_pinned ? { color: '#8aa8e0', borderColor: 'rgba(138,168,224,0.3)', background: 'rgba(138,168,224,0.08)', cursor: 'pointer' } : { cursor: 'pointer' }}>
             <Pin size={11} />{response.is_pinned ? 'Pinned' : 'Pin'}
+          </button>
+          <button onClick={handleDownload} className="reveal-chip" title="Download response as markdown"
+            style={{ cursor: 'pointer' }}>
+            <Download size={11} />Export
           </button>
         </div>
       </div>
