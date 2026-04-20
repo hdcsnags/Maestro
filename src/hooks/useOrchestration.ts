@@ -553,9 +553,36 @@ export function useOrchestration() {
 
     if (toSynthesize.length === 0) return;
 
-    const combinedContent = toSynthesize
+    // Base: broadcast responses
+    const broadcastContent = toSynthesize
       .map(r => `[${r.agent_name} — ${r.agent_role}]:\n${r.content}`)
       .join('\n\n---\n\n');
+
+    // Enrich: append direct thread conversations so synthesis includes follow-up exchanges
+    const directThreads = state.threads.filter(t => t.type === 'direct' && t.status === 'active');
+    let directContext = '';
+    if (directThreads.length > 0) {
+      const threadSections: string[] = [];
+      for (const thread of directThreads) {
+        const msgs = state.threadMessages
+          .filter(m => m.thread_id === thread.id)
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        if (msgs.length > 1) {
+          // Only include threads with actual conversation (skip if just the seeded broadcast msg)
+          const agent = state.agents.find(a => a.id === thread.agent_id);
+          const agentLabel = agent?.display_name || agent?.name || 'Agent';
+          const convo = msgs.map(m =>
+            m.role === 'user' ? `User: ${m.content}` : `${agentLabel}: ${m.content}`
+          ).join('\n\n');
+          threadSections.push(`[Direct conversation with ${agentLabel}]:\n${convo}`);
+        }
+      }
+      if (threadSections.length > 0) {
+        directContext = '\n\n===== DIRECT THREAD CONVERSATIONS =====\n\n' + threadSections.join('\n\n---\n\n');
+      }
+    }
+
+    const combinedContent = broadcastContent + directContext;
 
     try {
       await ensureSession();
@@ -586,7 +613,7 @@ export function useOrchestration() {
     } catch (err) {
       console.error('Synthesis error:', err);
     }
-  }, [user, state.responses, state.rounds, state.activeSession, dispatch, logAudit, triggerConcierge, ensureSession]);
+  }, [user, state.responses, state.rounds, state.activeSession, state.threads, state.threadMessages, state.agents, dispatch, logAudit, triggerConcierge, ensureSession]);
 
   synthesizeRef.current = synthesize;
 
