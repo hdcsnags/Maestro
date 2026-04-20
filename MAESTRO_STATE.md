@@ -8,10 +8,11 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | Sonnet timeouts on artifact-heavy prompts (may need prompt trimming or dedicated artifact mode); Kimi still showing bracket title intermittently |
+| Active blockers | GPT OSS phantom agent fires during builds when not selected; Claw agents error on broadcast (need broadcast filter); Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | `20260418230000_build_v3_routing.sql` (V3 routing columns) |
+| Unapplied migrations | None — all migrations applied including V3 routing (`20260418230000`) |
 | Active locks | None |
+| MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
 ---
 
@@ -88,7 +89,8 @@ Legacy (unused): agent_skills, flags
 
 ## Agent Roster
 
-15 agents: 5 provider groups × 3 slots. Only slot-0 active by default.
+15 cloud agents: 5 provider groups × 3 slots. Only slot-0 active by default.
+3 MaestroClaw agents: local CLI execution, build-only (not used for broadcast/analysis).
 
 **Source of truth for model names: `src/types/index.ts`** — if what's listed below disagrees with that file, the file wins.
 
@@ -99,8 +101,11 @@ Legacy (unused): agent_skills, flags
 | google | Gemini 2.5 Flash | Gemini 2.5 Pro | Gemini 2.5 Flash |
 | openrouter_a | GPT-OSS 20B (free) | Gemma 4 31B (free) | Llama 4 Maverick |
 | openrouter_b | Sonnet 4.6 (OR) | GPT-5.4 Builder (OR) | Kimi K2 |
+| **maestroclaw** | **ClawClaude** (claude_code) | **ClawCopilot** (copilot_cli) | **ClawCodex** (codex_cli) |
 
-**Last verified against `src/types/index.ts`**: 2026-04-12
+**Claw agents**: selectable as builders in Pre-Build. Score boosted when executor online (+60), penalized when offline (-40). Visible in Orchestra drawer with executor status badge. Hidden from Vault (no API key needed). Not used for broadcast — build-only.
+
+**Last verified against `src/types/index.ts`**: 2026-04-20
 
 ## Non-Obvious Decisions (the "why" archive)
 
@@ -189,11 +194,22 @@ Legacy (unused): agent_skills, flags
 | Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
+| MaestroClaw agents in builder roster: 3 Claw agents (ClawClaude, ClawCopilot, ClawCodex) added to `AGENT_DEFAULTS`, selectable as builders in Pre-Build with executor-aware scoring | 2026-04-19 (`npm run typecheck`, commit `93e05f6`) |
+| MaestroClaw in Orchestra drawer: dedicated section with executor online/offline status badge, `hasKey()` returns true (no API key needed) | 2026-04-19 (commit `4d68c12`) |
+| MaestroClaw hidden from Vault: `maestroclaw` filtered from API key management loop | 2026-04-19 (commit `1a02dae`) |
+| Auto-backend-switch: selecting a Claw builder in Pre-Build auto-switches execution backend to `local` | 2026-04-19 (code verified) |
+| Artifact synthesis pipeline: executor.ts `extractFileContent()` strips markdown fences from CLI `--print` output, constructs `artifact_manifest` array from text | 2026-04-19 (commit `0353aac`) |
+| Claude Code stdin pipe: adapter rewritten to use `spawn()` + `proc.stdin.write(prompt)` instead of CLI arg — fixes Windows 8K char truncation | 2026-04-19 (commit `3e455ea`) |
+| Artifacts written to disk: executor writes built files to per-job workspace AND session-scoped `builds/{session_id}/` directory for consolidated project view | 2026-04-20 (commits `38c7dd5`, `cfb60c6`) |
+| Full 5-file build via MaestroClaw: dispatched 5 jobs (App.tsx, Hero.tsx, Services.tsx, Footer.tsx, App.module.css), all succeeded with artifacts stored in DB | 2026-04-20 (live smoke test) |
 
 ## What's Broken or Incomplete
 
 | Issue | Since | Owner |
 |-------|-------|-------|
+| **GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug | 2026-04-19 | Unassigned |
+| **Claw agents error on broadcast**: "Provider maestroclaw not supported" — they're build-only, need to be filtered from broadcast flow | 2026-04-19 | Unassigned |
+| **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | Sonnet timeouts on artifact-heavy analysis prompts (possibly needs prompt trimming or dedicated artifact mode) | 2026-04-17 | Unassigned |
 | Kimi K2 intermittently shows bracket `{` as title despite parser fix — may be model-side output discipline | 2026-04-17 | Unassigned |
 | Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
@@ -217,20 +233,46 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **Apply V3 migration to remote**: `npx supabase db push` — migration `20260418230000` adds `execution_backend` to sessions, `executor_job_id` to build_tasks, `context_bundle` to executor_jobs.
-2. **Build v3 Phase 1 smoke test**: Set session to local → decompose tasks → verify executor_jobs created → MaestroClaw picks up → results flow back to build_tasks → `collectManifest` produces correct output.
-3. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job, prior-output injection.
-4. **Build v3 Phase 3 — Pre-Build UX enhancements**: Executor status in topbar, project type gate (new vs existing repo).
-5. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts; may need prompt trimming, chunked response, or dedicated artifact mode.
-6. **Claude code-fence handling**: Claude's ` ```json ` wrapping sometimes still breaks; investigate if system prompt can discourage it or if parser needs more fence patterns.
-7. Retire legacy broadcast path once v2 is battle-tested across multiple projects
-8. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
+1. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
+2. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
+3. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion) — select Claw builder, lock spec, decompose tasks, verify jobs flow to Claw, artifacts come back, and either display or push to GitHub.
+4. **Artifact → GitHub bridge for Claw builds**: Claw artifacts sit in DB (`executor_jobs.artifact_manifest`). Need to wire them through `github-execute` edge function so built files get committed to GitHub.
+5. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job, prior-output injection.
+6. **Build v3 Phase 3 — Pre-Build UX enhancements**: Executor status in topbar, project type gate (new vs existing repo).
+7. **Version bump MaestroClaw** to v0.2.0 — reflects working artifact pipeline.
+8. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
+9. Retire legacy broadcast path once v2 is battle-tested across multiple projects
+10. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
 
 ---
 
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-19/20 — GitHub Copilot (Opus 4.6) — Claw-in-Roster + Artifact Pipeline
+
+**What was done**: Wired MaestroClaw into the builder roster so users can select local CLI tools as builders from Pre-Build UI, then diagnosed and fixed the full artifact pipeline so Claude Code CLI output actually flows back to Maestro web as structured file artifacts.
+
+**Core changes**:
+- **`src/types/index.ts`**: Added 3 `maestroclaw` agent entries to `AGENT_DEFAULTS` (ClawClaude, ClawCopilot, ClawCodex), added `maestroclaw` to `PROVIDER_COLORS` (#c9a84c) and `PROVIDER_REGISTRY`
+- **`src/hooks/useBuildExecution.ts`**: `resolveBackend()` forces `'local'` for maestroclaw agents, `dispatchTaskLocal()` derives adapter from `agent.model`
+- **`src/components/reveal/PreBuildPanel.tsx`**: `scoreBuildCandidate()` with executor-aware scoring (+60 online, -40 offline), builder dropdown shows online/offline indicator, auto-switches backend to `local` when Claw selected
+- **`src/components/reveal/OrchestraDrawer.tsx`**: Added maestroclaw to `PROVIDER_GROUPS` with executor status badge (online/offline instead of key set/no key)
+- **`src/components/reveal/VaultDrawer.tsx`**: Filtered `maestroclaw` from API key management loop
+- **`packages/maestroclaw/src/executor.ts`**: Artifact synthesis bridge — `extractFileContent()` strips markdown fences from CLI output, constructs `artifact_manifest` array. Writes artifacts to per-job workspace AND session-scoped `builds/{session_id}/` directory.
+- **`packages/maestroclaw/src/adapters/claude-code.ts`**: Completely rewritten to use `spawn()` + `proc.stdin.write(prompt)` instead of `execFile(prompt_as_arg)` — fixes Windows 8K CLI arg truncation.
+
+**Key pipeline fix**: Claude `--print` mode returns text to stdout, not structured artifacts. The adapter had no `artifacts` field, executor reported `artifact_manifest: null`, and Maestro web marked tasks as failed. Fix: executor synthesizes artifacts from text output when `allowed_paths` is set and adapter returns text but no artifacts.
+
+**Live verification**: Dispatched 5 jobs (NexShield cybersecurity site) — App.tsx, Hero.tsx, Services.tsx, Footer.tsx, App.module.css. All 5 succeeded with artifacts stored in DB (719–5837 chars each).
+
+**Commits**: `93e05f6`, `1a02dae`, `4d68c12`, `0353aac`, `3e455ea`, `38c7dd5`, `cfb60c6`
+
+**Known issues discovered**:
+- GPT OSS fires during builds when not selected (phantom agent)
+- Claw agents error on broadcast ("Provider maestroclaw not supported") — build-only, need broadcast filter
+- MaestroClaw still at v0.1.0 despite multiple rebuilds
 
 ### 2026-04-18 — GitHub Copilot (Opus 4.6) — Build V3 Phase 1 Routing Layer
 

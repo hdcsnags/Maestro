@@ -1,6 +1,24 @@
 # MaestroClaw v1 — Local Execution Node Specification
 
-*Status: V0.1 SHIPPED — Smoke-tested 2026-04-17. See MAESTRO_STATE.md for current status.*
+*Status: V0.1 SHIPPED + ARTIFACT PIPELINE WORKING — Smoke-tested 2026-04-17, artifact pipeline proven 2026-04-20. See MAESTRO_STATE.md for current status.*
+
+---
+
+## Current State (as of 2026-04-20)
+
+**What's working end-to-end:**
+- Executor polls Maestro → claims jobs → runs Claude Code CLI → extracts code from CLI output → stores artifacts in DB → writes files to disk
+- Artifacts written to **two locations**: per-job workspace (`job-XXXXXXXX/src/App.tsx`) and session-scoped build folder (`builds/{session_id}/src/App.tsx`)
+- Claude Code adapter pipes prompts via **stdin** (not CLI arg) — avoids Windows 8K char truncation
+- `extractFileContent()` synthesizes artifacts from `--print` mode text output (largest fenced code block → raw code fallback)
+- 3 Claw agents visible in Orchestra drawer + selectable as builders in Pre-Build
+- Executor-aware scoring in builder ranking (+60 online, -40 offline)
+
+**What's NOT working yet:**
+- Claw agents error on broadcast ("Provider maestroclaw not supported") — build-only, need broadcast filter
+- Full Pre-Build UI → Claw → GitHub flow not tested end-to-end (only direct DB job insertion tested)
+- Only `claude_code` adapter is functional; `copilot_cli` and `codex_cli` are stubs
+- Still v0.1.0 — needs version bump
 
 ---
 
@@ -330,52 +348,42 @@ Proof-of-life. No real AI — just echoes the prompt and writes a test file.
 
 ### Adapter: `claude_code`
 
-Runs Claude Code CLI in headless/print mode. This is the first real-value adapter.
+Runs Claude Code CLI in headless/print mode via stdin pipe. This is the primary adapter.
+
+**Actual implementation** (differs from spec — updated 2026-04-20):
 
 ```typescript
 {
   name: 'claude_code',
   check: async () => {
-    // verify `claude` binary exists and is authenticated
+    // verify `claude` binary exists
     try {
       execSync('claude --version', { stdio: 'pipe' });
       return true;
     } catch { return false; }
   },
-  run: async (prompt, ctx) => {
+  run: async (prompt, workDir, timeout) => {
+    // CRITICAL: prompt piped via stdin, NOT as CLI argument
+    // Windows has ~8K CLI arg limit — stdin has no limit
     const proc = spawn('claude', [
-      '--print',                     // non-interactive, output only
-      '--output-format', 'json',     // structured output
-      '--max-turns', '50',           // bounded
-      prompt
+      '--print',
+      '--output-format', 'text',  // text mode, not JSON
     ], {
-      cwd: ctx.repoDir ?? ctx.workDir,
-      timeout: ctx.timeout * 1000,
+      cwd: workDir,
+      timeout,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Stream stdout/stderr as events
-    proc.stdout.on('data', (chunk) => {
-      ctx.onEvent({ type: 'stdout', payload: { line: chunk.toString() } });
-    });
-    proc.stderr.on('data', (chunk) => {
-      ctx.onEvent({ type: 'stderr', payload: { line: chunk.toString() } });
-    });
+    proc.stdin.write(prompt);
+    proc.stdin.end();
 
-    const exitCode = await waitForExit(proc);
-
-    // Parse Claude's JSON output for file changes
-    const artifacts = parseClaudeOutput(proc.stdout);
-
-    return {
-      success: exitCode === 0,
-      summary: exitCode === 0 ? 'Claude Code completed successfully' : `Exited with code ${exitCode}`,
-      artifacts,
-      error: exitCode !== 0 ? `Process exited with code ${exitCode}` : undefined,
-      usage: { duration_ms: Date.now() - startTime },
-    };
+    // Collect stdout/stderr, return as text
+    // Artifact synthesis happens in executor.ts, not here
   }
 }
 ```
+
+**Key difference from original spec**: Uses `--output-format text` (not JSON), pipes prompt via stdin (not CLI arg), and artifact extraction is handled by `executor.ts:extractFileContent()` rather than the adapter parsing JSON output.
 
 ---
 
@@ -475,37 +483,39 @@ In the topbar or vault drawer — small indicator:
 ## Implementation Order
 
 ```
-Phase 1 — Data model + control plane
+Phase 1 — Data model + control plane                          ✅ DONE (2026-04-17)
   1a. Migration: executors, executor_jobs, executor_job_events tables
   1b. Migration: build_tasks bridge columns (executor_id, execution_backend)
   1c. Edge function: executor-api (register, heartbeat, poll, claim, event, complete)
   1d. Deploy + verify
 
-Phase 2 — Worker skeleton
+Phase 2 — Worker skeleton                                     ✅ DONE (2026-04-17)
   2a. packages/maestroclaw/ project scaffold (package.json, tsconfig, .env.example)
   2b. Config loader + Supabase auth
   2c. Poll loop + heartbeat
   2d. shell_stub adapter
   2e. End-to-end smoke test: register → create job in DB → worker claims → runs stub → reports back
 
-Phase 3 — Claude Code adapter
-  3a. claude_code adapter implementation
+Phase 3 — Claude Code adapter                                 ✅ DONE (2026-04-20)
+  3a. claude_code adapter implementation (stdin pipe, not CLI arg)
   3b. Claude CLI detection + auth verification
-  3c. Output parsing (JSON structured output)
+  3c. Artifact synthesis from --print text output (extractFileContent)
   3d. Timeout + error handling
-  3e. Smoke test: real Claude Code task
+  3e. Smoke test: 5-file build, all artifacts stored in DB
 
-Phase 4 — Build v2 bridge
-  4a. useBuildExecution routing logic (edge vs local)
-  4b. Pre-Build execution backend selector UI
-  4c. Job → build_task result sync
-  4d. End-to-end: Build v2 with local execution
+Phase 4 — Build v2/v3 bridge                                  🔶 PARTIAL
+  4a. useBuildExecution routing logic (edge vs local)           ✅
+  4b. Pre-Build execution backend selector UI                   ✅
+  4c. Claw agents in builder roster + Orchestra drawer          ✅
+  4d. Job → build_task result sync                              ⚠️ Not yet tested via UI
+  4e. Artifact → GitHub commit bridge for Claw builds           ❌ Not built
 
-Phase 5 — UI polish
-  5a. Executor status badge in topbar
-  5b. Executor panel in Vault drawer
-  5c. Job event log viewer
-  5d. Registration flow
+Phase 5 — UI polish                                            🔶 PARTIAL
+  5a. Executor status badge in Orchestra drawer                 ✅
+  5b. Executor panel in Vault drawer                            ✅ (hidden — no API key needed)
+  5c. Job event log viewer                                      ❌
+  5d. Registration flow                                         ❌ (manual .env setup)
+  5e. Session-scoped build folder for browsing files on disk    ✅
 ```
 
 ---
