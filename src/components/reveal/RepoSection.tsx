@@ -195,13 +195,14 @@ export default function RepoSection() {
           if (currentUrl && currentUrl.includes('code=')) {
             const urlParams = new URL(currentUrl).searchParams;
             const code = urlParams.get('code');
+            const returnedState = urlParams.get('state');
             popup.close();
             clearInterval(interval);
 
-            if (code) {
+            if (code && returnedState) {
               const exchangeData = await invokeEdgeFunction<GitHubExchangeResponse>(
                 'github-auth?action=exchange_code',
-                { code },
+                { code, state: returnedState },
               );
 
               if (exchangeData.success) {
@@ -213,6 +214,8 @@ export default function RepoSection() {
               } else {
                 setError(exchangeData.error || 'Failed to connect');
               }
+            } else {
+              setError('GitHub OAuth callback was missing state');
             }
             setConnecting(false);
           }

@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest, respondInternalError } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 
 Deno.serve(async (req: Request) => {
@@ -30,6 +29,17 @@ Deno.serve(async (req: Request) => {
       }
 
       const state = crypto.randomUUID();
+      await supabase
+        .from("oauth_states")
+        .delete()
+        .eq("user_id", userId)
+        .eq("provider", "github");
+      await supabase.from("oauth_states").insert({
+        user_id: userId,
+        provider: "github",
+        state,
+        expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      });
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&state=${state}`;
 
       return new Response(JSON.stringify({ auth_url: authUrl, state }), {
@@ -39,14 +49,34 @@ Deno.serve(async (req: Request) => {
 
     if (action === "exchange_code") {
       const body = await req.json();
-      const { code } = body;
+      const { code, state } = body;
 
-      if (!code) {
-        return new Response(JSON.stringify({ error: "Missing code parameter" }), {
+      if (!code || !state) {
+        return new Response(JSON.stringify({ error: "Missing code or state parameter" }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
+      const { data: savedState } = await supabase
+        .from("oauth_states")
+        .select("id, expires_at")
+        .eq("user_id", userId)
+        .eq("provider", "github")
+        .eq("state", state)
+        .maybeSingle();
+
+      if (!savedState || new Date(savedState.expires_at).getTime() < Date.now()) {
+        return new Response(JSON.stringify({ error: "Invalid or expired OAuth state" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      await supabase
+        .from("oauth_states")
+        .delete()
+        .eq("id", savedState.id);
 
       const clientId = Deno.env.get("GITHUB_CLIENT_ID");
       const clientSecret = Deno.env.get("GITHUB_CLIENT_SECRET");
@@ -237,11 +267,7 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return respondInternalError("github-auth", corsHeaders, err);
   }
 });
 
