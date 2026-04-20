@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 interface IntakeRequest {
   session_id: string;
   repo_connection_id: string;
@@ -169,26 +169,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: ghSecret } = await supabase
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "github")
-      .maybeSingle();
-    if (!ghSecret) {
+    const ghToken = await getDecryptedSecret(supabase, userId, "github");
+    if (!ghToken) {
       return new Response(JSON.stringify({ error: "GitHub not connected" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { data: anthropicSecret } = await supabase
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "anthropic")
-      .maybeSingle();
-    if (!anthropicSecret) {
+    const anthropicKey = await getDecryptedSecret(supabase, userId, "anthropic");
+    if (!anthropicKey) {
       return new Response(
         JSON.stringify({
           error: "ANTHROPIC_KEY_MISSING",
@@ -198,8 +188,6 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const ghToken = ghSecret.encrypted_key as string;
-    const anthropicKey = anthropicSecret.encrypted_key as string;
     const owner = repoConn.owner as string;
     const repo = repoConn.repo as string;
     const defaultBranch = (repoConn.default_branch as string) || "main";

@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 type DesignerRole = "visual_spatial" | "structure_ux" | "product_practical" | "wildcard_fusion";
 type DesignMode = "lite" | "standard" | "exploration";
 
@@ -242,13 +243,7 @@ async function getUserApiKey(
   userId: string,
   provider: string,
 ): Promise<string | null> {
-  const { data } = await adminClient
-    .from("encrypted_secrets")
-    .select("encrypted_key")
-    .eq("user_id", userId)
-    .eq("provider", provider)
-    .maybeSingle();
-  return (data?.encrypted_key as string | undefined) ?? null;
+  return getDecryptedSecret(adminClient, userId, provider);
 }
 
 async function callModel(

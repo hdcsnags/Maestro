@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest, respondInternalError } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { upsertEncryptedSecret } from "../_shared/secrets.ts";
 
 Deno.serve(async (req: Request) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -44,30 +45,12 @@ Deno.serve(async (req: Request) => {
       const keyHint =
         api_key.substring(0, 4) + "..." + api_key.substring(api_key.length - 4);
 
-      const { data: existingSecret } = await adminClient
-        .from("encrypted_secrets")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("provider", provider)
-        .maybeSingle();
-
-      if (existingSecret) {
-        await adminClient
-          .from("encrypted_secrets")
-          .update({
-            encrypted_key: api_key,
-            key_hint: keyHint,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingSecret.id);
-      } else {
-        await adminClient.from("encrypted_secrets").insert({
-          user_id: userId,
-          provider,
-          encrypted_key: api_key,
-          key_hint: keyHint,
-        });
-      }
+      await upsertEncryptedSecret(adminClient, {
+        userId,
+        provider,
+        secret: api_key,
+        keyHint,
+      });
 
       const { data: existingConn } = await supabase
         .from("provider_connections")

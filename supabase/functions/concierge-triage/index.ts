@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 
 interface TriageRequest {
   session_id: string;
@@ -157,14 +157,9 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: secret } = await adminClient
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "anthropic")
-      .maybeSingle();
+    const anthropicKey = await getDecryptedSecret(adminClient, userId, "anthropic");
 
-    if (!secret) {
+    if (!anthropicKey) {
       return new Response(
         JSON.stringify({
           route: "orchestra",
@@ -188,13 +183,13 @@ Session context:
 
     const anthropicResponse = await fetch(
       "https://api.anthropic.com/v1/messages",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": secret.encrypted_key as string,
-          "anthropic-version": "2023-06-01",
-        },
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01",
+          },
         body: JSON.stringify({
           model: "claude-haiku-4-5",
           max_tokens: 1024,

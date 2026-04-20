@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest, respondInternalError } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecretRecord, upsertEncryptedSecret } from "../_shared/secrets.ts";
 
 Deno.serve(async (req: Request) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -126,31 +127,12 @@ Deno.serve(async (req: Request) => {
       }
       const ghUser = await ghUserRes.json();
 
-      const { data: existing } = await supabase
-        .from("encrypted_secrets")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("provider", "github")
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("encrypted_secrets")
-          .update({
-            encrypted_key: accessToken,
-            key_hint: `github:${ghUser.login}`,
-          })
-          .eq("id", existing.id);
-      } else {
-        await supabase
-          .from("encrypted_secrets")
-          .insert({
-            user_id: userId,
-            provider: "github",
-            encrypted_key: accessToken,
-            key_hint: `github:${ghUser.login}`,
-          });
-      }
+      await upsertEncryptedSecret(supabase, {
+        userId,
+        provider: "github",
+        secret: accessToken,
+        keyHint: `github:${ghUser.login}`,
+      });
 
       const { data: existingConn } = await supabase
         .from("provider_connections")
@@ -197,12 +179,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "check_status") {
-      const { data: secret } = await supabase
-        .from("encrypted_secrets")
-        .select("id, encrypted_key, key_hint")
-        .eq("user_id", userId)
-        .eq("provider", "github")
-        .maybeSingle();
+      const secret = await getDecryptedSecretRecord(supabase, userId, "github");
 
       if (!secret) {
         return new Response(JSON.stringify({ connected: false, hint: null }), {
@@ -214,7 +191,7 @@ Deno.serve(async (req: Request) => {
       try {
         const probe = await fetch("https://api.github.com/user", {
           headers: {
-            Authorization: `Bearer ${secret.encrypted_key}`,
+            Authorization: `Bearer ${secret.secret}`,
             "User-Agent": "Maestro",
             Accept: "application/vnd.github+json",
           },

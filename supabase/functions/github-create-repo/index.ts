@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 Deno.serve(async (req: Request) => {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
@@ -28,21 +28,14 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const { data: secret } = await supabase
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "github")
-      .maybeSingle();
+    const ghToken = await getDecryptedSecret(supabase, userId, "github");
 
-    if (!secret) {
+    if (!ghToken) {
       return new Response(JSON.stringify({ error: "GitHub not connected" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const ghToken = secret.encrypted_key;
 
     // 1. Create the repo. auto_init seeds an initial commit so the default
     //    branch exists immediately — without it, the repo is empty and

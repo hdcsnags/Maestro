@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 type Trigger = "file_count" | "risky_change" | "end_of_build" | "conductor";
 type Severity = "minor" | "critical_pause" | "critical_approved";
 
@@ -102,13 +103,7 @@ async function getUserApiKey(
   userId: string,
   provider: string,
 ): Promise<string | null> {
-  const { data } = await adminClient
-    .from("encrypted_secrets")
-    .select("encrypted_key")
-    .eq("user_id", userId)
-    .eq("provider", provider)
-    .maybeSingle();
-  return (data?.encrypted_key as string | undefined) ?? null;
+  return getDecryptedSecret(adminClient, userId, provider);
 }
 
 Deno.serve(async (req: Request) => {

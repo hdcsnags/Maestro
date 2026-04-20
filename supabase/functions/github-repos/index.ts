@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 
 Deno.serve(async (req: Request) => {
   const corsHeaders = buildCorsHeaders(req);
@@ -17,21 +17,14 @@ Deno.serve(async (req: Request) => {
 
     const { adminClient: supabase, userId } = auth;
 
-    const { data: secret } = await supabase
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "github")
-      .maybeSingle();
+    const ghToken = await getDecryptedSecret(supabase, userId, "github");
 
-    if (!secret) {
+    if (!ghToken) {
       return new Response(JSON.stringify({ error: "GitHub not connected", repos: [] }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const ghToken = secret.encrypted_key;
 
     const allRawRepos: Record<string, unknown>[] = [];
     let page = 1;

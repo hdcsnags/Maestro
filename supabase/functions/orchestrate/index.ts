@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 interface AgentSkillPayload {
   name: string;
   instruction: string;
@@ -124,16 +125,8 @@ async function fetchFileContent(
 
   if (!repoConn) return null;
 
-  const { data: secret } = await adminClient
-    .from("encrypted_secrets")
-    .select("encrypted_key")
-    .eq("user_id", userId)
-    .eq("provider", "github")
-    .maybeSingle();
-
-  if (!secret) return null;
-
-  const ghToken = secret.encrypted_key;
+  const ghToken = await getDecryptedSecret(adminClient, userId, "github");
+  if (!ghToken) return null;
   const owner = repoConn.owner;
   const repo = repoConn.repo;
   const branch = repoConn.default_branch || "main";
@@ -632,14 +625,7 @@ async function getUserApiKey(userId: string, provider: string): Promise<string |
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const adminClient = createClient(supabaseUrl, serviceKey);
 
-  const { data } = await adminClient
-    .from("encrypted_secrets")
-    .select("encrypted_key")
-    .eq("user_id", userId)
-    .eq("provider", provider)
-    .maybeSingle();
-
-  return data?.encrypted_key ?? null;
+  return getDecryptedSecret(adminClient, userId, provider);
 }
 
 Deno.serve(async (req: Request) => {

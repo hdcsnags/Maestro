@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+import { getDecryptedSecret } from "../_shared/secrets.ts";
 interface ArchitectRequest {
   session_id: string;
 }
@@ -230,13 +230,8 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { data: anthropicSecret } = await supabase
-      .from("encrypted_secrets")
-      .select("encrypted_key")
-      .eq("user_id", userId)
-      .eq("provider", "anthropic")
-      .maybeSingle();
-    if (!anthropicSecret) {
+    const anthropicKey = await getDecryptedSecret(supabase, userId, "anthropic");
+    if (!anthropicKey) {
       return new Response(
         JSON.stringify({
           error: "ANTHROPIC_KEY_MISSING",
@@ -313,7 +308,7 @@ ${decisionsText || "(no concierge decisions yet)"}`;
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": anthropicSecret.encrypted_key as string,
+        "x-api-key": anthropicKey,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
