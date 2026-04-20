@@ -144,6 +144,7 @@ const PROVIDER_GROUPS: { id: string; label: string; keyProvider: string }[] = [
   { id: 'google', label: 'Google Gemini', keyProvider: 'google' },
   { id: 'openrouter_a', label: 'OpenRouter — Free', keyProvider: 'openrouter' },
   { id: 'openrouter_b', label: 'OpenRouter — Premium', keyProvider: 'openrouter' },
+  { id: 'maestroclaw', label: 'MaestroClaw — Local', keyProvider: 'maestroclaw' },
 ];
 
 /* ── Component ───────────────────────────────────────────────── */
@@ -205,7 +206,13 @@ export default function OrchestraDrawer() {
   /* ── Derived state ── */
 
   const hasKey = (providerId: string) =>
-    state.providerConnections.some(c => c.provider === providerId && c.is_connected);
+    providerId === 'maestroclaw'
+    || state.providerConnections.some(c => c.provider === providerId && c.is_connected);
+
+  const hasOnlineExecutor = state.executors.some(e =>
+    e.status === 'online' && e.last_seen_at &&
+    Date.now() - new Date(e.last_seen_at).getTime() < 60_000
+  );
 
   const activeCount = state.agents.filter(a => a.is_active).length;
 
@@ -716,10 +723,17 @@ export default function OrchestraDrawer() {
                 if (agents.length === 0) return null;
 
                 const providerHasKey = hasKey(group.keyProvider);
+                const isClaw = group.id === 'maestroclaw';
                 const color = PROVIDER_COLORS[group.keyProvider] ?? 'var(--text-muted)';
                 const activeInGroup = agents.filter(a => a.is_active).length;
                 const isFreeRow = group.id === 'openrouter_a';
                 const editingAgent = agents.find(a => a.id === scopeEditorAgent) ?? null;
+
+                // Claw badge shows executor status instead of API key status
+                const badgeOk = isClaw ? hasOnlineExecutor : providerHasKey;
+                const badgeLabel = isClaw
+                  ? (hasOnlineExecutor ? 'Executor online' : 'Executor offline')
+                  : (providerHasKey ? 'Key set' : 'No key');
 
                 return (
                   <div key={group.id}>
@@ -753,17 +767,17 @@ export default function OrchestraDrawer() {
                             height: '18px',
                             padding: '0 5px',
                             gap: '3px',
-                            color: providerHasKey ? 'var(--ok)' : 'var(--risk)',
-                            borderColor: providerHasKey
+                            color: badgeOk ? 'var(--ok)' : 'var(--risk)',
+                            borderColor: badgeOk
                               ? 'rgba(78,187,127,0.2)'
                               : 'rgba(224,90,90,0.2)',
-                            background: providerHasKey
+                            background: badgeOk
                               ? 'rgba(78,187,127,0.05)'
                               : 'rgba(224,90,90,0.05)',
                           }}
                         >
                           <KeyRound size={8} />
-                          {providerHasKey ? 'Key set' : 'No key'}
+                          {badgeLabel}
                         </span>
                       </div>
                     </div>
