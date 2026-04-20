@@ -3,8 +3,6 @@ import "dotenv/config";
 export interface ClawConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
-  email: string;
-  password: string;
   executorToken: string;
   pollIntervalMs: number;
   workspaceDir: string;
@@ -25,8 +23,6 @@ export function loadConfig(): ClawConfig {
   return {
     supabaseUrl: required("SUPABASE_URL"),
     supabaseAnonKey: required("SUPABASE_ANON_KEY"),
-    email: required("MAESTRO_EMAIL"),
-    password: required("MAESTRO_PASSWORD"),
     executorToken: required("EXECUTOR_TOKEN"),
     pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS ?? "5000", 10),
     workspaceDir:

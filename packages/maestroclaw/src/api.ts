@@ -1,5 +1,4 @@
 import type { ClawConfig } from "./config.js";
-import { getAccessToken } from "./auth.js";
 
 export interface ExecutorJob {
   id: string;
@@ -34,7 +33,6 @@ async function api(
 ): Promise<unknown> {
   const url = `${config.supabaseUrl}/functions/v1/executor-api?action=${action}`;
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${getAccessToken()}`,
     "Content-Type": "application/json",
     "X-Executor-Token": config.executorToken,
   };

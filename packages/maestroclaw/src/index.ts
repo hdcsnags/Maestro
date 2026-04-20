@@ -2,7 +2,6 @@
 
 import "dotenv/config";
 import { loadConfig } from "./config.js";
-import { authenticate } from "./auth.js";
 import { heartbeat, pollForJob, claimJob } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
 import { executeJob } from "./executor.js";
@@ -15,9 +14,6 @@ async function main() {
   const config = loadConfig();
   console.log(`📡 Supabase: ${config.supabaseUrl}`);
   console.log(`⏱  Poll interval: ${config.pollIntervalMs}ms`);
-
-  // Authenticate
-  await authenticate(config);
 
   // Check adapters
   const adapters = await checkAdapters();
