@@ -10,7 +10,7 @@
 | Primary branch | `main` |
 | Active blockers | GPT OSS phantom agent fires during builds when not selected; Claw agents error on broadcast (need broadcast filter); Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | None — all migrations applied including V3 routing (`20260418230000`) |
+| Unapplied migrations | None — all migrations applied including Claw Mode threads (`20260420000000`) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -56,6 +56,10 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Prompt input | `src/components/reveal/RevealComposer.tsx` |`r`n| Frontend edge invoke helper | `src/lib/functions.ts` |`r`n| Shared edge auth helper | `supabase/functions/_shared/auth.ts` |`r`n| Edge function config | `supabase/config.toml` |
 | Edge functions | `supabase/functions/*/index.ts` |
 | Migrations | `supabase/migrations/` |
+| Claw Mode chat | `src/components/reveal/ClawMode.tsx` |
+| Thread hook | `src/hooks/useThreads.ts` |
+| Claw Mode spec | `CLAW_MODE_SPEC.md` |
+| Claw UI issues | `CLAW_UI_ISSUES.md` |
 
 ## Edge Functions
 
@@ -85,6 +89,7 @@ Security: provider_connections, encrypted_secrets, audit_events
 Sprint B: design_artifacts, build_lanes, bouncer_events, build_reports, concierge_decisions
 Build v2: build_tasks (per-file task queue — status, prompt_slice, retry/reroute metadata)
 MaestroClaw: executors, executor_jobs, executor_job_events
+Claw Mode: threads (type: concierge|broadcast|direct|execution), thread_messages
 Legacy (unused): agent_skills, flags
 
 ## Agent Roster
@@ -202,6 +207,8 @@ Legacy (unused): agent_skills, flags
 | Claude Code stdin pipe: adapter rewritten to use `spawn()` + `proc.stdin.write(prompt)` instead of CLI arg — fixes Windows 8K char truncation | 2026-04-19 (commit `3e455ea`) |
 | Artifacts written to disk: executor writes built files to per-job workspace AND session-scoped `builds/{session_id}/` directory for consolidated project view | 2026-04-20 (commits `38c7dd5`, `cfb60c6`) |
 | Full 5-file build via MaestroClaw: dispatched 5 jobs (App.tsx, Hero.tsx, Services.tsx, Footer.tsx, App.module.css), all succeeded with artifacts stored in DB | 2026-04-20 (live smoke test) |
+| **Claw Mode Phase 0** — thread foundation + concierge chat: migration for `threads`/`thread_messages` tables + `agent_role` column on agents, `useThreads` hook, `ClawMode` full-screen chat component with model picker, Claw button in composer, Escape to close | 2026-04-20 (`npm run typecheck`, `npm run build`, migration applied, commits `ba41ed1`→`ff25942`) |
+| CLAW_MODE_SPEC.md: council-approved architecture spec for Maestro v2 — thread-first model, Council/Claw hard split, 3 views (Orb/Carousel/Focus), 4-phase build plan, all 7 open questions resolved | 2026-04-20 (council-approved, commits `2d8cbd9`→`9380300`) |
 
 ## What's Broken or Incomplete
 
@@ -233,16 +240,16 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
-2. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
-3. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion) — select Claw builder, lock spec, decompose tasks, verify jobs flow to Claw, artifacts come back, and either display or push to GitHub.
-4. **Artifact → GitHub bridge for Claw builds**: Claw artifacts sit in DB (`executor_jobs.artifact_manifest`). Need to wire them through `github-execute` edge function so built files get committed to GitHub.
-5. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job, prior-output injection.
-6. **Build v3 Phase 3 — Pre-Build UX enhancements**: Executor status in topbar, project type gate (new vs existing repo).
-7. **Version bump MaestroClaw** to v0.2.0 — reflects working artifact pipeline.
-8. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
-9. Retire legacy broadcast path once v2 is battle-tested across multiple projects
-10. Add GitHub App install detection (`/user/installations`) so UI can prompt users who authorized but haven't installed
+1. **Claw Mode Phase 1 — Broadcast from Chat**: "Ask Orchestra" button in concierge chat creates broadcast threads, carousel appears in Claw Mode, direct chat from carousel, Synthesize reads selected threads and writes to concierge thread.
+2. **Claw Mode Phase 2 — Execution in Chat**: Claw commands surface in concierge chat, trusted commands auto-execute, write commands need approval, streaming job output in thread.
+3. **Claw Mode Phase 3 — Build from Chat**: GitHub repo creation/scan through concierge, Supabase setup, scaffold via MaestroClaw, full build lifecycle from chat.
+4. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
+5. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
+6. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion).
+7. **Artifact → GitHub bridge for Claw builds**: Wire Claw artifacts through `github-execute` edge function.
+8. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job.
+9. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
+10. Retire legacy broadcast path once v2 is battle-tested across multiple projects
 
 ---
 

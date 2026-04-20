@@ -14,6 +14,7 @@ export default function ClawMode() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const initRef = useRef(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   // Filtered messages for the active thread
   const messages = useMemo(() => {
@@ -28,6 +29,18 @@ export default function ClawMode() {
     const found = CONCIERGE_MODELS.find(m => m.id === state.conciergeModel);
     return found?.label ?? state.conciergeModel;
   }, [state.conciergeModel]);
+
+  // Close model picker on click outside
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setModelPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [modelPickerOpen]);
 
   // Initialize concierge thread on mount
   useEffect(() => {
@@ -104,9 +117,9 @@ export default function ClawMode() {
         </div>
 
         {/* Model picker */}
-        <div className="relative z-[60]">
+        <div ref={pickerRef} style={{ position: 'relative' }}>
           <button
-            onClick={(e) => { e.stopPropagation(); setModelPickerOpen(!modelPickerOpen); }}
+            onClick={() => setModelPickerOpen(!modelPickerOpen)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 
                        text-xs text-white/60 hover:text-white/80 transition-all"
           >
@@ -116,26 +129,31 @@ export default function ClawMode() {
           </button>
 
           {modelPickerOpen && (
-            <>
-              <div className="fixed inset-0 z-[59]" onClick={() => setModelPickerOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 w-56 rounded-lg bg-void-2 border border-white/10 
-                              shadow-xl overflow-hidden z-[60]">
-                {CONCIERGE_MODELS.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={(e) => { e.stopPropagation(); handleModelSelect(m.id); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors
-                      ${m.id === state.conciergeModel
-                        ? 'bg-gold/10 text-gold'
-                        : 'text-white/60 hover:bg-white/5 hover:text-white/80'
-                      }`}
-                  >
-                    <div className="font-medium">{m.label}</div>
-                    <div className="text-xs opacity-50 mt-0.5">{m.provider}</div>
-                  </button>
-                ))}
-              </div>
-            </>
+            <div
+              style={{
+                position: 'fixed',
+                top: pickerRef.current ? pickerRef.current.getBoundingClientRect().bottom + 4 : 0,
+                right: 60,
+                width: 224,
+                zIndex: 9999,
+              }}
+              className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
+            >
+              {CONCIERGE_MODELS.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => handleModelSelect(m.id)}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors
+                    ${m.id === state.conciergeModel
+                      ? 'bg-gold/10 text-gold'
+                      : 'text-white/60 hover:bg-white/5 hover:text-white/80'
+                    }`}
+                >
+                  <div className="font-medium">{m.label}</div>
+                  <div className="text-xs opacity-50 mt-0.5">{m.provider}</div>
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
