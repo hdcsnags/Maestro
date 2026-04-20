@@ -1,12 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
-
+import { buildCorsHeaders } from "../_shared/cors.ts";
 type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat" | "decompose_tasks";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
@@ -312,6 +307,7 @@ async function getUserApiKey(
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -1083,6 +1079,8 @@ Roles: builder | reviewer | read_only | security_audit. Lane paths must not over
     );
   }
 });
+
+
 
 
 

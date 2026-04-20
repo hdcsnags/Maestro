@@ -1,12 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
-
+import { buildCorsHeaders } from "../_shared/cors.ts";
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -72,5 +68,7 @@ Focus on what should actually be built or decided, not meta-commentary about the
     );
   }
 });
+
+
 
 

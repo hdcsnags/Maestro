@@ -1,28 +1,30 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Client-Info, Apikey, X-Executor-Token",
-};
-
-function json(data: unknown, status = 200) {
+function jsonResponse(corsHeaders: Record<string, string>, data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-function err(message: string, status = 400) {
+function errorResponse(
+  corsHeaders: Record<string, string>,
+  message: string,
+  status = 400,
+) {
   if (status >= 500) {
     const requestId = crypto.randomUUID();
     console.error(`[executor-api:${requestId}] internal error`, message);
-    return json({ error: "Internal server error", request_id: requestId }, status);
+    return jsonResponse(
+      corsHeaders,
+      { error: "Internal server error", request_id: requestId },
+      status,
+    );
   }
-  return json({ error: message }, status);
+  return jsonResponse(corsHeaders, { error: message }, status);
 }
 
 // Simple token hashing using Web Crypto API (available in Deno)
@@ -105,6 +107,15 @@ function getApprovalPolicy(
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(
+    req,
+    "Content-Type, Authorization, X-Client-Info, Apikey, X-Executor-Token",
+  );
+  const json = (data: unknown, status = 200) =>
+    jsonResponse(corsHeaders, data, status);
+  const err = (message: string, status = 400) =>
+    errorResponse(corsHeaders, message, status);
+
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }

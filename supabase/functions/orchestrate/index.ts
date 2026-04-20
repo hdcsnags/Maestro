@@ -1,12 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { logPermissionFailure, requireAuthenticatedRequest } from "../_shared/auth.ts";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
-
+import { buildCorsHeaders } from "../_shared/cors.ts";
 interface AgentSkillPayload {
   name: string;
   instruction: string;
@@ -648,6 +643,7 @@ async function getUserApiKey(userId: string, provider: string): Promise<string |
 }
 
 Deno.serve(async (req: Request) => {
+  const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -860,6 +856,8 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
+
+
 
 
 
