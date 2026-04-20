@@ -27,7 +27,7 @@ CREATE POLICY threads_owner ON threads FOR ALL USING (
   EXISTS (
     SELECT 1 FROM sessions s
     JOIN workspaces w ON s.workspace_id = w.id
-    WHERE s.id = threads.session_id AND w.owner_id = auth.uid()
+    WHERE s.id = threads.session_id AND w.user_id = auth.uid()
   )
 );
 
@@ -53,7 +53,7 @@ CREATE POLICY thread_messages_owner ON thread_messages FOR ALL USING (
     SELECT 1 FROM threads t
     JOIN sessions s ON t.session_id = s.id
     JOIN workspaces w ON s.workspace_id = w.id
-    WHERE t.id = thread_messages.thread_id AND w.owner_id = auth.uid()
+    WHERE t.id = thread_messages.thread_id AND w.user_id = auth.uid()
   )
 );
 
