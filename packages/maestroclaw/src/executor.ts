@@ -75,7 +75,6 @@ export async function executeJob(
     if (Object.keys(artifacts).length === 0 && result.success && result.output) {
       const targetPath = job.allowed_paths?.[0];
       if (targetPath) {
-        // Extract the best code block from Claude's output, or use raw output
         const extracted = extractFileContent(result.output);
         if (extracted.length > 0) {
           artifacts = { [targetPath]: extracted };

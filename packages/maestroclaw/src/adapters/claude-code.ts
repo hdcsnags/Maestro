@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult } from "./types.js";
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Claude Code adapter — runs prompts through the `claude` CLI.
@@ -13,11 +10,12 @@ export class ClaudeCodeAdapter implements Adapter {
 
   async check(): Promise<boolean> {
     try {
-      await execFileAsync("claude", ["--version"], {
-        timeout: 5000,
-        shell: true,
+      const result = await new Promise<boolean>((resolve) => {
+        const proc = spawn("claude", ["--version"], { shell: true, timeout: 5000 });
+        proc.on("close", (code) => resolve(code === 0));
+        proc.on("error", () => resolve(false));
       });
-      return true;
+      return result;
     } catch {
       return false;
     }
@@ -30,43 +28,43 @@ export class ClaudeCodeAdapter implements Adapter {
   ): Promise<AdapterResult> {
     console.log(`  🤖 claude_code: running in ${workDir}`);
 
-    try {
-      const { stdout, stderr } = await execFileAsync(
+    return new Promise((resolve) => {
+      const proc = spawn(
         "claude",
-        [
-          "--print",
-          "--output-format", "text",
-          prompt,
-        ],
+        ["--print", "--output-format", "text"],
         {
           cwd: workDir,
           timeout: timeoutMs,
-          maxBuffer: 10 * 1024 * 1024, // 10MB
           shell: true,
+          env: { ...process.env },
         }
       );
 
-      return {
-        success: true,
-        output: stdout,
-        ...(stderr ? { error: stderr } : {}),
-      };
-    } catch (err: unknown) {
-      const error = err as { code?: string; killed?: boolean; stdout?: string; stderr?: string; message?: string };
+      let stdout = "";
+      let stderr = "";
 
-      if (error.killed || error.code === "ETIMEDOUT") {
-        return {
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+      // Pipe the prompt via stdin to avoid CLI argument length limits
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+
+      proc.on("close", (code) => {
+        resolve({
+          success: code === 0,
+          output: stdout,
+          ...(stderr ? { error: stderr } : {}),
+        });
+      });
+
+      proc.on("error", (err) => {
+        resolve({
           success: false,
-          output: error.stdout ?? "",
-          error: `Timed out after ${timeoutMs / 1000}s`,
-        };
-      }
-
-      return {
-        success: false,
-        output: error.stdout ?? "",
-        error: error.stderr ?? error.message ?? "Unknown error",
-      };
-    }
+          output: stdout,
+          error: err.message,
+        });
+      });
+    });
   }
 }
