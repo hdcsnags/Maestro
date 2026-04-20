@@ -346,7 +346,14 @@ function reducer(state: MaestroState, action: Action): MaestroState {
           ? { ...state.activeThread, ...action.payload }
           : state.activeThread,
       };
-    case 'SET_THREAD_MESSAGES': return { ...state, threadMessages: action.payload };
+    case 'SET_THREAD_MESSAGES': {
+      // Merge per-thread: replace messages for the thread being loaded, keep others
+      const incoming = action.payload as ThreadMessage[];
+      if (incoming.length === 0) return state;
+      const threadId = incoming[0].thread_id;
+      const kept = state.threadMessages.filter((m: ThreadMessage) => m.thread_id !== threadId);
+      return { ...state, threadMessages: [...kept, ...incoming] };
+    }
     case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
     case 'SET_CLAW_MODE_ACTIVE': return { ...state, clawModeActive: action.payload, clawView: 'concierge' as ClawView, focusedAgentId: null };

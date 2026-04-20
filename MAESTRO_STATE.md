@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | GPT OSS phantom agent fires during builds when not selected; Claw agents error on broadcast (need broadcast filter); Sonnet timeouts on artifact-heavy prompts |
+| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Claw Mode thread/view labeling and mobile composer layout need polish; Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None — all migrations applied including Claw Mode threads (`20260420000000`) |
 | Active locks | None |
@@ -212,14 +212,17 @@ Legacy (unused): agent_skills, flags
 | **Claw Mode Phase 2** — execution in chat: `executeFromChat()` + `submitExecutionJob()` + `approveExecutionJob()` + `pollJobStatus()` in `useThreads`, Execute ⚡ button in ClawMode concierge view, approval card with Approve/Reject UI, `TRUSTED_COMMANDS` allowlist (14 patterns), `classifyCommandTrust()`, `EXECUTION_INTENT_PROMPT`, `callExecutorApi()` helper for query-param edge functions, `ApprovedShellAdapter` for real command execution in MaestroClaw, `ADD_EXECUTOR_JOB`/`UPDATE_EXECUTOR_JOB`/`SET_PENDING_EXECUTION` context actions, agent role enforcement (council excluded from execution, executor excluded from broadcast) | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | **Claw Mode Phase 3** — build from chat: `buildFromChat()` flow (plan → review → build → commit), `BUILD_PLAN_PROMPT` for structured plan generation, `ChatBuildPlan`/`ChatBuildFile`/`ChatBuildPhase` types, `generateBuildPlan()` + `executeBuildPlan()` + `approveBuildPlan()` + `cancelBuildPlan()` in `useThreads`, Build 🏗️ button in concierge view (only visible when repo connected), build plan approval card with file list + commit message preview, per-file progress messages in thread, GitHub PR creation via `github-execute` edge function, `SET_CHAT_BUILD_PLAN`/`SET_CHAT_BUILD_PHASE` context actions | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | CLAW_MODE_SPEC.md: council-approved architecture spec for Maestro v2 — thread-first model, Council/Claw hard split, 3 views (Orb/Carousel/Focus), 4-phase build plan, all 7 open questions resolved | 2026-04-20 (council-approved, commits `2d8cbd9`→`9380300`) |
+| **Claw Mode Phase 4** — Claw promoted to primary workspace shell (no longer z-50 overlay). Thread sidebar with grouped threads (Concierge/Broadcast/Direct/Execution). Context header showing thread type, active model, repo, build phase. Intent-first composer replacing 5 peer buttons with mode selector (Chat/Broadcast/Execute/Build) + single Send. Markdown rendering in chat via ReactMarkdown+remarkGfm with `.claw-prose` class. Fixed `SET_THREAD_MESSAGES` data loss (per-thread merge). Fixed stale synthesis closure (return value pattern). Contrast bumped from white/15-20 to white/30-40. View transition animations (180ms fade+translateY). Model picker anchored relative instead of fixed. | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 
 ## What's Broken or Incomplete
 
 | Issue | Since | Owner |
 |-------|-------|-------|
 | **GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug | 2026-04-19 | Unassigned |
-| **Claw agents error on broadcast**: "Provider maestroclaw not supported" — they're build-only, need to be filtered from broadcast flow | 2026-04-19 | Unassigned |
+| **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
+| ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
+| ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
 | Sonnet timeouts on artifact-heavy analysis prompts (possibly needs prompt trimming or dedicated artifact mode) | 2026-04-17 | Unassigned |
 | Kimi K2 intermittently shows bracket `{` as title despite parser fix — may be model-side output discipline | 2026-04-17 | Unassigned |
 | Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
@@ -246,20 +249,35 @@ These areas change often and should be re-verified after any significant work se
 1. ~~**Claw Mode Phase 1 — Broadcast from Chat**~~ ✅ Done
 2. ~~**Claw Mode Phase 2 — Execution in Chat**~~ ✅ Done
 3. ~~**Claw Mode Phase 3 — Build from Chat**~~ ✅ Done
-4. **Claw Mode Phase 4 — Polish + Migration**: Orb View with orbital agent nodes, thread sidebar, archive/pin UX, migrate legacy rounds to broadcast threads, retire old phase-gate UI.
-4. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
-5. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
-6. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion).
-7. **Artifact → GitHub bridge for Claw builds**: Wire Claw artifacts through `github-execute` edge function.
-8. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job.
-9. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
-10. Retire legacy broadcast path once v2 is battle-tested across multiple projects
+4. ~~**Claw Mode Phase 4 — Polish + Promotion**~~ ✅ Done — Claw is primary workspace shell, thread sidebar, context header, intent composer, markdown in chat, 3 bug fixes, contrast/animation polish
+5. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
+6. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
+7. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion).
+8. **Artifact → GitHub bridge for Claw builds**: Wire Claw artifacts through `github-execute` edge function.
+9. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job.
+10. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
+11. Retire legacy broadcast path once v2 is battle-tested across multiple projects
 
 ---
 
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-20 — Codex (GPT-5.4) — Claw Mode UX/UI Audit
+
+**What was done**: Audited Claw Mode UX/UI against the current implementation and spec, covering layout, interaction flow, transitions, density, consistency, responsive behavior, and accessibility. Verified that the Claw chat broadcast path excludes executor agents and corrected the stale blocker wording so the remaining broadcast issue is scoped to the legacy workspace path.
+
+**Files inspected**: `CLAW_MODE_SPEC.md`, `CLAW_UI_ISSUES.md`, `src/components/reveal/ClawMode.tsx`, `src/pages/WorkspacePage.tsx`, `src/index.css`, `tailwind.config.js`, `src/components/reveal/FolioCarousel.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/OrchestraDrawer.tsx`
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Logged Claw Mode thread/view labeling and responsive overflow as active operational gaps instead of treating them as implicit polish work.
+- Kept the Claw-agent-on-broadcast blocker open, but narrowed it to the legacy broadcast path because `ClawMode.tsx` already filters executor/`maestroclaw` agents out of chat broadcast.
+
+**What didn't work**:
+- Initial shell reads failed with a sandbox setup refresh error and had to be retried with escalated read access.
+- No live browser/device pass was run in this session; the audit is code-backed rather than screenshot-verified.
 
 ### 2026-04-19/20 — GitHub Copilot (Opus 4.6) — Claw-in-Roster + Artifact Pipeline
 

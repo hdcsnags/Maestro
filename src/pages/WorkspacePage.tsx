@@ -257,18 +257,23 @@ export default function WorkspacePage() {
         onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}
       />
 
-      <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
-        {!state.focusMode && <RevealTopbar />}
-        {!state.focusMode && <HeroContext />}
+      {/* Claw Mode = primary workspace when active */}
+      {state.clawModeActive ? (
+        <ClawMode />
+      ) : (
+        <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
+          {!state.focusMode && <RevealTopbar />}
+          {!state.focusMode && <HeroContext />}
 
-        {hasContent && state.carouselVisible ? (
-          <FolioCarousel />
-        ) : (
-          <EmptyStage orbState={orbState} />
-        )}
+          {hasContent && state.carouselVisible ? (
+            <FolioCarousel />
+          ) : (
+            <EmptyStage orbState={orbState} />
+          )}
 
-        {!state.focusMode && <RevealComposer onBroadcast={handleBroadcast} />}
-      </div>
+          {!state.focusMode && <RevealComposer onBroadcast={handleBroadcast} />}
+        </div>
+      )}
 
       <OrchestraDrawer />
       <TrustDrawer />
@@ -281,8 +286,7 @@ export default function WorkspacePage() {
       <DesignPhase />
       <BuildWorkspace />
       <BuildReport />
-      {state.conciergeVisible && <ConciergePanel />}
-      {state.clawModeActive && <ClawMode />}
+      {state.conciergeVisible && !state.clawModeActive && <ConciergePanel />}
       <Toast />
     </div>
   );

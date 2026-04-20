@@ -272,6 +272,99 @@ select option:checked {
   margin: 1.5em 0;
 }
 
+/* Claw Mode chat prose — tighter variant of folio-prose for message bubbles */
+.claw-prose h1, .claw-prose h2, .claw-prose h3 {
+  font-family: 'Syne', sans-serif;
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin: 0.8em 0 0.3em;
+  line-height: 1.2;
+}
+.claw-prose h1 { font-size: 1.2em; }
+.claw-prose h2 { font-size: 1.1em; }
+.claw-prose h3 { font-size: 1em; }
+.claw-prose h1:first-child, .claw-prose h2:first-child, .claw-prose h3:first-child { margin-top: 0; }
+.claw-prose p { margin: 0.5em 0; }
+.claw-prose p:first-child { margin-top: 0; }
+.claw-prose p:last-child { margin-bottom: 0; }
+.claw-prose ul, .claw-prose ol { padding-left: 1.4em; margin: 0.4em 0; }
+.claw-prose li { margin: 0.15em 0; }
+.claw-prose li::marker { color: rgba(201,168,76,0.5); }
+.claw-prose strong { color: var(--text); font-weight: 500; }
+.claw-prose em { color: rgba(232,230,224,0.7); }
+.claw-prose a { color: rgba(138,168,224,0.9); text-decoration: none; }
+.claw-prose a:hover { text-decoration: underline; }
+.claw-prose code {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: rgba(201,168,76,0.9);
+}
+.claw-prose pre {
+  margin: 0.6em 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow-x: auto;
+}
+.claw-prose pre code {
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgba(232,230,224,0.8);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.claw-prose blockquote {
+  margin: 0.6em 0;
+  padding: 0.4em 0.8em;
+  border-left: 2px solid rgba(201,168,76,0.3);
+  background: rgba(201,168,76,0.03);
+  border-radius: 0 8px 8px 0;
+  color: rgba(232,230,224,0.7);
+}
+.claw-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.85em;
+}
+.claw-prose th, .claw-prose td {
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,0.06);
+  text-align: left;
+}
+.claw-prose th {
+  background: rgba(255,255,255,0.03);
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.claw-prose hr {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin: 1em 0;
+}
+
+/* ─── Claw view transitions ──────────────────── */
+@keyframes claw-view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.claw-view-enter {
+  animation: claw-view-in 180ms ease-out;
+}
+.claw-sidebar {
+  animation: claw-view-in 150ms ease-out;
+}
+
 .folio-active {
   transform: translateX(0) scale(1) translateZ(0);
   opacity: 1;

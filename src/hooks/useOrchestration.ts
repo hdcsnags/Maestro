@@ -610,8 +610,11 @@ export function useOrchestration() {
       const sessionRoundCount = state.rounds.filter(r => r.session_id === state.activeSession?.id).length;
       const phase: ConciergePhase = sessionRoundCount <= 1 ? 'post_round1' : 'post_round2';
       void triggerConcierge(phase, roundId, content);
+
+      return { content };
     } catch (err) {
       console.error('Synthesis error:', err);
+      return null;
     }
   }, [user, state.responses, state.rounds, state.activeSession, state.threads, state.threadMessages, state.agents, dispatch, logAudit, triggerConcierge, ensureSession]);
 
