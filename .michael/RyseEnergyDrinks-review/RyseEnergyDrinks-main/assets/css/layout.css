@@ -1,0 +1,100 @@
+/*
+  Layout styles for page shell and major content regions.
+  Depends on custom properties defined in base.css.
+*/
+
+/* Page shell */
+.page-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "header"
+    "hero"
+    "services-cards"
+    "services-matrix"
+    "footer";
+  gap: var(--space-8, 2rem);
+  align-items: start;
+}
+
+.site-header {
+  grid-area: header;
+}
+
+.hero-wrapper {
+  grid-area: hero;
+}
+
+.service-cards {
+  grid-area: services-cards;
+}
+
+.services-matrix {
+  grid-area: services-matrix;
+}
+
+.site-footer {
+  grid-area: footer;
+}
+
+/* Hero section wrapper */
+.hero-wrapper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+/* Above-fold service cards: 4-column grid on larger screens */
+.service-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6, 1.5rem);
+}
+
+/* Services matrix: 6-column grid on larger screens */
+.services-matrix {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6, 1.5rem);
+}
+
+/* Footer */
+.site-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6, 1.5rem);
+}
+
+/* Responsive breakpoint: collapse to single-column below 768px (mobile-first baseline) */
+@media (min-width: 768px) {
+  .page-shell {
+    gap: var(--space-10, 2.5rem);
+  }
+
+  .hero-wrapper {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-8, 2rem);
+  }
+
+  .service-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .services-matrix {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .site-footer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-shell {
+    gap: var(--space-12, 3rem);
+  }
+
+  .site-footer {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

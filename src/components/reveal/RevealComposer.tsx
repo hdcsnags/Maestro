@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { supabase } from '../../lib/supabase';
-import { Send, Music, AlertTriangle } from 'lucide-react';
+import { Send, Music, AlertTriangle, Terminal } from 'lucide-react';
 import { OrchestrationMode, SessionMode } from '../../types';
 import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
 
@@ -353,6 +353,20 @@ export default function RevealComposer({ onBroadcast }: Props) {
           >
             <Music size={14} />
             Orchestra
+          </button>
+
+          <button
+            className="reveal-pill"
+            onClick={() => dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: true })}
+            style={{
+              height: '42px',
+              fontSize: '13px',
+              background: state.clawModeActive ? 'rgba(201,168,76,0.14)' : undefined,
+              color: state.clawModeActive ? 'var(--gold)' : undefined,
+            }}
+          >
+            <Terminal size={14} />
+            Claw
           </button>
         </div>
 

@@ -18,6 +18,7 @@ import PatchModal from '../components/reveal/PatchModal';
 import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
 import ConciergePanel from '../components/reveal/ConciergePanel';
+import ClawMode from '../components/reveal/ClawMode';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
@@ -87,7 +88,9 @@ export default function WorkspacePage() {
       const isTyping = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable;
 
       if (e.key === 'Escape') {
-        if (state.executionModalOpen) {
+        if (state.clawModeActive) {
+          dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: false });
+        } else if (state.executionModalOpen) {
           dispatch({ type: 'SET_EXECUTION_MODAL', payload: false });
         } else if (state.patchModalOpen) {
           dispatch({ type: 'SET_PATCH_MODAL', payload: false });
@@ -183,7 +186,7 @@ export default function WorkspacePage() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, dispatch]);
+  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, state.clawModeActive, dispatch]);
 
   if (state.initError) {
     return (
@@ -279,6 +282,7 @@ export default function WorkspacePage() {
       <BuildWorkspace />
       <BuildReport />
       {state.conciergeVisible && <ConciergePanel />}
+      {state.clawModeActive && <ClawMode />}
       <Toast />
     </div>
   );

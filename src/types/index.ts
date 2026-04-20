@@ -6,6 +6,11 @@ export type ExecutionStrategy = 'per_agent' | 'synthesized';
 export type OrchestrationMode = 'analysis' | 'build' | 'artifact' | 'build_task';
 export type ExecutionRunStatus = 'pending' | 'approved' | 'running' | 'complete' | 'failed';
 export type SessionMode = 'ask' | 'build';
+export type AgentRole = 'council' | 'executor';
+export type ThreadType = 'concierge' | 'broadcast' | 'direct' | 'execution';
+export type ThreadStatus = 'active' | 'completed' | 'pinned' | 'archived';
+export type ThreadMessageRole = 'user' | 'agent' | 'concierge' | 'system';
+export type ContextWeight = 'primary' | 'supporting' | 'background';
 
 export interface Workspace {
   id: string;
@@ -51,7 +56,45 @@ export interface Agent {
   provider_group: string;
   scoped_paths?: string[];
   skills?: AgentSkill[];
+  agent_role?: AgentRole;
 }
+
+// ─── Claw Mode: Thread primitives ───────────────────────────────
+export interface Thread {
+  id: string;
+  session_id: string;
+  type: ThreadType;
+  agent_id?: string | null;
+  status: ThreadStatus;
+  include_in_synthesis: boolean;
+  parent_thread_id?: string | null;
+  title?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadMessage {
+  id: string;
+  thread_id: string;
+  role: ThreadMessageRole;
+  agent_id?: string | null;
+  content: string;
+  context_weight: ContextWeight;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+// All models available as concierge (union of direct + OpenRouter)
+export const CONCIERGE_MODELS: { id: string; label: string; provider: string }[] = [
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'anthropic' },
+  { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', provider: 'openai' },
+  { id: 'gpt-5.4', label: 'GPT-5.4', provider: 'openai' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', provider: 'google' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' },
+];
 
 export interface Session {
   id: string;

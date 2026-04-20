@@ -1,0 +1,143 @@
+<section class="contact-funnel" aria-labelledby="contact-funnel-heading">
+  <div class="contact-funnel__header">
+    <h2 id="contact-funnel-heading" class="contact-funnel__title">Tell us what you need</h2>
+    <p class="contact-funnel__subtitle">A few quick steps and we’ll point you to the right next move.</p>
+  </div>
+
+  <ol class="contact-funnel__progress" aria-label="Contact funnel steps">
+    <li class="contact-funnel__progress-step is-active" data-step-indicator="1" aria-current="step">
+      <span class="contact-funnel__progress-number">1</span>
+      <span class="contact-funnel__progress-label">Pain points</span>
+    </li>
+    <li class="contact-funnel__progress-step" data-step-indicator="2">
+      <span class="contact-funnel__progress-number">2</span>
+      <span class="contact-funnel__progress-label">Company</span>
+    </li>
+    <li class="contact-funnel__progress-step" data-step-indicator="3">
+      <span class="contact-funnel__progress-number">3</span>
+      <span class="contact-funnel__progress-label">Contact</span>
+    </li>
+  </ol>
+
+  <form class="contact-funnel__form" id="contact-funnel-form" action="#" method="post" novalidate>
+    <fieldset class="contact-funnel__panel is-active" data-step-panel="1">
+      <legend class="contact-funnel__panel-title">Step 1: What’s blocking progress?</legend>
+      <p id="pain-points-error" class="contact-funnel__error" role="alert" aria-live="polite"></p>
+      <p class="contact-funnel__help">Choose one or more pain points that best describe your situation.</p>
+
+      <div class="contact-funnel__chips" role="group" aria-labelledby="pain-points-label" aria-describedby="pain-points-error pain-points-help">
+        <span id="pain-points-label" class="visually-hidden">Pain point selection</span>
+        <span id="pain-points-help" class="visually-hidden">Select all that apply</span>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-growth" name="pain_points[]" value="growth" aria-describedby="pain-points-error" />
+          <label for="pain-growth">Need more qualified leads</label>
+        </div>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-conversion" name="pain_points[]" value="conversion" aria-describedby="pain-points-error" />
+          <label for="pain-conversion">Website traffic isn’t converting</label>
+        </div>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-positioning" name="pain_points[]" value="positioning" aria-describedby="pain-points-error" />
+          <label for="pain-positioning">Messaging feels unclear</label>
+        </div>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-automation" name="pain_points[]" value="automation" aria-describedby="pain-points-error" />
+          <label for="pain-automation">Need better automation or follow-up</label>
+        </div>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-rebrand" name="pain_points[]" value="rebrand" aria-describedby="pain-points-error" />
+          <label for="pain-rebrand">We’re planning a refresh or rebrand</label>
+        </div>
+
+        <div class="contact-funnel__chip">
+          <input type="checkbox" id="pain-other" name="pain_points[]" value="other" aria-describedby="pain-points-error" />
+          <label for="pain-other">Something else</label>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="contact-funnel__panel" data-step-panel="2" hidden>
+      <legend class="contact-funnel__panel-title">Step 2: Tell us about your company</legend>
+      <p id="company-error" class="contact-funnel__error" role="alert" aria-live="polite"></p>
+
+      <div class="contact-funnel__grid">
+        <div class="contact-funnel__field">
+          <label for="company-name">Company name</label>
+          <input type="text" id="company-name" name="company_name" autocomplete="organization" aria-describedby="company-error" />
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="company-website">Website</label>
+          <input type="url" id="company-website" name="company_website" autocomplete="url" inputmode="url" aria-describedby="company-error" />
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="company-size">Team size</label>
+          <select id="company-size" name="company_size" aria-describedby="company-error">
+            <option value="">Select one</option>
+            <option value="1-10">1–10</option>
+            <option value="11-50">11–50</option>
+            <option value="51-200">51–200</option>
+            <option value="201-1000">201–1,000</option>
+            <option value="1000+">1,000+</option>
+          </select>
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="company-goal">Primary goal</label>
+          <select id="company-goal" name="company_goal" aria-describedby="company-error">
+            <option value="">Select one</option>
+            <option value="lead-generation">Lead generation</option>
+            <option value="conversion">Conversion rate improvement</option>
+            <option value="brand">Brand / positioning</option>
+            <option value="automation">Automation / CRM</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset class="contact-funnel__panel" data-step-panel="3" hidden>
+      <legend class="contact-funnel__panel-title">Step 3: How should we reach you?</legend>
+      <p id="contact-error" class="contact-funnel__error" role="alert" aria-live="polite"></p>
+
+      <div class="contact-funnel__grid">
+        <div class="contact-funnel__field">
+          <label for="full-name">Full name</label>
+          <input type="text" id="full-name" name="full_name" autocomplete="name" aria-describedby="contact-error" />
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="email">Work email</label>
+          <input type="email" id="email" name="email" autocomplete="email" inputmode="email" aria-describedby="contact-error" />
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="phone">Phone number</label>
+          <input type="tel" id="phone" name="phone" autocomplete="tel" inputmode="tel" aria-describedby="contact-error" />
+        </div>
+
+        <div class="contact-funnel__field">
+          <label for="message">Project details</label>
+          <textarea id="message" name="message" rows="4" aria-describedby="contact-error"></textarea>
+        </div>
+
+        <div class="contact-funnel__field contact-funnel__field--honeypot" aria-hidden="true">
+          <label for="company-website-hidden">Company website (leave blank)</label>
+          <input type="text" id="company-website-hidden" name="website" tabindex="-1" autocomplete="off" aria-describedby="contact-error" />
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="contact-funnel__actions">
+      <button type="button" class="contact-funnel__button contact-funnel__button--secondary" data-funnel-prev disabled>Back</button>
+      <button type="button" class="contact-funnel__button contact-funnel__button--primary" data-funnel-next>Next</button>
+      <button type="submit" class="contact-funnel__button contact-funnel__button--submit" data-funnel-submit hidden>Send request</button>
+    </div>
+  </form>
+</section>

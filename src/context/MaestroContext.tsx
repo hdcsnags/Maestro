@@ -4,7 +4,7 @@ import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
-  TriageResult, BuildPlan, Executor, ExecutorJob,
+  TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -49,6 +49,13 @@ export interface MaestroState {
   patchModalOpen: boolean;
   executionModalOpen: boolean;
   focusMode: boolean;
+  // Claw Mode — thread state
+  threads: Thread[];
+  threadMessages: ThreadMessage[];
+  activeThread: Thread | null;
+  clawModeActive: boolean;
+  conciergeModel: string;
+  isConciergeSending: boolean;
 }
 
 type Action =
@@ -107,7 +114,17 @@ type Action =
   | { type: 'SET_PATCH_MODAL'; payload: boolean }
   | { type: 'SET_EXECUTION_MODAL'; payload: boolean }
   | { type: 'TOGGLE_FOCUS_MODE' }
-  | { type: 'SET_INIT_ERROR'; payload: string | null };
+  | { type: 'SET_INIT_ERROR'; payload: string | null }
+  // Claw Mode — thread actions
+  | { type: 'SET_THREADS'; payload: Thread[] }
+  | { type: 'ADD_THREAD'; payload: Thread }
+  | { type: 'UPDATE_THREAD'; payload: Partial<Thread> & { id: string } }
+  | { type: 'SET_THREAD_MESSAGES'; payload: ThreadMessage[] }
+  | { type: 'ADD_THREAD_MESSAGE'; payload: ThreadMessage }
+  | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
+  | { type: 'SET_CLAW_MODE_ACTIVE'; payload: boolean }
+  | { type: 'SET_CONCIERGE_MODEL'; payload: string }
+  | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean };
 
 const initial: MaestroState = {
   workspace: null,
@@ -148,6 +165,13 @@ const initial: MaestroState = {
   patchModalOpen: false,
   executionModalOpen: false,
   focusMode: false,
+  // Claw Mode
+  threads: [],
+  threadMessages: [],
+  activeThread: null,
+  clawModeActive: false,
+  conciergeModel: 'claude-haiku-4-5',
+  isConciergeSending: false,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -196,6 +220,10 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         triageResult: null,
         isTriaging: false,
         buildPlan: null,
+        // Claw Mode — clear threads on session switch
+        threads: [],
+        threadMessages: [],
+        activeThread: null,
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -281,6 +309,25 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
     case 'TOGGLE_FOCUS_MODE': return { ...state, focusMode: !state.focusMode };
     case 'SET_INIT_ERROR': return { ...state, initError: action.payload };
+    // Claw Mode — thread reducers
+    case 'SET_THREADS': return { ...state, threads: action.payload };
+    case 'ADD_THREAD': return { ...state, threads: [...state.threads, action.payload] };
+    case 'UPDATE_THREAD':
+      return {
+        ...state,
+        threads: state.threads.map(t =>
+          t.id === action.payload.id ? { ...t, ...action.payload } : t
+        ),
+        activeThread: state.activeThread?.id === action.payload.id
+          ? { ...state.activeThread, ...action.payload }
+          : state.activeThread,
+      };
+    case 'SET_THREAD_MESSAGES': return { ...state, threadMessages: action.payload };
+    case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
+    case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
+    case 'SET_CLAW_MODE_ACTIVE': return { ...state, clawModeActive: action.payload };
+    case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
+    case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };
     default: return state;
   }
 }

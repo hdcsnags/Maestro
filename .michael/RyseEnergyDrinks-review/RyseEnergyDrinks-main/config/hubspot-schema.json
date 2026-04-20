@@ -1,0 +1,55 @@
+{
+  "description": "HubSpot webhook field mapping schema for funnel form submissions and UTM parameters.",
+  "fields": {
+    "name": {
+      "hubspotProperty": "firstname",
+      "dataType": "string",
+      "required": true
+    },
+    "email": {
+      "hubspotProperty": "email",
+      "dataType": "string",
+      "required": true
+    },
+    "company": {
+      "hubspotProperty": "company",
+      "dataType": "string",
+      "required": false
+    },
+    "pain_point_tags": {
+      "hubspotProperty": "pain_point_tags",
+      "dataType": "array|string",
+      "required": false
+    },
+    "service_interest": {
+      "hubspotProperty": "service_interest",
+      "dataType": "string",
+      "required": false
+    },
+    "utm_source": {
+      "hubspotProperty": "utm_source",
+      "dataType": "string",
+      "required": false
+    },
+    "utm_medium": {
+      "hubspotProperty": "utm_medium",
+      "dataType": "string",
+      "required": false
+    },
+    "utm_campaign": {
+      "hubspotProperty": "utm_campaign",
+      "dataType": "string",
+      "required": false
+    },
+    "utm_term": {
+      "hubspotProperty": "utm_term",
+      "dataType": "string",
+      "required": false
+    },
+    "utm_content": {
+      "hubspotProperty": "utm_content",
+      "dataType": "string",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,184 @@
+/* Hero section styles
+   Depends on tokens defined in base.css and is enhanced by assets/js/animation.js.
+   Provides a no-JS fallback for subtle background movement. */
+
+.hero {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  overflow: clip;
+  background:
+    radial-gradient(circle at top center, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(180deg, rgba(7, 10, 18, 1) 0%, rgba(7, 10, 18, 0.96) 38%, rgba(7, 10, 18, 1) 100%);
+  isolation: isolate;
+}
+
+.hero__inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding: clamp(5rem, 10vw, 8.5rem) var(--page-gutter, clamp(1.25rem, 4vw, 2.5rem));
+}
+
+.hero__content {
+  display: grid;
+  gap: clamp(1.25rem, 2.5vw, 1.75rem);
+  max-width: 42rem;
+}
+
+.hero__eyebrow {
+  margin: 0;
+  color: var(--color-accent, #8bd3ff);
+  font-size: var(--text-xs, 0.8125rem);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.hero__title {
+  margin: 0;
+  color: var(--color-text, #f7fafc);
+  font-family: var(--font-display, var(--font-sans, system-ui, sans-serif));
+  font-size: clamp(2.75rem, 6vw, 5.75rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.hero__subhead {
+  margin: 0;
+  max-width: 34rem;
+  color: var(--color-muted, rgba(226, 232, 240, 0.82));
+  font-size: clamp(1.05rem, 1.6vw, 1.35rem);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+  margin-top: clamp(0.5rem, 1vw, 1rem);
+}
+
+.hero__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 3.25rem;
+  padding: 0.875rem 1.35rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.hero__cta--primary {
+  color: var(--color-surface, #06101a);
+  background: var(--color-accent, #8bd3ff);
+  box-shadow: 0 0.75rem 2rem rgba(139, 211, 255, 0.22);
+}
+
+.hero__cta--secondary {
+  color: var(--color-text, #f7fafc);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+}
+
+.hero__cta:hover,
+.hero__cta:focus-visible {
+  transform: translateY(-2px);
+}
+
+.hero__cta--primary:hover,
+.hero__cta--primary:focus-visible {
+  box-shadow: 0 1rem 2.5rem rgba(139, 211, 255, 0.28);
+}
+
+.hero__cta--secondary:hover,
+.hero__cta--secondary:focus-visible {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.hero__visual {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hero__grid {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+  opacity: 0.22;
+  transform-origin: center;
+  will-change: transform, opacity;
+  animation: hero-grid-float 18s ease-in-out infinite;
+}
+
+.hero__grid svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hero__grid svg path,
+.hero__grid svg line,
+.hero__grid svg polyline,
+.hero__grid svg circle {
+  vector-effect: non-scaling-stroke;
+}
+
+.hero__grid-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(7, 10, 18, 0.08) 0%, rgba(7, 10, 18, 0.25) 100%),
+    radial-gradient(circle at center, transparent 22%, rgba(7, 10, 18, 0.5) 100%);
+}
+
+@keyframes hero-grid-float {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 0.28;
+    transform: translate3d(0, -0.75rem, 0);
+  }
+}
+
+@media (min-width: 48rem) {
+  .hero__content {
+    gap: 1.5rem;
+  }
+
+  .hero__actions {
+    margin-top: 0.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__grid,
+  .hero__cta {
+    animation: none !important;
+    transition: none !important;
+  }
+}

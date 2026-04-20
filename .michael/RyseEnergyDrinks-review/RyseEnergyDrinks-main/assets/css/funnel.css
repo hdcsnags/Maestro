@@ -1,0 +1,323 @@
+/*
+ * Funnel CSS
+ * Multi-step progressive-disclosure contact funnel styles.
+ * Depends on base.css and components.css.
+ */
+
+.funnel {
+  --funnel-accent: var(--color-primary, #2563eb);
+  --funnel-accent-weak: color-mix(in srgb, var(--funnel-accent) 14%, transparent);
+  --funnel-border: var(--color-border, #d1d5db);
+  --funnel-text-muted: var(--color-text-muted, #6b7280);
+  --funnel-success: var(--color-success, #16a34a);
+  --funnel-error: var(--color-danger, #dc2626);
+  --funnel-surface: var(--color-surface, #ffffff);
+  --funnel-surface-alt: var(--color-surface-alt, #f9fafb);
+  width: 100%;
+}
+
+.funnel__header {
+  margin-bottom: 1.25rem;
+}
+
+.funnel__progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.funnel__progress-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--funnel-surface-alt);
+}
+
+.funnel__progress-fill {
+  position: absolute;
+  inset: 0;
+  width: var(--funnel-progress, 0%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--funnel-accent), color-mix(in srgb, var(--funnel-accent) 70%, white));
+  transition: width 240ms ease;
+}
+
+.funnel__progress-label {
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--funnel-text-muted);
+  white-space: nowrap;
+}
+
+.funnel__steps {
+  position: relative;
+}
+
+.funnel__step {
+  position: relative;
+  display: none;
+  background: var(--funnel-surface);
+  border: 1px solid var(--funnel-border);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transform: translateX(1.5rem);
+  opacity: 0;
+  transition: transform 260ms ease, opacity 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+  will-change: transform, opacity;
+}
+
+.funnel__step.is-active {
+  display: block;
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.funnel__step.is-leaving {
+  display: block;
+  transform: translateX(-1.5rem);
+  opacity: 0;
+}
+
+.funnel__step + .funnel__step {
+  margin-top: 1rem;
+}
+
+.funnel__step-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--color-text, #111827);
+}
+
+.funnel__step-description {
+  margin: 0 0 1rem;
+  color: var(--funnel-text-muted);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.funnel__step-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.funnel__field {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.funnel__label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text, #111827);
+}
+
+.funnel__input,
+.funnel__textarea,
+.funnel__select {
+  width: 100%;
+  border: 1px solid var(--funnel-border);
+  border-radius: 0.75rem;
+  background: var(--funnel-surface);
+  color: var(--color-text, #111827);
+  padding: 0.875rem 1rem;
+  font: inherit;
+  transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.funnel__input:focus,
+.funnel__textarea:focus,
+.funnel__select:focus {
+  outline: none;
+  border-color: var(--funnel-accent);
+  box-shadow: 0 0 0 4px var(--funnel-accent-weak);
+}
+
+.funnel__textarea {
+  min-height: 7.5rem;
+  resize: vertical;
+}
+
+.funnel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.funnel__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--funnel-border);
+  border-radius: 9999px;
+  background: var(--funnel-surface);
+  color: var(--color-text, #111827);
+  font-size: 0.925rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.funnel__chip:hover {
+  border-color: color-mix(in srgb, var(--funnel-accent) 45%, var(--funnel-border));
+  transform: translateY(-1px);
+}
+
+.funnel__chip.is-selected,
+.funnel__chip[aria-pressed="true"],
+.funnel__chip input:checked + & {
+  border-color: var(--funnel-accent);
+  background: var(--funnel-accent);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.18);
+}
+
+.funnel__chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--funnel-accent-weak);
+}
+
+.funnel__help,
+.funnel__error {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.funnel__help {
+  color: var(--funnel-text-muted);
+}
+
+.funnel__error {
+  display: none;
+  color: var(--funnel-error);
+  font-weight: 600;
+}
+
+.funnel__field.is-invalid .funnel__input,
+.funnel__field.is-invalid .funnel__textarea,
+.funnel__field.is-invalid .funnel__select,
+.funnel__input[aria-invalid="true"],
+.funnel__textarea[aria-invalid="true"],
+.funnel__select[aria-invalid="true"] {
+  border-color: var(--funnel-error);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--funnel-error) 12%, transparent);
+}
+
+.funnel__field.is-invalid .funnel__error,
+.funnel__field[aria-invalid="true"] .funnel__error {
+  display: block;
+}
+
+.funnel__field.is-valid .funnel__input,
+.funnel__field.is-valid .funnel__textarea,
+.funnel__field.is-valid .funnel__select {
+  border-color: color-mix(in srgb, var(--funnel-success) 65%, var(--funnel-border));
+}
+
+.funnel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.funnel__back,
+.funnel__next,
+.funnel__submit {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  padding: 0.875rem 1.125rem;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.funnel__back {
+  background: var(--funnel-surface-alt);
+  color: var(--color-text, #111827);
+  border-color: var(--funnel-border);
+}
+
+.funnel__next,
+.funnel__submit {
+  background: var(--funnel-accent);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.16);
+}
+
+.funnel__back:hover,
+.funnel__next:hover,
+.funnel__submit:hover {
+  transform: translateY(-1px);
+}
+
+.funnel__back:focus-visible,
+.funnel__next:focus-visible,
+.funnel__submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--funnel-accent-weak);
+}
+
+.funnel--single-step .funnel__steps {
+  display: grid;
+  gap: 1rem;
+}
+
+.funnel--single-step .funnel__step {
+  display: block;
+  opacity: 1;
+  transform: none;
+}
+
+.funnel--single-step .funnel__progress,
+.funnel--single-step .funnel__progress-label {
+  display: none;
+}
+
+.funnel--single-step .funnel__actions {
+  margin-top: 1rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .funnel__step,
+  .funnel__progress-fill,
+  .funnel__input,
+  .funnel__textarea,
+  .funnel__select,
+  .funnel__chip,
+  .funnel__back,
+  .funnel__next,
+  .funnel__submit {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (min-width: 640px) {
+  .funnel__step {
+    padding: 1.5rem;
+  }
+
+  .funnel__actions {
+    justify-content: flex-end;
+  }
+
+  .funnel__back {
+    margin-right: auto;
+  }
+}

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Services page showcasing our core offerings, delivery approach, and case studies.">
+  <title>Services</title>
+  <script nonce="csp-nonce" data-theme-detection>(function(){try{var d=document.documentElement,m=localStorage.getItem('theme');if(m==='dark'||m==='light'){d.setAttribute('data-theme',m)}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){d.setAttribute('data-theme','dark')}}catch(e){}})();</script>
+  <link rel="stylesheet" href="assets/css/base.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/hero.css">
+  <link rel="stylesheet" href="assets/css/funnel.css">
+  <link rel="stylesheet" href="assets/css/theme-toggle.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header" id="top">
+    <div class="site-header__inner container">
+      <a class="site-logo" href="index.html" aria-label="Home">
+        <span class="site-logo__mark" aria-hidden="true">M</span>
+        <span class="site-logo__text">Maestro</span>
+      </a>
+
+      <button class="nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false">
+        <span class="nav-toggle__icon" aria-hidden="true"></span>
+        <span class="sr-only">Toggle navigation</span>
+      </button>
+
+      <nav class="site-nav" id="site-nav" aria-label="Primary">
+        <ul class="site-nav__list">
+          <li class="site-nav__item"><a class="site-nav__link" href="index.html">Home</a></li>
+          <li class="site-nav__item"><a class="site-nav__link site-nav__link--active" href="services.html" aria-current="page">Services</a></li>
+          <li class="site-nav__item"><a class="site-nav__link" href="work.html">Work</a></li>
+          <li class="site-nav__item"><a class="site-nav__link" href="about.html">About</a></li>
+          <li class="site-nav__item"><a class="site-nav__link" href="contact.html">Contact</a></li>
+        </ul>
+      </nav>
+      <button class="theme-toggle" type="button" data-theme-toggle aria-checked="false" role="switch" aria-label="Toggle dark mode">
+        <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true"></span>
+        <span class="theme-toggle__label" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero section" aria-labelledby="hero-title">
+      <div class="hero__inner container">
+        <div class="hero__content">
+          <p class="eyebrow">Services</p>
+          <h1 id="hero-title" class="hero__title">End-to-end delivery for strategy, design, and execution.</h1>
+          <p class="hero__lead">We help teams define the right problem, ship high-quality experiences, and scale with confidence through a flexible engagement model.</p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#contact-funnel">Start a project</a>
+            <a class="button button--secondary" href="#services-matrix">Explore services</a>
+          </div>
+        </div>
+        <div class="hero__visual" aria-hidden="true">
+          <div class="hero-card">
+            <div class="hero-card__metric">
+              <strong>03</strong>
+              <span>Core service tracks</span>
+            </div>
+            <div class="hero-card__metric">
+              <strong>12+</strong>
+              <span>Launch-ready workflows</span>
+            </div>
+            <div class="hero-card__metric">
+              <strong>∞</strong>
+              <span>Flexible collaboration modes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="services-matrix section" id="services-matrix" aria-labelledby="services-matrix-title">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">What we do</p>
+          <h2 id="services-matrix-title">A modular service matrix built around outcomes.</h2>
+          <p>Choose a single engagement or combine tracks to match your roadmap, timeline, and internal capabilities.</p>
+        </div>
+
+        <div class="services-matrix__grid">
+          <article class="service-card">
+            <h3>Strategy</h3>
+            <p>Discovery, positioning, research synthesis, and roadmap planning to align stakeholders and reduce risk early.</p>
+            <ul>
+              <li>Market and user research</li>
+              <li>Opportunity framing</li>
+              <li>Roadmap workshops</li>
+            </ul>
+          </article>
+
+          <article class="service-card">
+            <h3>Design</h3>
+            <p>Product design systems, interface concepts, and interaction flows that turn complex requirements into elegant experiences.</p>
+            <ul>
+              <li>UX and UI design</li>
+              <li>Design systems</li>
+              <li>Prototyping and testing</li>
+            </ul>
+          </article>
+
+          <article class="service-card">
+            <h3>Delivery</h3>
+            <p>Implementation support, QA guidance, and launch readiness for teams that need dependable execution from concept to release.</p>
+            <ul>
+              <li>Front-end implementation</li>
+              <li>Content and launch support</li>
+              <li>Performance checks</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="contact-funnel section" id="contact-funnel" aria-labelledby="contact-funnel-title">
+      <div class="container contact-funnel__inner">
+        <div class="contact-funnel__content">
+          <p class="eyebrow">Next step</p>
+          <h2 id="contact-funnel-title">Tell us what you’re building.</h2>
+          <p>We’ll respond with a clear recommendation for scope, timeline, and the best way to collaborate.</p>
+        </div>
+        <div class="contact-funnel__cta">
+          <a class="button button--primary" href="contact.html">Contact us</a>
+          <a class="button button--secondary" href="work.html">See case studies</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <section class="case-study-modals" aria-hidden="true">
+    <div class="modal" id="case-study-modal-1" role="dialog" aria-modal="true" aria-labelledby="case-study-modal-1-title" hidden>
+      <div class="modal__backdrop" data-modal-close></div>
+      <div class="modal__panel" role="document">
+        <button class="modal__close" type="button" data-modal-close aria-label="Close dialog">×</button>
+        <h2 id="case-study-modal-1-title">Case Study One</h2>
+        <p>A concise overview of the challenge, approach, and outcome.</p>
+      </div>
+    </div>
+
+    <div class="modal" id="case-study-modal-2" role="dialog" aria-modal="true" aria-labelledby="case-study-modal-2-title" hidden>
+      <div class="modal__backdrop" data-modal-close></div>
+      <div class="modal__panel" role="document">
+        <button class="modal__close" type="button" data-modal-close aria-label="Close dialog">×</button>
+        <h2 id="case-study-modal-2-title">Case Study Two</h2>
+        <p>A concise overview of the challenge, approach, and outcome.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer section">
+    <div class="container">
+      <p>&copy; 2025 Ryse Energy Drinks. All rights reserved.</p>
+    </div>
+  </footer>
+
+  <script type="module" defer src="assets/js/main.js"></script>
+</body>
+</html>
