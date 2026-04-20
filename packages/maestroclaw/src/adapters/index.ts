@@ -1,14 +1,17 @@
 import type { Adapter } from "./types.js";
 import { ShellStubAdapter } from "./shell-stub.js";
 import { ClaudeCodeAdapter } from "./claude-code.js";
+import { ApprovedShellAdapter } from "./approved-shell.js";
 
 export { ShellStubAdapter } from "./shell-stub.js";
 export { ClaudeCodeAdapter } from "./claude-code.js";
+export { ApprovedShellAdapter } from "./approved-shell.js";
 export type { Adapter, AdapterResult } from "./types.js";
 
 const registry: Record<string, () => Adapter> = {
   shell_stub: () => new ShellStubAdapter(),
   claude_code: () => new ClaudeCodeAdapter(),
+  approved_shell: () => new ApprovedShellAdapter(),
 };
 
 export function getAdapter(name: string): Adapter {

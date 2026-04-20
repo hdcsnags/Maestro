@@ -209,6 +209,7 @@ Legacy (unused): agent_skills, flags
 | Full 5-file build via MaestroClaw: dispatched 5 jobs (App.tsx, Hero.tsx, Services.tsx, Footer.tsx, App.module.css), all succeeded with artifacts stored in DB | 2026-04-20 (live smoke test) |
 | **Claw Mode Phase 0** — thread foundation + concierge chat: migration for `threads`/`thread_messages` tables + `agent_role` column on agents, `useThreads` hook, `ClawMode` full-screen chat component with model picker, Claw button in composer, Escape to close | 2026-04-20 (`npm run typecheck`, `npm run build`, migration applied, commits `ba41ed1`→`ff25942`) |
 | **Claw Mode Phase 1** — broadcast from chat + carousel + direct agent chat: three-view system (Concierge/Carousel/Focus), Broadcast button dispatches to council agents, FolioCarousel embedded in Claw Mode, agent quick-focus bar for direct chat, Synthesize merges threads back to concierge, `sendToAgent()` for direct thread conversations, `ClawView` type + state management | 2026-04-20 (`npm run typecheck`, `npm run build`) |
+| **Claw Mode Phase 2** — execution in chat: `executeFromChat()` + `submitExecutionJob()` + `approveExecutionJob()` + `pollJobStatus()` in `useThreads`, Execute ⚡ button in ClawMode concierge view, approval card with Approve/Reject UI, `TRUSTED_COMMANDS` allowlist (14 patterns), `classifyCommandTrust()`, `EXECUTION_INTENT_PROMPT`, `callExecutorApi()` helper for query-param edge functions, `ApprovedShellAdapter` for real command execution in MaestroClaw, `ADD_EXECUTOR_JOB`/`UPDATE_EXECUTOR_JOB`/`SET_PENDING_EXECUTION` context actions, agent role enforcement (council excluded from execution, executor excluded from broadcast) | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | CLAW_MODE_SPEC.md: council-approved architecture spec for Maestro v2 — thread-first model, Council/Claw hard split, 3 views (Orb/Carousel/Focus), 4-phase build plan, all 7 open questions resolved | 2026-04-20 (council-approved, commits `2d8cbd9`→`9380300`) |
 
 ## What's Broken or Incomplete
@@ -241,8 +242,8 @@ These areas change often and should be re-verified after any significant work se
 
 ## Next Logical Steps
 
-1. **Claw Mode Phase 1 — Broadcast from Chat**: "Ask Orchestra" button in concierge chat creates broadcast threads, carousel appears in Claw Mode, direct chat from carousel, Synthesize reads selected threads and writes to concierge thread.
-2. **Claw Mode Phase 2 — Execution in Chat**: Claw commands surface in concierge chat, trusted commands auto-execute, write commands need approval, streaming job output in thread.
+1. ~~**Claw Mode Phase 1 — Broadcast from Chat**~~ ✅ Done
+2. ~~**Claw Mode Phase 2 — Execution in Chat**~~ ✅ Done
 3. **Claw Mode Phase 3 — Build from Chat**: GitHub repo creation/scan through concierge, Supabase setup, scaffold via MaestroClaw, full build lifecycle from chat.
 4. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
 5. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.

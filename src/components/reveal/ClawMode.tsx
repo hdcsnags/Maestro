@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle } from 'lucide-react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useOrchestration } from '../../hooks/useOrchestration';
@@ -9,7 +9,7 @@ import FolioCarousel from './FolioCarousel';
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreadMessages, addMessage } = useThreads();
+  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus } = useThreads();
   const { broadcast, synthesize } = useOrchestration();
   const { createSession } = useWorkspace();
   const [input, setInput] = useState('');
@@ -238,6 +238,59 @@ export default function ClawMode() {
     setModelPickerOpen(false);
   }, [dispatch]);
 
+  const handleExecute = useCallback(async () => {
+    const text = input.trim();
+    if (!text || state.isConciergeSending) return;
+    setInput('');
+
+    // Ensure we have a concierge thread
+    const threadId = state.activeThread?.id;
+    if (!threadId) return;
+
+    // Create an execution thread if we're in concierge view
+    let execThreadId = threadId;
+    if (state.activeThread?.type === 'concierge' && state.activeSession) {
+      const execThread = await createThread(state.activeSession.id, 'execution', {
+        title: `⚡ ${text.slice(0, 50)}`,
+      });
+      if (execThread) {
+        execThreadId = execThread.id;
+        dispatch({ type: 'SET_ACTIVE_THREAD', payload: execThread });
+      }
+    }
+
+    await executeFromChat(execThreadId, text);
+    await loadThreadMessages(execThreadId);
+  }, [input, state.isConciergeSending, state.activeThread, state.activeSession, createThread, executeFromChat, loadThreadMessages, dispatch]);
+
+  const handleApproveExecution = useCallback(async () => {
+    const pending = state.pendingExecution;
+    if (!pending) return;
+
+    await approveExecutionJob(pending.jobId, pending.threadId);
+    dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+
+    // Start polling for result
+    let attempts = 0;
+    const maxAttempts = 30;
+    const pollInterval = 2000;
+    while (attempts < maxAttempts) {
+      await new Promise(r => setTimeout(r, pollInterval));
+      attempts++;
+      const updated = await pollJobStatus(pending.jobId, pending.threadId);
+      if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
+    }
+    await loadThreadMessages(pending.threadId);
+  }, [state.pendingExecution, approveExecutionJob, pollJobStatus, loadThreadMessages, dispatch]);
+
+  const handleRejectExecution = useCallback(async () => {
+    const pending = state.pendingExecution;
+    if (!pending) return;
+    await addMessage(pending.threadId, 'system', '🚫 Execution rejected by user.');
+    dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+    await loadThreadMessages(pending.threadId);
+  }, [state.pendingExecution, addMessage, loadThreadMessages, dispatch]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -390,6 +443,40 @@ export default function ClawMode() {
               </div>
             )}
 
+            {/* Pending execution approval card */}
+            {state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id && (
+              <div className="mx-auto max-w-md rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 my-3">
+                <div className="flex items-center gap-2 text-amber-400 text-sm font-medium mb-2">
+                  <Zap size={14} />
+                  Approval Required
+                </div>
+                <div className="text-white/70 text-sm mb-1">
+                  {state.pendingExecution.intent.description}
+                </div>
+                {state.pendingExecution.intent.command && (
+                  <code className="block text-xs text-white/50 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
+                    {state.pendingExecution.intent.command}
+                  </code>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleApproveExecution}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600/80 hover:bg-green-600 
+                               text-white text-xs transition-all"
+                  >
+                    <Check size={12} /> Approve
+                  </button>
+                  <button
+                    onClick={handleRejectExecution}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600/30 hover:bg-red-600/50 
+                               text-red-300 text-xs transition-all"
+                  >
+                    <XCircle size={12} /> Reject
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -537,13 +624,28 @@ export default function ClawMode() {
               <span className="hidden sm:inline">Synthesize</span>
             </button>
           )}
+
+          {/* Execute ⚡ — available in concierge view */}
+          {clawView === 'concierge' && (
+            <button
+              onClick={handleExecute}
+              disabled={!input.trim() || state.isConciergeSending}
+              className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20
+                         hover:bg-amber-500/20 text-amber-400/70 hover:text-amber-400
+                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs"
+              title="Execute with Claw (⚡)"
+            >
+              <Zap size={14} />
+              <span className="hidden sm:inline">Execute</span>
+            </button>
+          )}
         </div>
 
         <div className="text-center mt-2">
           <span className="text-[10px] text-white/15">
             {clawView === 'focus'
               ? 'Enter to send · Esc to close · ← Back to orchestra'
-              : 'Enter to send · Broadcast to ask the orchestra · Esc to close'}
+              : 'Enter to send · Broadcast to ask the orchestra · ⚡ Execute with Claw · Esc to close'}
           </span>
         </div>
       </div>

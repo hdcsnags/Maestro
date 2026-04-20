@@ -5,7 +5,7 @@ import {
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
-  ClawView,
+  ClawView, ExecutionIntent,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -59,6 +59,7 @@ export interface MaestroState {
   focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
+  pendingExecution: { jobId: string; intent: ExecutionIntent; threadId: string } | null;
 }
 
 type Action =
@@ -95,6 +96,9 @@ type Action =
   | { type: 'SET_EXECUTORS'; payload: Executor[] }
   | { type: 'ADD_EXECUTOR'; payload: Executor }
   | { type: 'SET_EXECUTOR_JOBS'; payload: ExecutorJob[] }
+  | { type: 'ADD_EXECUTOR_JOB'; payload: ExecutorJob }
+  | { type: 'UPDATE_EXECUTOR_JOB'; payload: ExecutorJob }
+  | { type: 'SET_PENDING_EXECUTION'; payload: { jobId: string; intent: ExecutionIntent; threadId: string } | null }
   | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
@@ -179,6 +183,7 @@ const initial: MaestroState = {
   focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
+  pendingExecution: null,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -290,6 +295,12 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_EXECUTORS': return { ...state, executors: action.payload };
     case 'ADD_EXECUTOR': return { ...state, executors: [...state.executors, action.payload] };
     case 'SET_EXECUTOR_JOBS': return { ...state, executorJobs: action.payload };
+    case 'ADD_EXECUTOR_JOB': return { ...state, executorJobs: [...state.executorJobs, action.payload] };
+    case 'UPDATE_EXECUTOR_JOB': return {
+      ...state,
+      executorJobs: state.executorJobs.map(j => j.id === action.payload.id ? action.payload : j),
+    };
+    case 'SET_PENDING_EXECUTION': return { ...state, pendingExecution: action.payload };
     case 'SET_BROADCASTING_AGENTS': return { ...state, broadcastingAgents: action.payload };
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
