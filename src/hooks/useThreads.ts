@@ -208,6 +208,59 @@ export function useThreads() {
     }
   }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, buildConversationContext, dispatch]);
 
+  // Send a message to a specific agent in a direct thread
+  const sendToAgent = useCallback(async (
+    threadId: string,
+    agentId: string,
+    userMessage: string,
+  ): Promise<ThreadMessage | null> => {
+    if (!user || !state.activeSession) return null;
+
+    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
+
+    try {
+      await ensureAuth();
+
+      // Save user message
+      const userMsg = await addMessage(threadId, 'user', userMessage);
+      if (!userMsg) throw new Error('Failed to save user message');
+
+      // Find the agent to determine provider/model
+      const agent = state.agents.find(a => a.id === agentId);
+      if (!agent) throw new Error('Agent not found');
+
+      // Build conversation context from this thread
+      const conversationHistory = buildConversationContext(threadId);
+      const prompt = conversationHistory
+        ? `${conversationHistory}\n\nUser: ${userMessage}`
+        : userMessage;
+
+      // Determine provider from agent
+      let provider = agent.provider;
+      if (provider === 'openrouter_a' || provider === 'openrouter_b') provider = 'openrouter';
+
+      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+        prompt,
+        provider,
+        model: agent.model,
+        agentName: agent.display_name || agent.name,
+        agentRole: agent.role,
+        mode: 'analysis',
+        session_id: state.activeSession.id,
+      });
+
+      const responseContent = result.content ?? result.text ?? '';
+      const agentMsg = await addMessage(threadId, 'agent', responseContent, agentId);
+      return agentMsg;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addMessage(threadId, 'system', `Error: ${errorMessage}`);
+      return null;
+    } finally {
+      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
+    }
+  }, [user, state.activeSession, state.agents, ensureAuth, addMessage, buildConversationContext, dispatch]);
+
   return {
     loadThreads,
     loadThreadMessages,
@@ -215,6 +268,7 @@ export function useThreads() {
     ensureConciergeThread,
     addMessage,
     sendToConcierge,
+    sendToAgent,
     buildConversationContext,
   };
 }

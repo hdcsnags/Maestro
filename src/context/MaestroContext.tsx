@@ -5,6 +5,7 @@ import {
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
+  ClawView,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -54,6 +55,8 @@ export interface MaestroState {
   threadMessages: ThreadMessage[];
   activeThread: Thread | null;
   clawModeActive: boolean;
+  clawView: ClawView;
+  focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
 }
@@ -123,6 +126,8 @@ type Action =
   | { type: 'ADD_THREAD_MESSAGE'; payload: ThreadMessage }
   | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
   | { type: 'SET_CLAW_MODE_ACTIVE'; payload: boolean }
+  | { type: 'SET_CLAW_VIEW'; payload: ClawView }
+  | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean };
 
@@ -170,6 +175,8 @@ const initial: MaestroState = {
   threadMessages: [],
   activeThread: null,
   clawModeActive: false,
+  clawView: 'concierge' as ClawView,
+  focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
 };
@@ -325,7 +332,9 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_THREAD_MESSAGES': return { ...state, threadMessages: action.payload };
     case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
-    case 'SET_CLAW_MODE_ACTIVE': return { ...state, clawModeActive: action.payload };
+    case 'SET_CLAW_MODE_ACTIVE': return { ...state, clawModeActive: action.payload, clawView: 'concierge' as ClawView, focusedAgentId: null };
+    case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
+    case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };
     default: return state;
