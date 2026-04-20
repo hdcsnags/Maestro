@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
 import { reportEvent, completeJob } from "./api.js";
@@ -27,8 +27,13 @@ export async function executeJob(
     // Clone repo if specified
     if (job.repo_url) {
       console.log(`  📦 Cloning ${job.repo_url}...`);
-      const branch = job.branch ? `--branch ${job.branch}` : "";
-      execSync(`git clone --depth 1 ${branch} ${job.repo_url} repo`, {
+      const cloneArgs = ["clone", "--depth", "1"];
+      if (job.branch) {
+        cloneArgs.push("--branch", job.branch);
+      }
+      cloneArgs.push(job.repo_url, "repo");
+
+      execFileSync("git", cloneArgs, {
         cwd: jobDir,
         timeout: 60_000,
         stdio: "pipe",
