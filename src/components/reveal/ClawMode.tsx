@@ -70,6 +70,15 @@ const THREAD_GROUPS = [
 const iconButtonClass = 'p-1.5 rounded-lg hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const headerButtonClass = 'flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
+const menuKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
+}
 
 function getBuildFileIcon(action: 'create' | 'update' | 'delete'): LucideIcon {
   if (action === 'create') return FilePlus2;
@@ -94,9 +103,16 @@ export default function ClawMode() {
   const [intentMenuOpen, setIntentMenuOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const intentButtonRef = useRef<HTMLButtonElement>(null);
   const intentRef = useRef<HTMLDivElement>(null);
+  const intentOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const executionApprovalRef = useRef<HTMLDivElement>(null);
+  const buildApprovalRef = useRef<HTMLDivElement>(null);
 
   const clawView = state.clawView as ClawView;
   const focusedAgent = useMemo(
@@ -133,6 +149,10 @@ export default function ClawMode() {
     () => (latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : []),
     [latestRound, state.responses],
   );
+  const hasRepo = useMemo(
+    () => state.repoConnections?.some((connection: { is_active: boolean }) => connection.is_active) ?? false,
+    [state.repoConnections],
+  );
 
   // Close model picker on click outside
   useEffect(() => {
@@ -146,6 +166,17 @@ export default function ClawMode() {
     return () => document.removeEventListener('mousedown', handler);
   }, [modelPickerOpen]);
 
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const selectedIndex = Math.max(
+      CONCIERGE_MODELS.findIndex((model) => model.id === state.conciergeModel),
+      0,
+    );
+    requestAnimationFrame(() => {
+      modelOptionRefs.current[selectedIndex]?.focus();
+    });
+  }, [modelPickerOpen, state.conciergeModel]);
+
   // Close intent menu on click outside
   useEffect(() => {
     if (!intentMenuOpen) return;
@@ -157,6 +188,15 @@ export default function ClawMode() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [intentMenuOpen]);
+
+  useEffect(() => {
+    if (!intentMenuOpen) return;
+    const selectedIndex = menuKeys.findIndex((intent) => intent === composerIntent && (intent !== 'build' || hasRepo));
+    const fallbackIndex = menuKeys.findIndex((intent) => intent !== 'build' || hasRepo);
+    requestAnimationFrame(() => {
+      intentOptionRefs.current[Math.max(selectedIndex, fallbackIndex, 0)]?.focus();
+    });
+  }, [intentMenuOpen, composerIntent, hasRepo]);
 
   // Below md, the thread sidebar behaves as an overlay instead of consuming the layout.
   useEffect(() => {
@@ -245,6 +285,20 @@ export default function ClawMode() {
     inputRef.current?.focus();
   }, [clawView]);
 
+  useEffect(() => {
+    if (!state.pendingExecution || state.pendingExecution.threadId !== state.activeThread?.id) return;
+    requestAnimationFrame(() => {
+      executionApprovalRef.current?.focus();
+    });
+  }, [state.pendingExecution, state.activeThread?.id]);
+
+  useEffect(() => {
+    if (state.chatBuildPhase !== 'reviewing' || !state.chatBuildPlan) return;
+    requestAnimationFrame(() => {
+      buildApprovalRef.current?.focus();
+    });
+  }, [state.chatBuildPhase, state.chatBuildPlan]);
+
   // Auto-switch to carousel when broadcast finishes
   const wasBroadcasting = useRef(false);
   useEffect(() => {
@@ -262,6 +316,134 @@ export default function ClawMode() {
   }, [state.isBroadcasting, latestResponses.length, clawView, dispatch]);
 
   // ─── Handlers ───────────────────────────────────────────────
+
+  const handleDialogKeyDownCapture = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      if (intentMenuOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIntentMenuOpen(false);
+        intentButtonRef.current?.focus();
+        return;
+      }
+      if (modelPickerOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setModelPickerOpen(false);
+        modelButtonRef.current?.focus();
+        return;
+      }
+      if (isMobile && sidebarOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        setSidebarOpen(false);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: false });
+      return;
+    }
+
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = getFocusableElements(dialogRef.current);
+    if (focusable.length === 0) return;
+
+    const activeElement = document.activeElement as HTMLElement | null;
+    const currentIndex = activeElement ? focusable.indexOf(activeElement) : -1;
+    const nextIndex = e.shiftKey
+      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
+      : (currentIndex === -1 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
+
+    e.preventDefault();
+    focusable[nextIndex]?.focus();
+  }, [dispatch, intentMenuOpen, isMobile, modelPickerOpen, sidebarOpen]);
+
+  const handleModelPickerButtonKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowDown', 'Enter', ' '].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setModelPickerOpen(true);
+  }, []);
+
+  const handleModelOptionKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      modelOptionRefs.current[(index + 1) % CONCIERGE_MODELS.length]?.focus();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      modelOptionRefs.current[(index - 1 + CONCIERGE_MODELS.length) % CONCIERGE_MODELS.length]?.focus();
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      e.stopPropagation();
+      modelOptionRefs.current[0]?.focus();
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      e.stopPropagation();
+      modelOptionRefs.current[CONCIERGE_MODELS.length - 1]?.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setModelPickerOpen(false);
+      modelButtonRef.current?.focus();
+    }
+  }, []);
+
+  const handleIntentButtonKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowDown', 'Enter', ' '].includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIntentMenuOpen(true);
+  }, []);
+
+  const handleIntentOptionKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const enabledIndices = menuKeys
+      .map((intent, menuIndex) => ({ intent, menuIndex }))
+      .filter(({ intent }) => intent !== 'build' || hasRepo)
+      .map(({ menuIndex }) => menuIndex);
+    const enabledPosition = Math.max(enabledIndices.indexOf(index), 0);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      e.stopPropagation();
+      intentOptionRefs.current[enabledIndices[(enabledPosition + 1) % enabledIndices.length]]?.focus();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      intentOptionRefs.current[enabledIndices[(enabledPosition - 1 + enabledIndices.length) % enabledIndices.length]]?.focus();
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      e.stopPropagation();
+      intentOptionRefs.current[enabledIndices[0]]?.focus();
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      e.stopPropagation();
+      intentOptionRefs.current[enabledIndices[enabledIndices.length - 1]]?.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setIntentMenuOpen(false);
+      intentButtonRef.current?.focus();
+    }
+  }, [hasRepo]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -475,12 +657,7 @@ export default function ClawMode() {
       else if (composerIntent === 'execute') handleExecute();
       else if (composerIntent === 'build') handleBuild();
     }
-    // Escape closes intent menu first, then model picker, then claw
-    if (e.key === 'Escape') {
-      if (intentMenuOpen) { setIntentMenuOpen(false); e.stopPropagation(); return; }
-      if (modelPickerOpen) { setModelPickerOpen(false); e.stopPropagation(); return; }
-    }
-  }, [composerIntent, handleSend, handleBroadcast, handleExecute, handleBuild, intentMenuOpen, modelPickerOpen]);
+  }, [composerIntent, handleSend, handleBroadcast, handleExecute, handleBuild]);
 
   // Handle thread click in sidebar
   const handleThreadClick = useCallback(async (thread: Thread) => {
@@ -509,7 +686,6 @@ export default function ClawMode() {
     : 'Talk to Concierge...';
 
   const intentCfg = INTENT_CONFIG[composerIntent];
-  const hasRepo = !!activeRepo;
   const IntentIcon = intentCfg.Icon;
   const SubmitIcon = intentCfg.actionIcon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
@@ -517,6 +693,8 @@ export default function ClawMode() {
   // ─── Render ───────────────────────────────────────────────
   return (
     <div
+      ref={dialogRef}
+      onKeyDownCapture={handleDialogKeyDownCapture}
       className="relative flex flex-col h-full w-full"
       style={{ isolation: 'isolate' }}
       role="dialog"
@@ -591,7 +769,9 @@ export default function ClawMode() {
           {/* Model picker */}
           <div ref={pickerRef} style={{ position: 'relative' }}>
             <button
+              ref={modelButtonRef}
               onClick={() => setModelPickerOpen(!modelPickerOpen)}
+              onKeyDown={handleModelPickerButtonKeyDown}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] 
                          text-[11px] text-white/65 hover:text-white/80 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
               aria-expanded={modelPickerOpen}
@@ -608,11 +788,14 @@ export default function ClawMode() {
                 style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 'min(224px, calc(100vw - 32px))', maxWidth: '90vw', zIndex: 9999 }}
                 className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
                 role="listbox"
+                aria-label="Concierge model"
               >
-                {CONCIERGE_MODELS.map(m => (
+                {CONCIERGE_MODELS.map((m, index) => (
                   <button
                     key={m.id}
+                    ref={(element) => { modelOptionRefs.current[index] = element; }}
                     onClick={() => handleModelSelect(m.id)}
+                    onKeyDown={(e) => handleModelOptionKeyDown(e, index)}
                     role="option"
                     aria-selected={m.id === state.conciergeModel}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/50
@@ -767,12 +950,20 @@ export default function ClawMode() {
 
               {/* Pending execution approval card */}
               {state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id && (
-                <div className="mx-auto max-w-md rounded-xl border border-signal-warn/30 bg-signal-warn/10 p-4 my-3">
-                  <div className="flex items-center gap-2 text-signal-warn text-sm font-medium mb-2">
+                <div
+                  ref={executionApprovalRef}
+                  tabIndex={-1}
+                  role="alertdialog"
+                  aria-modal="false"
+                  aria-labelledby="claw-execution-approval-title"
+                  aria-describedby="claw-execution-approval-body"
+                  className="mx-auto max-w-md rounded-xl border border-signal-warn/30 bg-signal-warn/10 p-4 my-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                >
+                  <div id="claw-execution-approval-title" className="flex items-center gap-2 text-signal-warn text-sm font-medium mb-2">
                     <Zap size={14} />
                     Approval Required
                   </div>
-                  <div className="text-white/70 text-sm mb-1">
+                  <div id="claw-execution-approval-body" className="text-white/70 text-sm mb-1">
                     {state.pendingExecution.intent.description}
                   </div>
                   {state.pendingExecution.intent.command && (
@@ -803,12 +994,20 @@ export default function ClawMode() {
 
               {/* Pending build plan approval card */}
               {state.chatBuildPhase === 'reviewing' && state.chatBuildPlan && (
-                <div className="mx-auto max-w-md rounded-xl border border-signal-ok/30 bg-signal-ok/10 p-4 my-3">
-                  <div className="flex items-center gap-2 text-signal-ok text-sm font-medium mb-2">
+                <div
+                  ref={buildApprovalRef}
+                  tabIndex={-1}
+                  role="alertdialog"
+                  aria-modal="false"
+                  aria-labelledby="claw-build-approval-title"
+                  aria-describedby="claw-build-approval-body"
+                  className="mx-auto max-w-md rounded-xl border border-signal-ok/30 bg-signal-ok/10 p-4 my-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                >
+                  <div id="claw-build-approval-title" className="flex items-center gap-2 text-signal-ok text-sm font-medium mb-2">
                     <Hammer size={14} />
                     Build Plan Ready
                   </div>
-                  <div className="text-white/70 text-sm mb-2">
+                  <div id="claw-build-approval-body" className="text-white/70 text-sm mb-2">
                     {state.chatBuildPlan.description}
                   </div>
                   <div className="space-y-1 mb-3">
@@ -949,7 +1148,9 @@ export default function ClawMode() {
           {/* Intent selector */}
           <div ref={intentRef} style={{ position: 'relative' }} className="order-2 sm:order-none">
             <button
+              ref={intentButtonRef}
               onClick={() => setIntentMenuOpen(!intentMenuOpen)}
+              onKeyDown={handleIntentButtonKeyDown}
               className={`flex items-center gap-1.5 px-3 h-10 rounded-xl ${intentCfg.bg} border ${intentCfg.border}
                          ${intentCfg.color} transition-all text-xs font-medium flex-shrink-0 ${focusRingClass}`}
               aria-expanded={intentMenuOpen}
@@ -966,15 +1167,18 @@ export default function ClawMode() {
                 style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, width: 180, maxWidth: 'calc(100vw - 32px)', zIndex: 9999 }}
                 className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
                 role="menu"
+                aria-label="Composer intents"
               >
-                {(Object.keys(INTENT_CONFIG) as ComposerIntent[]).map(intent => {
+                {menuKeys.map((intent, index) => {
                   const cfg = INTENT_CONFIG[intent];
                   const MenuIcon = cfg.Icon;
                   const disabled = intent === 'build' && !hasRepo;
                   return (
                     <button
                       key={intent}
+                      ref={(element) => { intentOptionRefs.current[index] = element; }}
                       onClick={() => { if (!disabled) { setComposerIntent(intent); setIntentMenuOpen(false); } }}
+                      onKeyDown={(e) => handleIntentOptionKeyDown(e, index)}
                       disabled={disabled}
                       role="menuitemradio"
                       aria-checked={composerIntent === intent}

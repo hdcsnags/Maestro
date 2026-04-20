@@ -17,6 +17,14 @@ interface FolioItem {
   roundNumber: number;
 }
 
+function getFolioItemLabel(item: FolioItem): string {
+  if (item.type === 'response' && item.response) {
+    return item.response.agent_name;
+  }
+
+  return item.agentDisplayName || item.agentName || 'Agent';
+}
+
 export default function FolioCarousel() {
   const { state, dispatch } = useMaestro();
 
@@ -77,27 +85,47 @@ export default function FolioCarousel() {
       <OrbitDots items={items} />
       <div
         className="absolute folio-perspective"
+        role="region"
+        aria-label={`Response carousel${roundNumber > 0 ? ` for round ${roundNumber}` : ''}`}
         style={{ inset: state.focusMode ? '20px 0 20px' : '140px 0 126px', display: 'grid', placeItems: 'center', zIndex: 10, transition: 'inset 0.35s ease' }}
       >
         <div className="relative" style={{ width: 'min(1260px, 100vw - 60px)', height: state.focusMode ? 'min(90vh, 900px)' : 'min(62vh, 700px)', transition: 'height 0.35s ease' }}>
-          {items.map((item, i) => (
-            <div
-              key={item.type === 'response' ? item.response!.id : `streaming-${item.agentName}`}
-              className={`folio-card ${getFolioClass(i)}`}
-              style={{
-                '--folio-accent': item.color,
-                width: 'min(860px, calc(100vw - 140px))',
-                height: '100%',
-              } as React.CSSProperties}
-              onClick={() => handleFolioClick(i)}
-            >
-              {item.type === 'response' ? (
-                <FolioCard response={item.response!} />
-              ) : (
-                <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} />
-              )}
-            </div>
-          ))}
+          {items.map((item, i) => {
+            const isAdjacent = Math.abs(i - safeIndex) === 1;
+            const isFar = Math.abs(i - safeIndex) > 1;
+
+            return (
+              <div
+                key={item.type === 'response' ? item.response!.id : `streaming-${item.agentName}`}
+                className={`folio-card ${getFolioClass(i)}`}
+                role={isFar ? undefined : 'group'}
+                aria-hidden={isFar ? true : undefined}
+                aria-label={isFar ? undefined : `${getFolioItemLabel(item)} (${i + 1} of ${items.length})`}
+                style={{
+                  '--folio-accent': item.color,
+                  width: 'min(860px, calc(100vw - 140px))',
+                  height: '100%',
+                } as React.CSSProperties}
+              >
+                {isAdjacent && (
+                  <button
+                    type="button"
+                    className="folio-select-button"
+                    onClick={() => handleFolioClick(i)}
+                    aria-label={`Focus ${getFolioItemLabel(item)} card`}
+                    title={getFolioItemLabel(item)}
+                  />
+                )}
+                <div aria-hidden={i !== safeIndex}>
+                  {item.type === 'response' ? (
+                    <FolioCard response={item.response!} />
+                  ) : (
+                    <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </>
