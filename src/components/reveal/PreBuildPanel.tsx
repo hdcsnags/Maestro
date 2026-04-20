@@ -40,18 +40,23 @@ function normBuilderValue(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function scoreBuildCandidate(agent: BuildAgentCandidate): number {
+function scoreBuildCandidate(agent: BuildAgentCandidate, hasOnlineExecutor?: boolean): number {
   const role = normBuilderValue(agent.role);
   const name = normBuilderValue(`${agent.display_name} ${agent.name}`);
   const provider = normBuilderValue(`${agent.provider_group} ${agent.model}`);
 
   let score = 0;
   if (role.includes('build') || role.includes('build lead') || role.includes('code generation')) score += 50;
+  if (role.includes('local build')) score += 40;
   if (name.includes('builder')) score += 22;
   if (name.includes('sonnet')) score += 35;
   if (name.includes('gpt 5 4') || name.includes('gpt 5')) score += 25;
   if (provider.includes('anthropic')) score += 18;
   if (provider.includes('openai')) score += 14;
+  // Claw agents rank high when executor is online, low when offline
+  if (provider.includes('maestroclaw')) {
+    score += hasOnlineExecutor ? 60 : -40;
+  }
   if (role.includes('triage') || role.includes('summarization') || role.includes('general purpose')) score -= 18;
   if (role.includes('free') || name.includes('gpt oss') || name.includes('gemma')) score -= 24;
   if (provider.includes('openrouter a')) score -= 10;
@@ -170,8 +175,8 @@ export default function PreBuildPanel() {
         provider_group: agent.provider_group,
         model: agent.model,
       }))
-      .sort((a, b) => scoreBuildCandidate(b) - scoreBuildCandidate(a)),
-    [activeAgents],
+      .sort((a, b) => scoreBuildCandidate(b, hasOnlineExecutor) - scoreBuildCandidate(a, hasOnlineExecutor)),
+    [activeAgents, hasOnlineExecutor],
   );
   const persistedBuilderCount = useMemo(() => {
     const raw = buildSpec.builder_count;
@@ -269,7 +274,12 @@ export default function PreBuildPanel() {
       const unique = next.filter((value, index) => value && next.indexOf(value) === index);
       return normalizeBuilderSelection(unique, builderCount, rankedBuilderAgents);
     });
-  }, [builderCount, rankedBuilderAgents]);
+    // Auto-switch to local when a Claw agent is picked
+    const agent = rankedBuilderAgents.find(a => a.id === agentId);
+    if (agent?.provider_group === 'maestroclaw' && executionBackend !== 'local') {
+      handleBackendChange('local');
+    }
+  }, [builderCount, rankedBuilderAgents, executionBackend, handleBackendChange]);
 
   const getAgentOptionsForRole = useCallback((role: BuildLaneRole) => (
     role === 'builder' ? selectedBuilderAgents : activeAgents
@@ -721,7 +731,9 @@ export default function PreBuildPanel() {
                   .filter(agent => agent.id === agentId || !selectedBuilderIds.some((selectedId, selectedIdx) => selectedIdx !== idx && selectedId === agent.id))
                   .map(agent => (
                     <option key={agent.id} value={agent.id}>
-                      {agent.display_name}
+                      {agent.provider_group === 'maestroclaw'
+                        ? `${agent.display_name} ${hasOnlineExecutor ? '● Online' : '○ Offline'}`
+                        : agent.display_name}
                     </option>
                   ))}
               </select>

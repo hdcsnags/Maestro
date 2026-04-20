@@ -355,6 +355,7 @@ export const PROVIDER_COLORS: Record<string, string> = {
   openai: '#5ab88e',
   google: '#5a8fe0',
   openrouter: '#8a8ae0',
+  maestroclaw: '#c9a84c',
 };
 
 export type StabilityTier = 'stable' | 'preview' | 'expiring' | 'deprecated';
@@ -412,6 +413,14 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   // Kimi K2 — Moonshot rotates slugs (e.g. moonshotai/kimi-k2-0905). If
   // broadcasts to this slot 404, update to whatever OpenRouter currently lists.
   { name: 'Kimi K2',         display_name: 'Kimi K2',         role: 'Premium · Long context · Reasoning', provider: 'openrouter', model: 'moonshotai/kimi-k2',              color: '#8a8ae0', is_active: false, slot_index: 2, provider_group: 'openrouter_b', stability_tier: 'stable' },
+
+  // ─── MaestroClaw — Local CLI execution (no API cost) ─────────────
+  // These agents route through MaestroClaw to local CLI tools. They
+  // only work when an executor is online. The `model` field doubles
+  // as the MaestroClaw adapter name for local dispatch routing.
+  { name: 'ClawClaude',  display_name: '🖥️ ClawClaude',  role: 'Local build · Claude Code CLI',   provider: 'maestroclaw', model: 'claude_code',  color: '#c9a84c', is_active: false, slot_index: 0, provider_group: 'maestroclaw', stability_tier: 'stable' },
+  { name: 'ClawCopilot', display_name: '🖥️ ClawCopilot', role: 'Local build · Copilot CLI',       provider: 'maestroclaw', model: 'copilot_cli',  color: '#c9a84c', is_active: false, slot_index: 1, provider_group: 'maestroclaw', stability_tier: 'stable' },
+  { name: 'ClawCodex',   display_name: '🖥️ ClawCodex',   role: 'Local build · OpenAI Codex CLI',  provider: 'maestroclaw', model: 'codex_cli',    color: '#c9a84c', is_active: false, slot_index: 2, provider_group: 'maestroclaw', stability_tier: 'stable' },
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
@@ -510,4 +519,5 @@ export const PROVIDER_REGISTRY = [
   { id: 'openai', name: 'OpenAI', models: ['gpt-5.4-mini', 'gpt-5.4'] },
   { id: 'google', name: 'Google Gemini', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
+  { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli'] },
 ];

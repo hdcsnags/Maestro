@@ -157,13 +157,17 @@ export function useBuildExecution() {
   }, [state.executors]);
 
   const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
+    // Claw agents always route locally — they ARE local CLI tools
+    const agent = resolveAgent(task.lane_owner ?? '');
+    if (agent?.provider_group === 'maestroclaw') return 'local';
+
     const backend = task.execution_backend
       ?? state.activeSession?.execution_backend
       ?? 'edge';
     if (backend === 'local') return 'local';
     if (backend === 'auto') return findOnlineExecutor() ? 'local' : 'edge';
     return 'edge';
-  }, [state.activeSession?.execution_backend, findOnlineExecutor]);
+  }, [state.activeSession?.execution_backend, findOnlineExecutor, resolveAgent]);
 
   const pollExecutorJob = useCallback(async (
     jobId: string,
@@ -235,13 +239,21 @@ export function useBuildExecution() {
     const sessionId = state.activeSession?.id;
     const cloneUrl = repoConn ? `https://github.com/${repoConn.owner}/${repoConn.repo}.git` : null;
 
+    // Derive adapter from the assigned agent's model field (Claw agents
+    // use model as the adapter name, e.g. 'claude_code', 'copilot_cli').
+    // Falls back to 'claude_code' for non-Claw agents routed locally.
+    const agent = resolveAgent(task.lane_owner ?? '');
+    const adapter = agent?.provider_group === 'maestroclaw'
+      ? agent.model
+      : 'claude_code';
+
     const { data: job, error: jobError } = await supabase
       .from('executor_jobs')
       .insert({
         session_id: sessionId,
         requested_by: user?.id,
         job_type: 'build_task',
-        adapter: 'claude_code',
+        adapter,
         prompt: task.prompt_slice,
         repo_url: cloneUrl,
         repo_name: repoConn?.repo ?? null,
@@ -271,7 +283,7 @@ export function useBuildExecution() {
 
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
-  }, [state.activeRepoConnection, state.activeSession?.id, user?.id, updateTaskStatus, pollExecutorJob]);
+  }, [state.activeRepoConnection, state.activeSession?.id, user?.id, updateTaskStatus, pollExecutorJob, resolveAgent]);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)
