@@ -147,16 +147,32 @@ export function useBuildExecution() {
 
   // ── Local execution helpers (V3 routing) ───────────────────────────
 
-  const findOnlineExecutor = useCallback((): Executor | null => {
+  const executorSupportsAdapter = useCallback((executor: Executor, adapter: string): boolean => {
+    const rawAdapters = executor.capabilities?.adapters;
+    if (!Array.isArray(rawAdapters)) return false;
+    return rawAdapters.some((value): value is string => typeof value === 'string' && value === adapter);
+  }, []);
+
+  const resolveLocalAdapter = useCallback((task: BuildTask): string => {
+    const agent = resolveAgent(task.lane_owner ?? '');
+    return agent?.provider_group === 'maestroclaw'
+      ? agent.model
+      : 'claude_code';
+  }, [resolveAgent]);
+
+  const findOnlineExecutor = useCallback((adapter?: string): Executor | null => {
     const STALE_MS = 60_000; // 60s — if heartbeat older than this, treat as offline
     return state.executors.find(e => {
       if (e.status !== 'online') return false;
       if (!e.last_seen_at) return false;
-      return Date.now() - new Date(e.last_seen_at).getTime() < STALE_MS;
+      if (Date.now() - new Date(e.last_seen_at).getTime() >= STALE_MS) return false;
+      if (adapter && !executorSupportsAdapter(e, adapter)) return false;
+      return true;
     }) ?? null;
-  }, [state.executors]);
+  }, [state.executors, executorSupportsAdapter]);
 
   const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
+    const adapter = resolveLocalAdapter(task);
     // Claw agents always route locally — they ARE local CLI tools
     const agent = resolveAgent(task.lane_owner ?? '');
     if (agent?.provider_group === 'maestroclaw') return 'local';
@@ -165,9 +181,9 @@ export function useBuildExecution() {
       ?? state.activeSession?.execution_backend
       ?? 'edge';
     if (backend === 'local') return 'local';
-    if (backend === 'auto') return findOnlineExecutor() ? 'local' : 'edge';
+    if (backend === 'auto') return findOnlineExecutor(adapter) ? 'local' : 'edge';
     return 'edge';
-  }, [state.activeSession?.execution_backend, findOnlineExecutor, resolveAgent]);
+  }, [state.activeSession?.execution_backend, findOnlineExecutor, resolveAgent, resolveLocalAdapter]);
 
   const pollExecutorJob = useCallback(async (
     jobId: string,
@@ -242,10 +258,15 @@ export function useBuildExecution() {
     // Derive adapter from the assigned agent's model field (Claw agents
     // use model as the adapter name, e.g. 'claude_code', 'copilot_cli').
     // Falls back to 'claude_code' for non-Claw agents routed locally.
-    const agent = resolveAgent(task.lane_owner ?? '');
-    const adapter = agent?.provider_group === 'maestroclaw'
-      ? agent.model
-      : 'claude_code';
+    const adapter = resolveLocalAdapter(task);
+    const matchingExecutor = findOnlineExecutor(adapter);
+
+    if (!matchingExecutor) {
+      await updateTaskStatus(task.id, 'failed', {
+        failure_reason: `No online executor advertises adapter "${adapter}"`,
+      } as Partial<BuildTask>);
+      return false;
+    }
 
     let job: ExecutorJob | null = null;
     try {
@@ -291,7 +312,7 @@ export function useBuildExecution() {
 
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
-  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveAgent]);
+  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor]);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)

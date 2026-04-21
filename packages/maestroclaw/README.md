@@ -43,7 +43,7 @@ Save the returned `token` — it's shown only once.
 
 ```bash
 cp .env.example .env
-# Fill in SUPABASE_URL, SUPABASE_ANON_KEY, MAESTRO_EMAIL, MAESTRO_PASSWORD, EXECUTOR_TOKEN
+# Fill in SUPABASE_URL, SUPABASE_ANON_KEY, EXECUTOR_TOKEN
 ```
 
 ### 4. Run
@@ -60,7 +60,6 @@ You'll see:
 ──────────────────────────────────────────────────
 📡 Supabase: https://your-project.supabase.co
 ⏱  Poll interval: 5000ms
-✅ Authenticated as you@email.com
 🔌 Adapters:
    ✅ shell_stub
    ✅ claude_code
@@ -94,14 +93,14 @@ queued → approved → claimed → running → succeeded/failed
 - **running**: Adapter is executing
 - **succeeded/failed**: Done, result synced back
 
+MaestroClaw now advertises its supported adapters on heartbeat. The control plane only hands a worker jobs whose `adapter` matches that advertised capability set, and stale `claimed`/`running` jobs are re-queued automatically if the worker stops renewing its lease.
+
 ## Configuration
 
 | Env Var | Required | Description |
 |---------|----------|-------------|
 | `SUPABASE_URL` | ✅ | Your Maestro Supabase URL |
 | `SUPABASE_ANON_KEY` | ✅ | Supabase anon key |
-| `MAESTRO_EMAIL` | ✅ | Your Maestro login email |
-| `MAESTRO_PASSWORD` | ✅ | Your Maestro login password |
 | `EXECUTOR_TOKEN` | ✅ | Token from registration |
 | `POLL_INTERVAL_MS` | | Poll frequency (default: 5000) |
 | `WORKSPACE_DIR` | | Ephemeral clone dir (default: ~/.maestroclaw/workspaces) |
@@ -109,7 +108,7 @@ queued → approved → claimed → running → succeeded/failed
 ## Security
 
 - **Outbound-only**: Worker initiates all connections
-- **Double auth**: Supabase session (RLS) + executor token (SHA-256 hashed, stored server-side)
+- **Executor token auth**: Worker actions authenticate with `X-Executor-Token` (SHA-256 hashed, stored server-side)
 - **Ephemeral workspaces**: Cloned per job, deleted after
 - **Scoped paths**: Jobs can restrict which files the adapter may touch
 - **Approval gate**: Jobs require explicit approval before execution (auto-approve configurable)

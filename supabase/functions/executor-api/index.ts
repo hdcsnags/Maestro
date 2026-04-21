@@ -58,6 +58,7 @@ const UNSAFE_APPROVED_SHELL_PATTERN = /[;&|><`$%()]/;
 const GITHUB_REPO_URL_PATTERN =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/;
 const GIT_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/;
+const JOB_LEASE_WINDOW_MS = 90_000;
 
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -65,6 +66,87 @@ function normalizeStringArray(value: unknown): string[] {
     .filter((entry): entry is string => typeof entry === "string")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function normalizeExecutorCapabilities(
+  value: unknown,
+): Record<string, unknown> & { adapters: string[] } {
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  const adapters = Array.from(new Set(normalizeStringArray(raw.adapters)));
+  return { ...raw, adapters };
+}
+
+function leaseExpiryIso(baseMs = Date.now()): string {
+  return new Date(baseMs + JOB_LEASE_WINDOW_MS).toISOString();
+}
+
+async function readOptionalJsonBody(req: Request): Promise<Record<string, unknown>> {
+  const raw = await req.text();
+  if (!raw.trim()) return {};
+
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Request body must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+async function reclaimStaleJobs(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+) {
+  const now = new Date().toISOString();
+  const { data: staleJobs, error: staleJobsErr } = await adminClient
+    .from("executor_jobs")
+    .select("id, status, executor_id")
+    .eq("requested_by", userId)
+    .in("status", ["claimed", "running"])
+    .lt("lease_expires_at", now);
+
+  if (staleJobsErr) throw staleJobsErr;
+  if (!staleJobs || staleJobs.length === 0) return;
+
+  const staleIds = staleJobs.map((job) => job.id);
+  const { data: reclaimedJobs, error: reclaimErr } = await adminClient
+    .from("executor_jobs")
+    .update({
+      executor_id: null,
+      status: "approved",
+      claimed_at: null,
+      started_at: null,
+      lease_expires_at: null,
+      updated_at: now,
+    })
+    .in("id", staleIds)
+    .eq("requested_by", userId)
+    .in("status", ["claimed", "running"])
+    .lt("lease_expires_at", now)
+    .select("id");
+
+  if (reclaimErr) throw reclaimErr;
+
+  const reclaimedIds = new Set((reclaimedJobs ?? []).map((job) => job.id));
+  const events = staleJobs
+    .filter((job) => reclaimedIds.has(job.id))
+    .map((job) => ({
+      job_id: job.id,
+      event_type: "status_change",
+      payload: {
+        previous_status: job.status,
+        status: "approved",
+        reason: "lease_expired",
+      },
+    }));
+
+  if (events.length > 0) {
+    const { error: eventErr } = await adminClient
+      .from("executor_job_events")
+      .insert(events);
+    if (eventErr) throw eventErr;
+  }
 }
 
 function hasUnsafeApprovedShellSyntax(command: string): boolean {
@@ -136,17 +218,34 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST" && action === "heartbeat") {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
+      const body = await readOptionalJsonBody(req);
+      const capabilities = body.capabilities === undefined
+        ? null
+        : normalizeExecutorCapabilities(body.capabilities);
+      const now = new Date().toISOString();
 
       const { error: updateErr } = await adminClient
         .from("executors")
         .update({
           status: "online",
-          last_seen_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          last_seen_at: now,
+          updated_at: now,
+          ...(capabilities ? { capabilities } : {}),
         })
         .eq("id", executor.id);
 
       if (updateErr) return err(updateErr.message, 500);
+
+      const { error: leaseErr } = await adminClient
+        .from("executor_jobs")
+        .update({
+          lease_expires_at: leaseExpiryIso(),
+          updated_at: now,
+        })
+        .eq("executor_id", executor.id)
+        .in("status", ["claimed", "running"]);
+
+      if (leaseErr) return err(leaseErr.message, 500);
 
       return json({ ok: true, executor_id: executor.id });
     }
@@ -154,20 +253,29 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET" && action === "poll") {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
+      await reclaimStaleJobs(adminClient, executor.owner_user_id);
+      const now = new Date().toISOString();
+      const capabilities = normalizeExecutorCapabilities(executor.capabilities);
 
       await adminClient
         .from("executors")
         .update({
           status: "online",
-          last_seen_at: new Date().toISOString(),
+          last_seen_at: now,
+          updated_at: now,
         })
         .eq("id", executor.id);
+
+      if (capabilities.adapters.length === 0) {
+        return json({ job: null });
+      }
 
       const { data: jobs } = await adminClient
         .from("executor_jobs")
         .select("*")
         .eq("status", "approved")
         .eq("requested_by", executor.owner_user_id)
+        .in("adapter", capabilities.adapters)
         .order("created_at", { ascending: true })
         .limit(1);
 
@@ -177,21 +285,28 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST" && action === "claim") {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
+      const capabilities = normalizeExecutorCapabilities(executor.capabilities);
 
       const body = await req.json();
       const { job_id } = body;
       if (!job_id) return err("job_id is required");
+      if (capabilities.adapters.length === 0) {
+        return err("Executor has no advertised adapters", 409);
+      }
 
       const { data: job, error: claimErr } = await adminClient
         .from("executor_jobs")
         .update({
           executor_id: executor.id,
           status: "claimed",
+          claimed_at: new Date().toISOString(),
+          lease_expires_at: leaseExpiryIso(),
           updated_at: new Date().toISOString(),
         })
         .eq("id", job_id)
         .eq("status", "approved")
         .eq("requested_by", executor.owner_user_id)
+        .in("adapter", capabilities.adapters)
         .select()
         .maybeSingle();
 
@@ -236,6 +351,7 @@ Deno.serve(async (req: Request) => {
           .update({
             status: "running",
             started_at: new Date().toISOString(),
+            lease_expires_at: leaseExpiryIso(),
             updated_at: new Date().toISOString(),
           })
           .eq("id", job_id);
@@ -290,6 +406,7 @@ Deno.serve(async (req: Request) => {
           result_summary: result_summary ?? null,
           error_text: error_text ?? null,
           artifact_manifest: artifact_manifest ?? null,
+          lease_expires_at: null,
           completed_at: now,
           updated_at: now,
           ...(error_text ? { failure_reason: error_text } : {}),
@@ -354,7 +471,7 @@ Deno.serve(async (req: Request) => {
           name,
           kind: "personal_node",
           status: "offline",
-          capabilities: capabilities ?? {},
+          capabilities: normalizeExecutorCapabilities(capabilities),
           token_hash: tokenHash,
         })
         .select()

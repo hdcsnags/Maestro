@@ -8,9 +8,9 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Claw Mode thread/view labeling and mobile composer layout need polish; Sonnet timeouts on artifact-heavy prompts |
+| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; ClawCopilot/ClawCodex roster slots exist but worker adapters are not implemented; Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | None — all migrations applied including Claw Mode threads (`20260420000000`) |
+| Unapplied migrations | `20260421001500_executor_job_leases.sql` — capability-aware executor leases/reclaim not yet applied remotely |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -180,7 +180,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 `useBuildExecution.ts` hook: dispatch/collect/retry/reroute loop, parallel dispatch (2 at a time per builder), dependency-aware ordering, fallback agent rerouting, abort control | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Council UX: round navigation, role-first cards, prompt visibility — browsable round history with Up/Down arrows, HeroContext shows round navigator + prompt preview, FolioCard header is role-first | 2026-04-15 (`npm run build`, commit `5af0025`) |
 | Council UX: markdown rendering in FolioCard via react-markdown + remark-gfm, topbar chrome reduced, session switcher shows round count + prompt | 2026-04-15 (`npm run build`, commit `9aebc8c`) |
-| MaestroClaw v0.1: local execution node — `executors`, `executor_jobs`, `executor_job_events` tables, `executor-api` edge function (8 actions), worker package with poll loop + adapter system (shell_stub, claude_code) | 2026-04-17 (`npm run typecheck`, migrations applied, `executor-api` deployed, commit `16203aa`) |
+| MaestroClaw v0.1: local execution node — `executors`, `executor_jobs`, `executor_job_events` tables, `executor-api` edge function (8 actions), worker package with poll loop + adapter system (`shell_stub`, `claude_code`, `approved_shell`) | 2026-04-17 (`npm run typecheck`, migrations applied, `executor-api` deployed, commit `16203aa`) |
 | MaestroClaw full round-trip smoke test: web UI → submit job → Supabase queue → MaestroClaw polls → Claude Code runs → results back → status visible in Vault | 2026-04-17 (live smoke test, commit `29323b1`) |
 | MaestroClaw workspace preservation: succeeded jobs keep workspace files for browsing, configurable via `KEEP_SUCCEEDED_WORKSPACES` env var (default: true) | 2026-04-17 (`npm run typecheck`) |
 | BUILD_V3_SPEC.md written: MaestroClaw-routed builds, execution backend routing, context bundling, job chains, project lifecycle, Docker isolation roadmap, security model | 2026-04-17 |
@@ -195,7 +195,7 @@ Legacy (unused): agent_skills, flags
 | Build v2 task board UI in BuildWorkspace: progress bar, per-file task list with status, retry/skip actions, pause/resume/execute controls, concierge chat during task building | 2026-04-14 (`npm run typecheck`, `npm run build`) |
 | Build v3 Phase 1 routing layer: `dispatchTask()` branches on `execution_backend` (edge/local/auto), `resolveBackend()` picks route, `pollExecutorJob()` polls for MaestroClaw completion, local→edge fallback on failure | 2026-04-18 (`npm run typecheck`) |
 | Build v3 execution backend selector: Pre-Build "Lock" screen shows Edge/Local/Auto toggle, persists to `sessions.execution_backend`, shows executor online status | 2026-04-18 (`npm run typecheck`) |
-| Build v3 auto-routing: simple rule — local if any executor online (heartbeat < 60s), edge otherwise | 2026-04-18 (code verified) |
+| Build v3 auto-routing: local only when an online executor advertises the required adapter; stale claimed/running jobs re-queue after 90s lease expiry | 2026-04-21 (`npm --prefix packages\maestroclaw run build`, `npm run build`) |
 | Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -220,6 +220,7 @@ Legacy (unused): agent_skills, flags
 |-------|-------|-------|
 | **GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug | 2026-04-19 | Unassigned |
 | **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
+| **ClawCopilot / ClawCodex are not executable yet**: roster slots exist, but `packages/maestroclaw` currently only ships `claude_code`, `approved_shell`, and `shell_stub` adapters. Capability-aware routing now prevents mismatched pickup, so those jobs will fail/idle until adapters are implemented. | 2026-04-21 | Unassigned |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
@@ -263,6 +264,36 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-21 — GitHub Copilot (GPT-5.4) — MaestroClaw Capability Routing + Lease Recovery
+
+**What was done**: Hardened MaestroClaw queue semantics so executors only receive jobs for adapters they actually advertise, added job leases with stale-job requeue behavior, and taught Build v3 local dispatch to require a matching online executor before routing locally. Also corrected the package README to the token-only worker model and documented capability/lease behavior.
+
+**Files touched**: `supabase/functions/executor-api/index.ts`, `supabase/migrations/20260421001500_executor_job_leases.sql`, `packages/maestroclaw/src/api.ts`, `packages/maestroclaw/src/index.ts`, `src/hooks/useBuildExecution.ts`, `src/types/index.ts`, `packages/maestroclaw/README.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Use executor heartbeats as the source of truth for advertised adapter capabilities instead of expanding the web registration UI.
+- Keep lease recovery surgical: re-queue stale `claimed`/`running` jobs onto the existing `approved` state instead of introducing a new lifecycle status.
+- Fail local Build v3 dispatch immediately when no online executor advertises the required adapter, rather than waiting for a long poll timeout.
+
+**What didn't work**:
+- Found a pre-existing product mismatch while implementing the routing fix: ClawCopilot/ClawCodex are exposed in the roster, but no `copilot_cli` / `codex_cli` worker adapters exist yet.
+- There is no repo-native build/check command for Deno edge functions, so `executor-api` was verified by code inspection plus surrounding frontend/worker build passes rather than a dedicated function typecheck.
+
+### 2026-04-20 — Codex (GPT-5.4) — MiroFish Assessment for Maestro
+
+**What was done**: Assessed the local `.michael/MiroFish-main.zip` / extracted `MiroFish-main` repo to determine what it does and which parts could realistically enrich Maestro. Reviewed README, backend app/api/services/models, and workflow UI. Conclusion: the highest-value transferable ideas are graph-backed long-term memory, tool-using report agents, and simulation/interview-style “what-if” analysis; the OASIS social-simulation stack itself is mostly domain-specific and should not be copied directly into Maestro’s core build path.
+
+**Files inspected**: `.michael/MiroFish-main/MiroFish-main/README.md`, `.michael/MiroFish-main/MiroFish-main/package.json`, `.michael/MiroFish-main/MiroFish-main/backend/pyproject.toml`, `.michael/MiroFish-main/MiroFish-main/backend/app/__init__.py`, `.michael/MiroFish-main/MiroFish-main/backend/app/api/{graph,simulation,report}.py`, `.michael/MiroFish-main/MiroFish-main/backend/app/services/{simulation_manager,zep_graph_memory_updater,zep_tools,report_agent}.py`, `.michael/MiroFish-main/MiroFish-main/backend/app/models/{project,task}.py`, `.michael/MiroFish-main/MiroFish-main/frontend/src/views/Process.vue`
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treat MiroFish as a source of product patterns and memory/reporting architecture, not as a drop-in subsystem for Maestro.
+- Flag AGPL-3.0 licensing as a constraint before any direct code reuse from MiroFish into Maestro.
+
+**What didn't work**:
+- Initial path assumption targeted `C:\Users\Owner\.michael`; actual archive lived under the repo-local `.michael/`.
+- One ranged PowerShell read failed on mixed argument types and was retried with narrower file reads.
 
 ### 2026-04-20 — Codex (GPT-5.4) — Claw Mode UX/UI Audit
 

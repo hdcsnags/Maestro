@@ -345,6 +345,8 @@ export interface ExecutorJob {
   build_task_id: string | null;
   created_at: string;
   updated_at: string;
+  claimed_at: string | null;
+  lease_expires_at: string | null;
   started_at: string | null;
   completed_at: string | null;
 }

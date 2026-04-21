@@ -2,9 +2,11 @@
 
 import "dotenv/config";
 import { loadConfig } from "./config.js";
-import { heartbeat, pollForJob, claimJob } from "./api.js";
+import { heartbeat, pollForJob, claimJob, type ExecutorCapabilities } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
 import { executeJob } from "./executor.js";
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
 
 async function main() {
   console.log("🐾 MaestroClaw v0.1.0 — Local Execution Node");
@@ -17,13 +19,21 @@ async function main() {
 
   // Check adapters
   const adapters = await checkAdapters();
+  const supportedAdapters = Object.entries(adapters)
+    .filter(([, ok]) => ok)
+    .map(([name]) => name);
+  const capabilities: ExecutorCapabilities = {
+    adapters: supportedAdapters,
+    platform: process.platform,
+    node_version: process.version,
+  };
   console.log("🔌 Adapters:");
   for (const [name, ok] of Object.entries(adapters)) {
     console.log(`   ${ok ? "✅" : "❌"} ${name}`);
   }
 
   // Initial heartbeat
-  await heartbeat(config);
+  await heartbeat(config, capabilities);
   console.log("💓 Heartbeat sent — executor is online");
   console.log("─".repeat(50));
   console.log("👀 Polling for jobs...\n");
@@ -42,6 +52,13 @@ async function main() {
     console.log("\n🛑 Received SIGTERM, shutting down...");
     running = false;
   });
+
+  const heartbeatTimer = setInterval(() => {
+    void heartbeat(config, capabilities).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`⚠️ Heartbeat failed: ${message}`);
+    });
+  }, HEARTBEAT_INTERVAL_MS);
 
   while (running) {
     try {
@@ -78,6 +95,7 @@ async function main() {
     }
   }
 
+  clearInterval(heartbeatTimer);
   console.log("👋 MaestroClaw stopped.");
 }
 

@@ -21,8 +21,15 @@ export interface ExecutorJob {
   build_task_id: string | null;
   created_at: string;
   updated_at: string;
+  claimed_at: string | null;
+  lease_expires_at: string | null;
   started_at: string | null;
   completed_at: string | null;
+}
+
+export interface ExecutorCapabilities {
+  adapters: string[];
+  [key: string]: unknown;
 }
 
 async function api(
@@ -50,8 +57,16 @@ async function api(
   return data;
 }
 
-export async function heartbeat(config: ClawConfig): Promise<void> {
-  await api(config, "heartbeat", "POST");
+export async function heartbeat(
+  config: ClawConfig,
+  capabilities?: ExecutorCapabilities,
+): Promise<void> {
+  await api(
+    config,
+    "heartbeat",
+    "POST",
+    capabilities ? { capabilities } : undefined,
+  );
 }
 
 export async function pollForJob(
