@@ -6,7 +6,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useWorkspace } from '../../hooks/useWorkspace';
-import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
+import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread, type ChatBuildPhase } from '../../types';
 import FolioCarousel from './FolioCarousel';
 
 type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
@@ -84,6 +84,25 @@ function getBuildFileIcon(action: 'create' | 'update' | 'delete'): LucideIcon {
   if (action === 'create') return FilePlus2;
   if (action === 'update') return FilePenLine;
   return Trash2;
+}
+
+function getBuildPhaseLabel(phase: ChatBuildPhase): string {
+  switch (phase) {
+    case 'planning':
+      return 'Build Planning';
+    case 'reviewing':
+      return 'Build Review';
+    case 'building':
+      return 'Building Files';
+    case 'committing':
+      return 'Committing Build';
+    case 'done':
+      return 'Build Complete';
+    case 'failed':
+      return 'Build Failed';
+    default:
+      return 'Build';
+  }
 }
 
 export default function ClawMode() {
@@ -235,6 +254,13 @@ export default function ClawMode() {
     () => state.repoConnections?.find((r: { is_active: boolean }) => r.is_active),
     [state.repoConnections],
   );
+  const activeRepoName = useMemo(
+    () => (activeRepo as { repo_full_name?: string } | undefined)?.repo_full_name?.split('/')[1] || null,
+    [activeRepo],
+  );
+  const isExecutionThread = state.activeThread?.type === 'execution';
+  const isExecutionPending = !!state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id;
+  const isBuildFlowActive = state.chatBuildPhase !== 'idle';
 
   // Determine thread type label for context header
   const threadTypeLabel = useMemo(() => {
@@ -247,6 +273,127 @@ export default function ClawMode() {
       default: return 'Thread';
     }
   }, [state.activeThread]);
+
+  const surfaceState = useMemo(() => {
+    if (isExecutionPending) {
+      return {
+        kind: 'execute' as const,
+        Icon: Zap,
+        badgeLabel: 'Execution Review',
+        bannerTitle: 'Execution waiting for approval',
+        description: 'Review the parsed command below before it is handed to MaestroClaw for local execution.',
+        status: 'Awaiting approval',
+      };
+    }
+
+    if (isExecutionThread) {
+      return {
+        kind: 'execute' as const,
+        Icon: Zap,
+        badgeLabel: 'Execution Thread',
+        bannerTitle: 'Execution thread active',
+        description: 'Command parsing, approvals, and run updates stay here so Concierge chat does not get buried in shell output.',
+        status: 'Shell + GitHub actions',
+      };
+    }
+
+    if (isBuildFlowActive) {
+      const buildPhaseLabel = getBuildPhaseLabel(state.chatBuildPhase);
+      const buildDescriptions: Record<ChatBuildPhase, string> = {
+        idle: 'Build workflow is idle.',
+        planning: 'Claw is turning your request into a repo-scoped build plan before any files are written.',
+        reviewing: 'Review the proposed files and commit message before approving any repo changes.',
+        building: 'Approved files are being generated now from the build plan.',
+        committing: 'Generated files are being written to GitHub and assembled into a PR-ready change set.',
+        done: 'Build finished. Review the summary in-thread and inspect the resulting PR or written files.',
+        failed: 'Build hit an error. Review the latest system message in this thread and retry from chat when ready.',
+      };
+
+      return {
+        kind: 'build' as const,
+        Icon: Hammer,
+        badgeLabel: buildPhaseLabel,
+        bannerTitle: buildPhaseLabel,
+        description: buildDescriptions[state.chatBuildPhase],
+        status: activeRepoName || 'Active repo required',
+      };
+    }
+
+    if (composerIntent === 'execute') {
+      return {
+        kind: 'execute' as const,
+        Icon: Zap,
+        badgeLabel: 'Execute Mode',
+        bannerTitle: 'Execution mode armed',
+        description: 'Commands run through MaestroClaw. Read-only tasks can auto-run; anything risky stops for approval first.',
+        status: 'Local executor',
+      };
+    }
+
+    if (composerIntent === 'build') {
+      return {
+        kind: 'build' as const,
+        Icon: Hammer,
+        badgeLabel: 'Build Mode',
+        bannerTitle: 'Build mode armed',
+        description: 'Build first creates a plan, then asks for approval before writing files to the connected GitHub repo.',
+        status: activeRepoName || 'Repo connected',
+      };
+    }
+
+    return {
+      kind: 'default' as const,
+      Icon: clawView === 'carousel' ? Radio : clawView === 'focus' ? MessageSquare : state.activeThread?.type === 'broadcast' ? Radio : state.activeThread?.type === 'direct' ? MessageSquare : Mic,
+      badgeLabel: threadTypeLabel,
+      bannerTitle: threadTypeLabel,
+      description: '',
+      status: null,
+    };
+  }, [
+    activeRepoName,
+    clawView,
+    composerIntent,
+    isBuildFlowActive,
+    isExecutionPending,
+    isExecutionThread,
+    state.activeThread?.type,
+    state.chatBuildPhase,
+    threadTypeLabel,
+  ]);
+
+  const modeTheme = surfaceState.kind === 'execute'
+    ? {
+        badge: 'border-signal-warn/25 bg-signal-warn/10 text-signal-warn/95',
+        banner: 'border-signal-warn/15 bg-signal-warn/10',
+        bannerIcon: 'bg-signal-warn/15 text-signal-warn/95',
+        bannerTitle: 'text-signal-warn/95',
+        status: 'border-signal-warn/25 bg-signal-warn/10 text-signal-warn/95',
+        input: 'bg-signal-warn/5 border-signal-warn/20 focus:border-signal-warn/35 focus:ring-signal-warn/40',
+        helper: 'text-signal-warn/90',
+        busyIcon: 'bg-signal-warn/15 text-signal-warn/95',
+      }
+    : surfaceState.kind === 'build'
+      ? {
+          badge: 'border-signal-ok/25 bg-signal-ok/10 text-signal-ok/95',
+          banner: 'border-signal-ok/15 bg-signal-ok/10',
+          bannerIcon: 'bg-signal-ok/15 text-signal-ok/95',
+          bannerTitle: 'text-signal-ok/95',
+          status: 'border-signal-ok/25 bg-signal-ok/10 text-signal-ok/95',
+          input: 'bg-signal-ok/5 border-signal-ok/20 focus:border-signal-ok/35 focus:ring-signal-ok/40',
+          helper: 'text-signal-ok/90',
+          busyIcon: 'bg-signal-ok/15 text-signal-ok/95',
+        }
+      : {
+          badge: 'border-gold/20 bg-gold/10 text-gold/95',
+          banner: 'border-white/[0.06] bg-white/[0.02]',
+          bannerIcon: 'bg-gold/10 text-gold/80',
+          bannerTitle: 'text-white/80',
+          status: 'border-white/10 bg-white/[0.04] text-white/75',
+          input: 'bg-white/[0.04] border-white/[0.08] focus:border-gold/30 focus:ring-gold/50',
+          helper: 'text-white/60',
+          busyIcon: 'bg-gold/10 text-gold/60',
+        };
+  const shouldPulseHeader = state.isBroadcasting || state.isConciergeSending || isExecutionPending || state.chatBuildPhase === 'building' || state.chatBuildPhase === 'committing';
 
   // Initialize: load persisted threads + ensure concierge thread
   useEffect(() => {
@@ -688,7 +835,24 @@ export default function ClawMode() {
   const intentCfg = INTENT_CONFIG[composerIntent];
   const IntentIcon = intentCfg.Icon;
   const SubmitIcon = intentCfg.actionIcon;
+  const SurfaceIcon = surfaceState.Icon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
+  const showModeBanner = clawView === 'concierge' && surfaceState.kind !== 'default';
+  const emptyStateIconClass = surfaceState.kind === 'execute'
+    ? 'bg-signal-warn/10 text-signal-warn/85'
+    : surfaceState.kind === 'build'
+      ? 'bg-signal-ok/10 text-signal-ok/85'
+      : 'bg-gold/10 text-gold/60';
+  const emptyStateTitle = isExecutionThread
+    ? 'Execution thread ready'
+    : surfaceState.kind === 'build'
+      ? surfaceState.bannerTitle
+      : 'Concierge is ready';
+  const emptyStateDescription = isExecutionThread
+    ? 'Describe a command or repo task. Claw will parse it, request approval when needed, and keep run updates here.'
+    : surfaceState.kind === 'build'
+      ? 'Describe the feature or refactor you want. Claw will plan the repo changes before asking to write anything.'
+      : 'Chat, broadcast to the orchestra, execute commands, or build to a repo.';
 
   // ─── Render ───────────────────────────────────────────────
   return (
@@ -728,11 +892,11 @@ export default function ClawMode() {
             </button>
           )}
 
-          {/* Thread type badge */}
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-            <span className="text-xs font-medium text-white/70 tracking-wide uppercase">
-              {threadTypeLabel}
+          {/* Thread / mode badge */}
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${modeTheme.badge}`}>
+            <SurfaceIcon size={11} className={shouldPulseHeader ? 'animate-pulse' : undefined} />
+            <span className="text-[11px] font-medium tracking-wide uppercase">
+              {surfaceState.badgeLabel}
             </span>
           </div>
 
@@ -750,7 +914,7 @@ export default function ClawMode() {
                 {latestResponses.length} responses
               </span>
             )}
-            {state.chatBuildPhase !== 'idle' && (
+            {state.chatBuildPhase !== 'idle' && surfaceState.kind !== 'build' && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-signal-ok/15 text-[11px] text-signal-ok/90">
                 <Hammer size={10} />
                 {state.chatBuildPhase}
@@ -831,6 +995,33 @@ export default function ClawMode() {
         </div>
       </div>
 
+      {showModeBanner && (
+        <div className={`relative z-10 border-b px-4 py-3 ${modeTheme.banner}`}>
+          <div className="mx-auto max-w-4xl flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${modeTheme.bannerIcon}`}>
+                <SurfaceIcon size={16} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`text-[11px] font-medium uppercase tracking-[0.22em] ${modeTheme.bannerTitle}`}>
+                    {surfaceState.bannerTitle}
+                  </span>
+                  {surfaceState.status && (
+                    <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide ${modeTheme.status}`}>
+                      {surfaceState.status}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-white/75 max-w-2xl">
+                  {surfaceState.description}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── Body: Sidebar + Content ───────────────────────── */}
       <div className="relative flex-1 flex overflow-hidden">
 
@@ -868,22 +1059,46 @@ export default function ClawMode() {
                     const isActive = state.activeThread?.id === thread.id;
                     const agent = thread.agent_id ? state.agents.find(a => a.id === thread.agent_id) : null;
                     const threadLabel = thread.title || agent?.display_name || agent?.name || group.label;
+                    const ThreadIcon = thread.type === 'execution'
+                      ? Zap
+                      : thread.type === 'broadcast'
+                        ? Radio
+                        : thread.type === 'direct'
+                          ? MessageSquare
+                          : Mic;
+                    const activeClasses = thread.type === 'execution'
+                      ? 'bg-signal-warn/10 text-signal-warn/95 border-l-2 border-signal-warn/50'
+                      : 'bg-gold/10 text-gold/90 border-l-2 border-gold/40';
+                    const inactiveClasses = thread.type === 'execution'
+                      ? 'text-white/70 hover:bg-signal-warn/10 hover:text-signal-warn/90 border-l-2 border-transparent'
+                      : 'text-white/70 hover:bg-white/[0.04] hover:text-white/85 border-l-2 border-transparent';
                     return (
                       <button
                         key={thread.id}
                         onClick={() => handleThreadClick(thread)}
                         className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors rounded-md mx-1 
                           ${isActive
-                            ? 'bg-gold/10 text-gold/90 border-l-2 border-gold/40'
-                            : 'text-white/70 hover:bg-white/[0.04] hover:text-white/85 border-l-2 border-transparent'
+                            ? activeClasses
+                            : inactiveClasses
                           } ${focusRingClass}`}
                         style={{ width: 'calc(100% - 8px)' }}
+                        aria-current={isActive ? 'true' : undefined}
                       >
                         <div className="truncate flex items-center gap-1.5">
-                          {agent && (
+                          {thread.type === 'direct' && agent ? (
                             <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: agent.color }} />
+                          ) : (
+                            <ThreadIcon
+                              size={12}
+                              className={thread.type === 'execution' ? 'text-signal-warn/90 flex-shrink-0' : 'text-white/45 flex-shrink-0'}
+                            />
                           )}
                           {threadLabel}
+                          {thread.type === 'execution' && (
+                            <span className="ml-auto text-[9px] uppercase tracking-[0.18em] text-signal-warn/80">
+                              Run
+                            </span>
+                          )}
                         </div>
                       </button>
                     );
@@ -922,12 +1137,14 @@ export default function ClawMode() {
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 claw-view-enter">
               {messages.length === 0 && !state.isConciergeSending && (
                 <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className="w-16 h-16 rounded-full bg-gold/10 flex items-center justify-center mb-4">
-                    <Bot size={28} className="text-gold/60" />
+                  <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${emptyStateIconClass}`}>
+                    <SurfaceIcon size={28} />
                   </div>
-                  <h3 className="text-lg font-medium text-white/70 mb-2">Concierge is ready</h3>
+                  <h3 className={`text-lg font-medium mb-2 ${surfaceState.kind === 'default' ? 'text-white/70' : modeTheme.bannerTitle}`}>
+                    {emptyStateTitle}
+                  </h3>
                   <p className="text-sm text-white/60 max-w-md">
-                    Chat, broadcast to the orchestra, execute commands, or build to a repo.
+                    {emptyStateDescription}
                   </p>
                 </div>
               )}
@@ -938,12 +1155,16 @@ export default function ClawMode() {
 
               {state.isConciergeSending && (
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-gold/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Bot size={14} className="text-gold/60" />
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${modeTheme.busyIcon}`}>
+                    <SurfaceIcon size={14} />
                   </div>
                   <div className="flex items-center gap-2 py-3 text-white/60 text-sm">
                     <Loader2 size={14} className="animate-spin" />
-                    Thinking...
+                    {surfaceState.kind === 'execute'
+                      ? 'Preparing execution...'
+                      : surfaceState.kind === 'build'
+                        ? 'Advancing build...'
+                        : 'Thinking...'}
                   </div>
                 </div>
               )}
@@ -1204,10 +1425,10 @@ export default function ClawMode() {
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
-            className="order-1 basis-full sm:order-none sm:basis-auto sm:flex-1 resize-none rounded-xl bg-white/[0.04] border border-white/[0.08] 
+            className={`order-1 basis-full sm:order-none sm:basis-auto sm:flex-1 resize-none rounded-xl border
                        px-4 py-3 text-sm text-white/90 placeholder:text-white/60
-                       focus:outline-none focus:border-gold/30 focus:ring-2 focus:ring-gold/50
-                       transition-all min-h-[44px] max-h-[200px]"
+                       focus:outline-none focus:ring-2
+                       transition-all min-h-[44px] max-h-[200px] ${modeTheme.input}`}
             style={{ height: 'auto', overflow: 'hidden' }}
             onInput={(e) => {
               const el = e.currentTarget;
@@ -1252,8 +1473,12 @@ export default function ClawMode() {
         </div>
 
         <div className="text-center mt-1.5">
-          <span className="text-[10px] text-white/60">
-            Enter to {intentCfg.label.toLowerCase()} · Shift+Enter for newline · Esc closes menus
+          <span className={`text-[10px] ${modeTheme.helper}`}>
+            {surfaceState.kind === 'execute'
+              ? 'Execute opens a run thread · approvals gate risky commands · Shift+Enter for newline'
+              : surfaceState.kind === 'build'
+                ? 'Build plans first, writes after approval · active repo required · Shift+Enter for newline'
+                : `Enter to ${intentCfg.label.toLowerCase()} · Shift+Enter for newline · Esc closes menus`}
           </span>
         </div>
       </div>
