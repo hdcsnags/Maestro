@@ -3,8 +3,8 @@ import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, ChatBuildPlan, ChatBuildFile, FileManifestEntry, ExecutionRun } from '../types';
-import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, BUILD_PLAN_PROMPT } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, ChatBuildPlan, ChatBuildFile, FileManifestEntry, ExecutionRun, ProviderConnection } from '../types';
+import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, BUILD_PLAN_PROMPT, CONCIERGE_MODELS } from '../types';
 
 interface OrchestrateResult {
   content?: string;
@@ -13,6 +13,11 @@ interface OrchestrateResult {
   title?: string;
   signals?: Record<string, string | undefined>;
   usage?: { total_tokens?: number };
+}
+
+interface ConciergeRuntimeChoice {
+  model: string;
+  provider: string;
 }
 
 const THREAD_OUTPUT_REDACTION_RULES: Array<{ pattern: RegExp; replacement: string }> = [
@@ -37,6 +42,86 @@ function redactThreadOutput(content: string): { content: string; redactionCount:
   return { content: nextContent, redactionCount };
 }
 
+function inferProviderFromModel(model: string): string {
+  const registered = CONCIERGE_MODELS.find(entry => entry.id === model);
+  if (registered) return registered.provider;
+  if (model.startsWith('gpt-')) return 'openai';
+  if (model.startsWith('gemini-')) return 'google';
+  return 'anthropic';
+}
+
+function connectionSupportsModel(connection: ProviderConnection | undefined, model: string): boolean {
+  if (!connection?.is_connected) return false;
+  if (!Array.isArray(connection.models) || connection.models.length === 0) return true;
+  return connection.models.includes(model);
+}
+
+function extractJsonObject(raw: string): string | null {
+  const cleaned = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+  if (!cleaned) return null;
+  if ((cleaned.startsWith('{') && cleaned.endsWith('}')) || (cleaned.startsWith('[') && cleaned.endsWith(']'))) {
+    return cleaned;
+  }
+  const match = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+  return match?.[0] ?? null;
+}
+
+function parseStructuredJson<T>(raw: string, label: string): T {
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText) {
+    const message = raw.trim().replace(/\s+/g, ' ');
+    throw new Error(message || `${label} returned an empty response.`);
+  }
+
+  try {
+    return JSON.parse(jsonText) as T;
+  } catch {
+    throw new Error(`${label} returned malformed JSON.`);
+  }
+}
+
+function normalizeChatBuildPlan(candidate: unknown): ChatBuildPlan {
+  if (!candidate || typeof candidate !== 'object') {
+    throw new Error('Build planner returned an invalid plan.');
+  }
+
+  const plan = candidate as Partial<ChatBuildPlan> & { files?: unknown[] };
+  const files = Array.isArray(plan.files)
+    ? plan.files.flatMap((file): ChatBuildFile[] => {
+        if (!file || typeof file !== 'object') return [];
+        const candidateFile = file as Partial<ChatBuildFile>;
+        const path = typeof candidateFile.path === 'string' ? candidateFile.path.trim() : '';
+        const description = typeof candidateFile.description === 'string' ? candidateFile.description.trim() : '';
+        const action = candidateFile.action;
+        if (!path || !description || (action !== 'create' && action !== 'update' && action !== 'delete')) {
+          return [];
+        }
+        return [{ path, description, action }];
+      })
+    : [];
+
+  if (files.length === 0) {
+    throw new Error('Build planner returned no actionable files.');
+  }
+
+  const description = typeof plan.description === 'string' && plan.description.trim().length > 0
+    ? plan.description.trim()
+    : `Build plan covering ${files.length} file${files.length === 1 ? '' : 's'}.`;
+  const commit_message = typeof plan.commit_message === 'string' && plan.commit_message.trim().length > 0
+    ? plan.commit_message.trim()
+    : 'feat: apply claw build plan';
+  const branch_name = typeof plan.branch_name === 'string' && plan.branch_name.trim().length > 0
+    ? plan.branch_name.trim()
+    : undefined;
+
+  return {
+    description,
+    files,
+    commit_message,
+    ...(branch_name ? { branch_name } : {}),
+  };
+}
+
 export function useThreads() {
   const { state, dispatch } = useMaestro();
   const { user, session: authSession } = useAuth();
@@ -49,6 +134,49 @@ export function useThreads() {
     }
     return data.session;
   }, [authSession]);
+
+  const getConciergeCandidates = useCallback((preferredModel = state.conciergeModel): ConciergeRuntimeChoice[] => {
+    const connectedByProvider = new Map(
+      state.providerConnections
+        .filter(connection => connection.is_connected)
+        .map(connection => [connection.provider, connection]),
+    );
+    const candidates: ConciergeRuntimeChoice[] = [];
+    const seen = new Set<string>();
+
+    const addCandidate = (model: string, provider: string) => {
+      if (seen.has(model)) return;
+      seen.add(model);
+      candidates.push({ model, provider });
+    };
+
+    addCandidate(preferredModel, inferProviderFromModel(preferredModel));
+
+    for (const option of CONCIERGE_MODELS) {
+      const connection = connectedByProvider.get(option.provider);
+      if (!connectionSupportsModel(connection, option.id)) continue;
+      addCandidate(option.id, option.provider);
+    }
+
+    return candidates;
+  }, [state.conciergeModel, state.providerConnections]);
+
+  const resolveConciergeRuntime = useCallback((preferredModel = state.conciergeModel): ConciergeRuntimeChoice => {
+    const candidates = getConciergeCandidates(preferredModel);
+    const connectedCandidate = candidates.find(candidate => {
+      const connection = state.providerConnections.find(entry => entry.provider === candidate.provider && entry.is_connected);
+      return connectionSupportsModel(connection, candidate.model);
+    });
+
+    if (connectedCandidate) {
+      return connectedCandidate;
+    }
+
+    return candidates[0] ?? {
+      model: preferredModel,
+      provider: inferProviderFromModel(preferredModel),
+    };
+  }, [state.conciergeModel, state.providerConnections, getConciergeCandidates]);
 
   // Call executor-api edge function with query params
   const callExecutorApi = useCallback(async <T>(
@@ -238,10 +366,7 @@ export function useThreads() {
         : userMessage;
 
       // 4. Determine which model/provider to use based on conciergeModel
-      const model = state.conciergeModel;
-      let provider = 'anthropic';
-      if (model.startsWith('gpt-')) provider = 'openai';
-      else if (model.startsWith('gemini-')) provider = 'google';
+      const { model, provider } = resolveConciergeRuntime(state.conciergeModel);
 
       // 5. Call orchestrate edge function directly (single agent, no round overhead)
       const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
@@ -268,7 +393,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, buildConversationContext, dispatch]);
+  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, buildConversationContext, dispatch, resolveConciergeRuntime]);
 
   // Send a message to a specific agent in a direct thread
   const sendToAgent = useCallback(async (
@@ -327,36 +452,53 @@ export function useThreads() {
   const parseExecutionIntent = useCallback(async (
     userMessage: string,
   ): Promise<ExecutionIntent | null> => {
+    let lastError: Error | null = null;
+
     try {
       await ensureAuth();
-      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-        prompt: userMessage,
-        provider: 'anthropic',
-        model: 'claude-haiku-4-5',
-        agentName: 'ExecutionParser',
-        agentRole: EXECUTION_INTENT_PROMPT,
-        mode: 'analysis',
-        session_id: state.activeSession?.id,
-      });
+      for (const candidate of getConciergeCandidates('claude-haiku-4-5')) {
+        try {
+          const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+            prompt: userMessage,
+            provider: candidate.provider,
+            model: candidate.model,
+            agentName: 'ExecutionParser',
+            agentRole: EXECUTION_INTENT_PROMPT,
+            mode: 'analysis',
+            session_id: state.activeSession?.id,
+          });
 
-      const raw = result.content ?? result.text ?? '';
-      // Strip any markdown fences
-      const cleaned = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleaned) as ExecutionIntent;
+          const raw = result.content ?? result.text ?? '';
+          const parsed = parseStructuredJson<ExecutionIntent>(raw, 'Execution parser');
 
-      // Classify trust level from the parsed command
-      if (parsed.command) {
-        parsed.trust = classifyCommandTrust(parsed.command);
-      } else if (!parsed.trust) {
-        parsed.trust = 'approval_required';
+          if (parsed.command) {
+            parsed.trust = classifyCommandTrust(parsed.command);
+          } else if (!parsed.trust) {
+            parsed.trust = 'approval_required';
+          }
+
+          return parsed;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+        }
       }
-
-      return parsed;
     } catch (err) {
-      console.error('Failed to parse execution intent:', err);
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    if (lastError) {
+      console.error('Failed to parse execution intent:', lastError);
+    } else {
+      console.error('Failed to parse execution intent: no candidate models were available');
+    }
+
+    if (state.providerConnections.some(connection => connection.is_connected)) {
       return null;
     }
-  }, [state.activeSession, ensureAuth]);
+
+    console.error('No connected concierge provider is available for execution parsing.');
+    return null;
+  }, [state.activeSession, state.providerConnections, ensureAuth, getConciergeCandidates]);
 
   // Submit an execution job to the executor-api edge function
   const submitExecutionJob = useCallback(async (
@@ -517,27 +659,41 @@ export function useThreads() {
     threadId: string,
     userMessage: string,
   ): Promise<ChatBuildPlan | null> => {
+    let lastError: Error | null = null;
+
     try {
       await ensureAuth();
-      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-        prompt: userMessage,
-        provider: 'anthropic',
-        model: 'claude-haiku-4-5',
-        agentName: 'BuildPlanner',
-        agentRole: BUILD_PLAN_PROMPT,
-        mode: 'analysis',
-        session_id: state.activeSession?.id,
-      });
+      for (const candidate of getConciergeCandidates()) {
+        try {
+          const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+            prompt: userMessage,
+            provider: candidate.provider,
+            model: candidate.model,
+            agentName: 'BuildPlanner',
+            agentRole: BUILD_PLAN_PROMPT,
+            mode: 'analysis',
+            session_id: state.activeSession?.id,
+          });
 
-      const raw = result.content ?? result.text ?? '';
-      const cleaned = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
-      return JSON.parse(cleaned) as ChatBuildPlan;
+          const raw = result.content ?? result.text ?? '';
+          const parsed = parseStructuredJson<unknown>(raw, 'Build planner');
+          return normalizeChatBuildPlan(parsed);
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+        }
+      }
     } catch (err) {
-      console.error('Failed to generate build plan:', err);
-      await addMessage(threadId, 'system', '❌ Could not generate build plan. Try rephrasing.');
-      return null;
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
-  }, [state.activeSession, ensureAuth, addMessage]);
+
+    console.error('Failed to generate build plan:', lastError);
+    await addMessage(
+      threadId,
+      'system',
+      `❌ Could not generate build plan.${lastError?.message ? ` ${lastError.message}` : ''}`,
+    );
+    return null;
+  }, [state.activeSession, ensureAuth, addMessage, getConciergeCandidates]);
 
   // Execute the build: call orchestrate in build mode for each file, then commit via github-execute
   const executeBuildPlan = useCallback(async (
@@ -555,6 +711,8 @@ export function useThreads() {
       return;
     }
 
+    const buildRuntime = resolveConciergeRuntime(state.conciergeModel || 'claude-sonnet-4-6');
+
     const allManifestEntries: FileManifestEntry[] = [];
     const buildFiles = plan.files.filter((f: ChatBuildFile) => f.action !== 'delete');
     const deleteFiles = plan.files.filter((f: ChatBuildFile) => f.action === 'delete');
@@ -569,8 +727,8 @@ export function useThreads() {
 
         const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
           prompt: buildPrompt,
-          provider: 'anthropic',
-          model: state.conciergeModel || 'claude-sonnet-4-6',
+          provider: buildRuntime.provider,
+          model: buildRuntime.model,
           agentName: 'Builder',
           agentRole: 'You are a code builder. Write complete, production-ready files.',
           mode: 'build',
@@ -676,7 +834,7 @@ export function useThreads() {
       await addMessage(threadId, 'system', `❌ Commit failed: ${errorMessage}`);
       dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
     }
-  }, [user, state.activeSession, state.conciergeModel, state.repoConnections, ensureAuth, addMessage, dispatch]);
+  }, [user, state.activeSession, state.conciergeModel, state.repoConnections, ensureAuth, addMessage, dispatch, resolveConciergeRuntime]);
 
   // Full build-from-chat flow: plan → review → build → commit
   const buildFromChat = useCallback(async (
