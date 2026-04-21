@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
 interface AgentSkillPayload {
@@ -9,6 +10,7 @@ interface AgentSkillPayload {
 }
 
 type OrchestrationMode = "analysis" | "build" | "artifact" | "build_task";
+const ORCHESTRATE_MAX_BODY_BYTES = 1_048_576;
 
 interface OrchestrationRequest {
   prompt: string;
@@ -642,7 +644,14 @@ Deno.serve(async (req: Request) => {
 
     const { userClient: supabase, userId } = auth;
 
-    const body: OrchestrationRequest = await req.json();
+    const bodyResult = await readJsonBody<OrchestrationRequest>(req, corsHeaders, {
+      maxBytes: ORCHESTRATE_MAX_BODY_BYTES,
+      label: "Orchestrate request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode } = body;
     const orchestrationMode: OrchestrationMode = mode ?? "analysis";
 

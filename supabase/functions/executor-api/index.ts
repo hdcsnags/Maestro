@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody, readOptionalJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
@@ -106,6 +107,15 @@ const GITHUB_REPO_URL_PATTERN =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/;
 const GIT_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/;
 const JOB_LEASE_WINDOW_MS = 90_000;
+const EXECUTOR_API_BODY_LIMITS = {
+  heartbeat: 32_768,
+  claim: 16_384,
+  event: 262_144,
+  complete: 3_145_728,
+  register: 65_536,
+  submit: 524_288,
+  approve: 16_384,
+} as const;
 
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -128,17 +138,6 @@ function normalizeExecutorCapabilities(
 
 function leaseExpiryIso(baseMs = Date.now()): string {
   return new Date(baseMs + JOB_LEASE_WINDOW_MS).toISOString();
-}
-
-async function readOptionalJsonBody(req: Request): Promise<Record<string, unknown>> {
-  const raw = await req.text();
-  if (!raw.trim()) return {};
-
-  const parsed = JSON.parse(raw);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Request body must be a JSON object");
-  }
-  return parsed as Record<string, unknown>;
 }
 
 async function reclaimStaleJobs(
@@ -265,7 +264,12 @@ Deno.serve(async (req: Request) => {
     if (req.method === "POST" && action === "heartbeat") {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
-      const body = await readOptionalJsonBody(req);
+      const bodyResult = await readOptionalJsonBody<Record<string, unknown>>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.heartbeat,
+        label: "Executor heartbeat body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const capabilities = body.capabilities === undefined
         ? null
         : normalizeExecutorCapabilities(body.capabilities);
@@ -334,7 +338,12 @@ Deno.serve(async (req: Request) => {
       if (executor instanceof Response) return executor;
       const capabilities = normalizeExecutorCapabilities(executor.capabilities);
 
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{ job_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.claim,
+        label: "Executor claim body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const { job_id } = body;
       if (!job_id) return err("job_id is required");
       if (capabilities.adapters.length === 0) {
@@ -378,7 +387,16 @@ Deno.serve(async (req: Request) => {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
 
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{
+        job_id?: string;
+        event_type?: string;
+        payload?: Record<string, unknown>;
+      }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.event,
+        label: "Executor event body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const { job_id, event_type, payload } = body;
 
       if (!job_id || !event_type) return err("job_id and event_type required");
@@ -421,7 +439,18 @@ Deno.serve(async (req: Request) => {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
 
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{
+        job_id?: string;
+        success?: boolean;
+        result_summary?: string;
+        error_text?: string;
+        artifact_manifest?: unknown;
+      }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.complete,
+        label: "Executor completion body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const {
         job_id,
         success,
@@ -502,7 +531,12 @@ Deno.serve(async (req: Request) => {
     // POST ?action=register  body: { name, capabilities? }
     // Returns: executor record + raw token (only time it's shown)
     if (req.method === "POST" && action === "register") {
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{ name?: string; capabilities?: unknown }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.register,
+        label: "Executor register body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const { name, capabilities } = body;
 
       if (!name) return err("name is required");
@@ -552,7 +586,23 @@ Deno.serve(async (req: Request) => {
     // POST ?action=submit  body: { prompt, adapter?, job_type?, session_id?, ... }
     // Creates a new job. Auto-approves if approval_required=false.
     if (req.method === "POST" && action === "submit") {
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{
+        prompt?: string;
+        adapter?: string;
+        job_type?: string;
+        session_id?: string | null;
+        repo_url?: string | null;
+        repo_name?: string | null;
+        branch?: string | null;
+        allowed_paths?: unknown;
+        timeout_seconds?: number;
+        build_task_id?: string | null;
+      }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.submit,
+        label: "Executor submit body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const {
         prompt,
         adapter,
@@ -637,7 +687,12 @@ Deno.serve(async (req: Request) => {
     // ── APPROVE ───────────────────────────────────────────────
     // POST ?action=approve  body: { job_id }
     if (req.method === "POST" && action === "approve") {
-      const body = await req.json();
+      const bodyResult = await readJsonBody<{ job_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.approve,
+        label: "Executor approval body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
       const { job_id } = body;
       if (!job_id) return err("job_id is required");
 

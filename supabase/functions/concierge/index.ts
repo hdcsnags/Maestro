@@ -1,12 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
 type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat" | "decompose_tasks";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
 type NextPhase = "analysis" | "design" | "pre_build" | "build";
+const CONCIERGE_MAX_BODY_BYTES = 1_048_576;
 
 interface ConciergeRequest {
   session_id: string;
@@ -315,7 +317,14 @@ Deno.serve(async (req: Request) => {
 
     const { adminClient, userId } = auth;
 
-    const body: ConciergeRequest = await req.json();
+    const bodyResult = await readJsonBody<ConciergeRequest>(req, corsHeaders, {
+      maxBytes: CONCIERGE_MAX_BODY_BYTES,
+      label: "Concierge request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     // pre_build_complete, build_chat, and decompose_tasks don't need responses — they read state directly
     if (!body.session_id || !body.phase || (body.phase !== "pre_build_complete" && body.phase !== "build_chat" && body.phase !== "decompose_tasks" && !Array.isArray(body.responses))) {
       return new Response(

@@ -1,6 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
+
+const SYNTHESIZE_MAX_BODY_BYTES = 524_288;
 Deno.serve(async (req: Request) => {
   const corsHeaders = buildCorsHeaders(req);
   if (req.method === "OPTIONS") {
@@ -13,7 +16,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { responses } = await req.json();
+    const bodyResult = await readJsonBody<{ responses: string }>(req, corsHeaders, {
+      maxBytes: SYNTHESIZE_MAX_BODY_BYTES,
+      label: "Synthesize request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const { responses } = bodyResult;
 
     const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!anthropicKey) {

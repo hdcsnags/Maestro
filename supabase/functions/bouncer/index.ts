@@ -1,8 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
+
+const BOUNCER_MAX_BODY_BYTES = 3_145_728;
 type Trigger = "file_count" | "risky_change" | "end_of_build" | "conductor";
 type Severity = "minor" | "critical_pause" | "critical_approved";
 
@@ -120,7 +123,14 @@ Deno.serve(async (req: Request) => {
 
     const { adminClient, userId } = auth;
 
-    const body: BouncerRequest = await req.json();
+    const bodyResult = await readJsonBody<BouncerRequest>(req, corsHeaders, {
+      maxBytes: BOUNCER_MAX_BODY_BYTES,
+      label: "Bouncer request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     if (!body.session_id || !body.trigger) {
       return new Response(
         JSON.stringify({ error: "Invalid request: session_id and trigger required" }),

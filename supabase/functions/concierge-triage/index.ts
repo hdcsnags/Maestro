@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
 
@@ -15,6 +16,7 @@ interface TriageRequest {
 }
 
 type Route = "simple_ask" | "orchestra";
+const CONCIERGE_TRIAGE_MAX_BODY_BYTES = 131_072;
 type Intent =
   | "simple_ask"
   | "analysis"
@@ -121,7 +123,14 @@ Deno.serve(async (req: Request) => {
 
     const { adminClient, userId } = auth;
 
-    const body: TriageRequest = await req.json();
+    const bodyResult = await readJsonBody<TriageRequest>(req, corsHeaders, {
+      maxBytes: CONCIERGE_TRIAGE_MAX_BODY_BYTES,
+      label: "Concierge triage request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     if (!body.session_id || !body.prompt) {
       return new Response(
         JSON.stringify({ error: "session_id and prompt required" }),

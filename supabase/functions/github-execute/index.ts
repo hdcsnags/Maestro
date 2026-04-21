@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
 interface FileManifestEntry {
@@ -109,6 +110,8 @@ interface ExecuteRequest {
   commit_message?: string;
   conductor_approved?: boolean;
 }
+
+const GITHUB_EXECUTE_MAX_BODY_BYTES = 4_194_304;
 
 interface PathCollision {
   path: string;
@@ -472,7 +475,14 @@ Deno.serve(async (req: Request) => {
     const { adminClient: supabase, authHeader, userId } = auth;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 
-    const body: ExecuteRequest = await req.json();
+    const bodyResult = await readJsonBody<ExecuteRequest>(req, corsHeaders, {
+      maxBytes: GITHUB_EXECUTE_MAX_BODY_BYTES,
+      label: "GitHub execute request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     const { mode, repo_connection_id, execution_run_id, session_id, synthesis_content, commit_message } = body;
     if (mode !== "per_agent" && mode !== "synthesized") {
       return new Response(

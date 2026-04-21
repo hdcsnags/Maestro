@@ -1,10 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
 type DesignerRole = "visual_spatial" | "structure_ux" | "product_practical" | "wildcard_fusion";
 type DesignMode = "lite" | "standard" | "exploration";
+const DESIGN_MAX_BODY_BYTES = 262_144;
 
 interface DesignerLane {
   role: DesignerRole;
@@ -394,7 +396,14 @@ Deno.serve(async (req: Request) => {
 
     const { adminClient, userId } = auth;
 
-    const body: DesignRequest = await req.json();
+    const bodyResult = await readJsonBody<DesignRequest>(req, corsHeaders, {
+      maxBytes: DESIGN_MAX_BODY_BYTES,
+      label: "Design request body",
+    });
+    if (bodyResult instanceof Response) {
+      return bodyResult;
+    }
+    const body = bodyResult;
     if (!body.session_id || !body.design_mode || !body.brief) {
       return new Response(
         JSON.stringify({ error: "Invalid request: session_id, design_mode, brief required" }),
