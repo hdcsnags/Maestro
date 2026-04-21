@@ -181,7 +181,7 @@ export type BuildLaneRole = 'builder' | 'reviewer' | 'read_only' | 'security_aud
 export type BuildTaskStatus = 'queued' | 'dispatched' | 'waiting' | 'completed' | 'failed' | 'rerouted' | 'skipped';
 
 export interface BuildTask {
-  id?: string;
+  id: string;
   session_id: string;
   build_round_id?: string | null;
   task_id: string;

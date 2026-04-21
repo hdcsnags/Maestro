@@ -68,7 +68,7 @@ export function useOrchestration() {
   const { state, dispatch } = useMaestro();
   const { user, session } = useAuth();
 
-  const synthesizeRef = useRef<(roundId: string) => Promise<void>>();
+  const synthesizeRef = useRef<(roundId: string) => Promise<unknown>>();
 
   const ensureSession = useCallback(async () => {
     if (session?.access_token) return session;

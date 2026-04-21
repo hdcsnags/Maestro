@@ -212,11 +212,18 @@ export function useBuildExecution() {
     while (Date.now() - start < TIMEOUT_MS) {
       if (abortRef.current) return false;
 
-      const { data: job } = await supabase
+      const { data: jobRaw } = await supabase
         .from('executor_jobs')
         .select('status, artifact_manifest, error_text, result_summary')
         .eq('id', jobId)
         .single();
+      // executor_jobs is not yet in database.types.ts — cast explicitly
+      const job = jobRaw as {
+        status: string;
+        artifact_manifest: unknown;
+        error_text: string | null;
+        result_summary: string | null;
+      } | null;
 
       if (!job) return false;
 

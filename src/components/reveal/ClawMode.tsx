@@ -658,7 +658,7 @@ export default function ClawMode() {
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: agentId });
 
     // Find or create a direct thread for this agent
-    let directThread = state.threads.find(
+    let directThread: Thread | null | undefined = state.threads.find(
       t => t.type === 'direct' && t.agent_id === agentId && t.status === 'active'
     );
 
