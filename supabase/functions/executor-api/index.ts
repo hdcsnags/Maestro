@@ -27,13 +27,60 @@ function errorResponse(
   return jsonResponse(corsHeaders, { error: message }, status);
 }
 
-// Simple token hashing using Web Crypto API (available in Deno)
-async function hashToken(token: string): Promise<string> {
-  const encoded = new TextEncoder().encode(token);
-  const hash = await crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(hash))
+const EXECUTOR_TOKEN_HMAC_PREFIX = "hmac:v1:";
+const textEncoder = new TextEncoder();
+
+function bytesToHex(value: ArrayBuffer): string {
+  return Array.from(new Uint8Array(value))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function getExecutorTokenSecrets(): string[] {
+  const candidates = [
+    Deno.env.get("MAESTRO_EXECUTOR_TOKEN_KEY"),
+    Deno.env.get("MAESTRO_SECRETS_KEY"),
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+  ];
+
+  return Array.from(new Set(
+    candidates
+      .map((value) => value?.trim() ?? "")
+      .filter((value) => value.length > 0),
+  ));
+}
+
+async function hashLegacyToken(token: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", textEncoder.encode(token));
+  return bytesToHex(hash);
+}
+
+async function hashTokenWithSecret(token: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(token));
+  return `${EXECUTOR_TOKEN_HMAC_PREFIX}${bytesToHex(signature)}`;
+}
+
+async function hashToken(token: string): Promise<string> {
+  const secret = getExecutorTokenSecrets()[0];
+  if (!secret) {
+    throw new Error("Executor token hashing secret is not configured");
+  }
+  return hashTokenWithSecret(token, secret);
+}
+
+async function candidateTokenHashes(token: string): Promise<string[]> {
+  const hashes = new Set<string>([await hashLegacyToken(token)]);
+  for (const secret of getExecutorTokenSecrets()) {
+    hashes.add(await hashTokenWithSecret(token, secret));
+  }
+  return Array.from(hashes);
 }
 
 const TRUSTED_APPROVED_SHELL_COMMANDS: RegExp[] = [
@@ -633,13 +680,17 @@ async function validateExecutorToken(
   const rawToken = req.headers.get("X-Executor-Token");
   if (!rawToken) return errorResponse(corsHeaders, "X-Executor-Token header is required", 401);
 
-  const tokenHash = await hashToken(rawToken);
+  const tokenHashes = await candidateTokenHashes(rawToken);
 
-  const { data: executor } = await supabase
+  const { data: executor, error } = await supabase
     .from("executors")
     .select("*")
-    .eq("token_hash", tokenHash)
+    .in("token_hash", tokenHashes)
     .maybeSingle();
+
+  if (error) {
+    return errorResponse(corsHeaders, error.message, 500);
+  }
 
   if (!executor) {
     return errorResponse(corsHeaders, "Invalid executor token or executor not found", 401);
