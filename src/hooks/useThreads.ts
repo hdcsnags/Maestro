@@ -15,6 +15,28 @@ interface OrchestrateResult {
   usage?: { total_tokens?: number };
 }
 
+const THREAD_OUTPUT_REDACTION_RULES: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
+  { pattern: /\bgh(?:p|o|u|s|r)_[A-Za-z0-9_]{20,}\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
+  { pattern: /\bsk-[A-Za-z0-9_-]{16,}\b/g, replacement: '[REDACTED_API_KEY]' },
+  { pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, replacement: '[REDACTED_SLACK_TOKEN]' },
+  { pattern: /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA)[A-Z0-9]{16}\b/g, replacement: '[REDACTED_AWS_ACCESS_KEY]' },
+];
+
+function redactThreadOutput(content: string): { content: string; redactionCount: number } {
+  let nextContent = content;
+  let redactionCount = 0;
+
+  for (const { pattern, replacement } of THREAD_OUTPUT_REDACTION_RULES) {
+    nextContent = nextContent.replace(pattern, () => {
+      redactionCount += 1;
+      return replacement;
+    });
+  }
+
+  return { content: nextContent, redactionCount };
+}
+
 export function useThreads() {
   const { state, dispatch } = useMaestro();
   const { user, session: authSession } = useAuth();
@@ -145,15 +167,28 @@ export function useThreads() {
   ): Promise<ThreadMessage | null> => {
     if (!user) return null;
 
+    const persisted =
+      role === 'user'
+        ? { content, metadata: {} as Record<string, unknown> }
+        : (() => {
+            const redacted = redactThreadOutput(content);
+            return {
+              content: redacted.content,
+              metadata: redacted.redactionCount > 0
+                ? { redacted: true, redaction_count: redacted.redactionCount }
+                : {},
+            };
+          })();
+
     const { data, error } = await supabase
       .from('thread_messages')
       .insert({
         thread_id: threadId,
         role,
         agent_id: agentId ?? null,
-        content,
+        content: persisted.content,
         context_weight: 'primary',
-        metadata: {},
+        metadata: persisted.metadata,
       } as never)
       .select()
       .maybeSingle();
