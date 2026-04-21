@@ -298,7 +298,7 @@ export function useBuildExecution() {
         prompt: task.prompt_slice,
         repo_url: cloneUrl,
         repo_name: repoConn?.repo ?? null,
-        branch: repoConn?.default_branch ?? 'main',
+        branch: repoConn?.default_branch ?? null,
         allowed_paths: [task.file_path],
         timeout_seconds: 600,
         build_task_id: task.id,
