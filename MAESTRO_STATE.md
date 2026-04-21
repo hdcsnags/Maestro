@@ -265,6 +265,21 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-21 — GitHub Copilot (GPT-5.4) — Claw Build Handoff Routed Into Pre-Build / Build Workspace
+
+**What was done**: Fixed the Claw Build UX contract so chat build requests no longer pretend to plan/build in-thread before a builder path exists. `useThreads.buildFromChat()` now stores the user's requested build focus in `sessions.build_spec`, checks whether Pre-Build has already locked builders plus `ARCHITECT.md`, and either routes the session into `pre_build` or hands off into the canonical Build workspace. `concierge` `pre_build_complete` / `decompose_tasks` now read that saved `requested_build_prompt`, so the real Build plan and task slices retain the Claw request after handoff. Redeployed `concierge` live after the change.
+
+**Files touched**: `src/hooks/useThreads.ts`, `supabase/functions/concierge/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treat Pre-Build + BuildWorkspace as the authoritative build contract instead of maintaining a third direct Claw build executor path.
+- Persist the latest Claw build request on the session (`build_spec.requested_build_prompt`) so the handoff preserves user intent without inventing a parallel state channel.
+- Keep chat-facing Build approvals as BuildWorkspace-owned; the Claw thread now explains the handoff instead of generating a misleading in-thread plan.
+
+**What didn't work**:
+- The old chat-build planner path could be made more resilient, but it still bypassed locked builders/backend choice entirely, which is the UX bug the user actually hit.
+- There is still no shell-available user JWT here, so the post-fix end-to-end build must be verified through the real authenticated UI rather than a direct edge-function repro from this terminal.
+
 ### 2026-04-21 — GitHub Copilot (GPT-5.4) — MaestroClaw Copilot/Codex Adapter Enablement
 
 **What was done**: Implemented `copilot_cli` and `codex_cli` adapters for MaestroClaw, added a shared command resolver that maps Windows npm shims to their underlying Node entrypoints, registered both adapters, updated the worker README, and closed the old "not executable yet" blocker. Validated with `npm --prefix packages\maestroclaw run build` and live `Reply with exactly OK` smoke runs through both adapters.

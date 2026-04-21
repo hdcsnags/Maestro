@@ -267,6 +267,55 @@ export function useThreads() {
     return data.session;
   }, [authSession]);
 
+  const getBuildSetupStatus = useCallback(() => {
+    const activeRepo = state.activeRepoConnection
+      ?? state.repoConnections?.find((repo) => repo.is_active)
+      ?? null;
+    const buildSpec = ((state.activeSession?.build_spec ?? {}) as Record<string, unknown>);
+    const lockedBuilderIds = Array.isArray(buildSpec.primary_builder_agent_ids)
+      ? buildSpec.primary_builder_agent_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [];
+    const builderNames = lockedBuilderIds.map((id) => {
+      const agent = state.agents.find((candidate) => candidate.id === id);
+      return agent?.display_name || agent?.name || id;
+    });
+
+    const missing: string[] = [];
+    if (!activeRepo) missing.push('an active GitHub repo connection');
+    if (!state.activeSession?.architect_md?.trim()) missing.push('an ARCHITECT.md scaffold');
+    if (state.activeSession?.build_spec_locked !== true) missing.push('a locked Pre-Build builder roster');
+    if (lockedBuilderIds.length === 0) missing.push('at least one selected builder');
+
+    return {
+      activeRepo,
+      buildSpec,
+      lockedBuilderIds,
+      builderNames,
+      executionBackend: state.activeSession?.execution_backend ?? 'edge',
+      ready: missing.length === 0,
+      missing,
+    };
+  }, [state.activeRepoConnection, state.repoConnections, state.activeSession, state.agents]);
+
+  const updateSessionBuildState = useCallback(async (
+    phase: 'pre_build' | 'build',
+    buildSpec: Record<string, unknown>,
+  ) => {
+    if (!state.activeSession) return;
+
+    const payload = {
+      current_phase: phase,
+      build_spec: buildSpec,
+    };
+
+    await supabase
+      .from('sessions')
+      .update(payload as never)
+      .eq('id', state.activeSession.id);
+
+    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload });
+  }, [state.activeSession, dispatch]);
+
   const getConciergeCandidates = useCallback((preferredModel = state.conciergeModel): ConciergeRuntimeChoice[] => {
     const connectedByProvider = new Map(
       state.providerConnections
@@ -1031,57 +1080,67 @@ export function useThreads() {
     if (!user || !state.activeSession) return;
 
     dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'planning' });
+    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
 
     try {
       await addMessage(threadId, 'user', `🏗️ ${userMessage}`);
-      await addMessage(threadId, 'system', '📋 Generating build plan...');
+      await addMessage(threadId, 'system', '🧭 Checking build setup…');
 
-      const plan = await generateBuildPlan(threadId, userMessage);
-      if (!plan) {
-        dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+      const buildSetup = getBuildSetupStatus();
+      const nextBuildSpec = {
+        ...buildSetup.buildSpec,
+        requested_build_prompt: userMessage,
+      };
+
+      if (!buildSetup.ready) {
+        await updateSessionBuildState('pre_build', nextBuildSpec);
+        dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
+        dispatch({ type: 'SHOW_TOAST', payload: 'Finish Pre-Build setup before starting Build' });
+
+        const missingList = buildSetup.missing.map((item) => `- ${item}`).join('\n');
+        await addMessage(
+          threadId,
+          'system',
+          `🏗️ Build handoff paused.\n\nBefore Maestro can start the real build flow, Pre-Build still needs:\n${missingList}\n\nThat is where you choose the builder roster and backend for this session — including whether Build should use cloud builders or MaestroClaw/CLI builders like Claude Code, Copilot CLI, or Codex.`,
+        );
         return;
       }
 
-      // Store plan and show for review
-      dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: plan });
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'reviewing' });
+      await updateSessionBuildState('build', nextBuildSpec);
+      dispatch({ type: 'CLOSE_TRANSIENT' });
+      dispatch({ type: 'SHOW_TOAST', payload: 'Build routed to Build Workspace' });
 
-      // Format plan as a readable message
-      const fileList = plan.files.map((f: ChatBuildFile) => {
-        const icon = f.action === 'create' ? '📄' : f.action === 'update' ? '📝' : '🗑️';
-        return `  ${icon} \`${f.path}\` — ${f.description}`;
-      }).join('\n');
+      const backendLabel = buildSetup.executionBackend === 'local'
+        ? 'Local executors (MaestroClaw / CLI builders)'
+        : buildSetup.executionBackend === 'auto'
+          ? 'Auto backend selection'
+          : 'Edge/cloud builders';
+      const builderLabel = buildSetup.builderNames.length > 0
+        ? buildSetup.builderNames.join(', ')
+        : `${buildSetup.lockedBuilderIds.length} locked builders`;
 
-      await addMessage(threadId, 'system',
-        `📋 **Build Plan**\n\n${plan.description}\n\n**Files (${plan.files.length}):**\n${fileList}\n\n**Commit:** ${plan.commit_message}\n\n👆 Click **Approve Build** to proceed or **Cancel** to abort.`
+      await addMessage(
+        threadId,
+        'system',
+        `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Build (File by File)** or **Broadcast (Legacy)**.`,
       );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Build planning error: ${errorMessage}`);
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
+      await addMessage(threadId, 'system', `❌ Build handoff error: ${errorMessage}`);
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, addMessage, generateBuildPlan, dispatch]);
+  }, [user, state.activeSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch]);
 
   // Approve and execute a pending build plan
   const approveBuildPlan = useCallback(async (
     threadId: string,
   ): Promise<void> => {
-    const plan = state.chatBuildPlan;
-    if (!plan) return;
-
-    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
-
-    try {
-      await addMessage(threadId, 'system', '🚀 Build approved — starting execution...');
-      await executeBuildPlan(threadId, plan);
-    } finally {
-      dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
-      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
-    }
-  }, [state.chatBuildPlan, addMessage, executeBuildPlan, dispatch]);
+    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
+    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
+    await addMessage(threadId, 'system', '🏗️ Build approvals now happen in Build Workspace. Use the Build screen to continue.');
+  }, [addMessage, dispatch]);
 
   // Cancel a pending build plan
   const cancelBuildPlan = useCallback(async (
@@ -1101,10 +1160,12 @@ export function useThreads() {
     sendToConcierge,
     sendToAgent,
     buildConversationContext,
+    generateBuildPlan,
     parseExecutionIntent,
     submitExecutionJob,
     approveExecutionJob,
     pollJobStatus,
+    executeBuildPlan,
     executeFromChat,
     buildFromChat,
     approveBuildPlan,

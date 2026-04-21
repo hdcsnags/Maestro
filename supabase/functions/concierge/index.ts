@@ -105,23 +105,39 @@ interface BuildPlanPayload {
   }>;
 }
 
+function getRequestedBuildPrompt(buildSpec: Record<string, unknown>): string {
+  const value = buildSpec.requested_build_prompt;
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function truncateRequestedBuildPrompt(prompt: string, limit = 220): string {
+  if (!prompt) return "";
+  return prompt.length <= limit ? prompt : `${prompt.slice(0, limit - 1).trimEnd()}…`;
+}
+
 function buildDeterministicBuildPlan(
   projectTitle: string,
   _architectMd: string,
   builders: BuildLaneSummary[],
+  requestedBuildPrompt = "",
 ): BuildPlanPayload {
   // NOTE: Do NOT embed architectMd in build_prompt. The orchestrate edge function
   // already injects the full ARCHITECT.MD into the system prompt for build-mode
   // requests (orchestrate/index.ts). Embedding it again in the user message doubles
   // the context, producing prompts that exceed provider token budgets and 504.
+  const conciseRequestedBuildPrompt = truncateRequestedBuildPrompt(requestedBuildPrompt, 180);
+  const focusLine = conciseRequestedBuildPrompt
+    ? ` Prioritize this requested focus: ${conciseRequestedBuildPrompt}`
+    : "";
   return {
-    build_prompt: `BUILD MODE — Building ${projectTitle}.\n\nReturn JSON only. Include COMPLETE file contents in every file_manifest entry — no "// ... existing code ..." or similar placeholders. Work ONLY within your assigned lane paths.\n\nIf you cannot finish all assigned files in one response, set "complete": false and write a "continuation_prompt" describing exactly which files still need to be generated.`,
-    build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length === 1 ? "" : "s"}. Each builder is scoped to lane-specific paths and must return complete file contents in file_manifest entries for conductor review before execution.`,
+    build_prompt: `BUILD MODE — Building ${projectTitle}.${focusLine}\n\nReturn JSON only. Include COMPLETE file contents in every file_manifest entry — no "// ... existing code ..." or similar placeholders. Work ONLY within your assigned lane paths.\n\nIf you cannot finish all assigned files in one response, set "complete": false and write a "continuation_prompt" describing exactly which files still need to be generated.`,
+    build_summary: `Building ${projectTitle} with ${builders.length} builder agent${builders.length === 1 ? "" : "s"}. Each builder is scoped to lane-specific paths and must return complete file contents in file_manifest entries for conductor review before execution.${conciseRequestedBuildPrompt ? ` Requested focus: ${conciseRequestedBuildPrompt}` : ""}`,
     builder_agents: builders.map((builder) => ({
       agent_id: builder.agent_id ?? "",
       agent_name: builder.agent_name,
       scoped_paths: builder.lane_paths,
-      instruction: `Build only the files in: ${builder.lane_paths.join(", ") || "your assigned lane paths"}`,
+      instruction: `Build only the files in: ${builder.lane_paths.join(", ") || "your assigned lane paths"}${conciseRequestedBuildPrompt ? `. Prioritize this request within your lane: ${conciseRequestedBuildPrompt}` : ""}`,
     })),
   };
 }
@@ -351,12 +367,14 @@ Deno.serve(async (req: Request) => {
     if (body.phase === "pre_build_complete") {
       const { data: sessionData } = await adminClient
         .from("sessions")
-        .select("architect_md, title")
+        .select("architect_md, title, build_spec")
         .eq("id", body.session_id)
         .maybeSingle();
 
       const architectMd = (sessionData as { architect_md?: string } | null)?.architect_md ?? "";
       const projectTitle = (sessionData as { title?: string } | null)?.title ?? "Untitled";
+      const buildSpec = (sessionData as { build_spec?: Record<string, unknown> } | null)?.build_spec ?? {};
+      const requestedBuildPrompt = getRequestedBuildPrompt(buildSpec);
 
       const { data: laneData } = await adminClient
         .from("build_lanes")
@@ -384,7 +402,7 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      const fallbackPlan = buildDeterministicBuildPlan(projectTitle, architectMd, effectiveBuilders);
+      const fallbackPlan = buildDeterministicBuildPlan(projectTitle, architectMd, effectiveBuilders, requestedBuildPrompt);
       const buildModel = "claude-sonnet-4-6";
       let buildPlan: BuildPlanPayload = fallbackPlan;
       let modelUsed = "deterministic-fallback";
@@ -404,6 +422,7 @@ The build_prompt must be concise (under 100 words) and cover ONLY:
 
 Also produce a brief build_summary (2-3 sentences) for the conductor to review before approving.
 And a one-sentence per-agent instruction scoped to each agent's specific lane paths.
+If a requested build focus is provided, incorporate it into the build_prompt, build_summary, and per-agent instructions without asking follow-up questions.
 
 Return JSON only:
 {
@@ -414,13 +433,16 @@ Return JSON only:
   ]
 }`;
 
-        const builderList = builders
+        const builderList = effectiveBuilders
           .map((b) => `- ${b.agent_name} (${b.role}): ${b.lane_paths.join(", ")}`)
           .join("\n");
 
         const buildUserMsg = `Project: ${projectTitle}
 
---- ARCHITECT.MD ---
+${requestedBuildPrompt ? `--- REQUESTED BUILD FOCUS ---
+${requestedBuildPrompt}
+
+` : ""}--- ARCHITECT.MD ---
 ${architectMd}
 
 --- BUILDER LANES ---
@@ -629,6 +651,7 @@ Generate the build plan.`;
       const architectMd = (sessionData as { architect_md?: string } | null)?.architect_md ?? "";
       const projectTitle = (sessionData as { title?: string } | null)?.title ?? "Untitled";
       const buildSpec = (sessionData as { build_spec?: Record<string, unknown> } | null)?.build_spec ?? {};
+      const requestedBuildPrompt = getRequestedBuildPrompt(buildSpec);
 
       const { data: laneData } = await adminClient
         .from("build_lanes")
@@ -778,7 +801,10 @@ Generate the build plan.`;
 
 Project: ${projectTitle}
 
-ARCHITECT.MD (reference):
+${requestedBuildPrompt ? `Requested build focus:
+${requestedBuildPrompt}
+
+` : ""}ARCHITECT.MD (reference):
 ${architectMd.slice(0, 6000)}
 
 Files to generate (${tasks.length} total):
@@ -841,7 +867,7 @@ Return JSON only:
         if (task.prompt_slice) continue;
         const ext = task.file_path.split(".").pop()?.toLowerCase() ?? "";
         const dirHint = task.file_path.includes("/") ? task.file_path.split("/").slice(0, -1).join("/") : "root";
-        task.prompt_slice = `Build file: ${task.file_path}\nThis file is part of the "${dirHint}" module in project "${projectTitle}". Write the COMPLETE file content — no placeholders, no truncation. File type: .${ext}. Follow the project architecture from ARCHITECT.md.`;
+        task.prompt_slice = `Build file: ${task.file_path}\nThis file is part of the "${dirHint}" module in project "${projectTitle}". Write the COMPLETE file content — no placeholders, no truncation. File type: .${ext}. Follow the project architecture from ARCHITECT.md.${requestedBuildPrompt ? ` Prioritize this requested focus when it applies to this file: ${truncateRequestedBuildPrompt(requestedBuildPrompt, 180)}` : ""}`;
       }
 
       // Build the per-task system prompt wrapper
