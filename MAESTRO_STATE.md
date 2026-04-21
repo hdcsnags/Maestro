@@ -8,9 +8,9 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; ClawCopilot/ClawCodex roster slots exist but worker adapters are not implemented; Sonnet timeouts on artifact-heavy prompts |
+| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | `20260421001500_executor_job_leases.sql` — capability-aware executor leases/reclaim not yet applied remotely |
+| Unapplied migrations | None verified 2026-04-21 |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -220,7 +220,7 @@ Legacy (unused): agent_skills, flags
 |-------|-------|-------|
 | **GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug | 2026-04-19 | Unassigned |
 | **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
-| **ClawCopilot / ClawCodex are not executable yet**: roster slots exist, but `packages/maestroclaw` currently only ships `claude_code`, `approved_shell`, and `shell_stub` adapters. Capability-aware routing now prevents mismatched pickup, so those jobs will fail/idle until adapters are implemented. | 2026-04-21 | Unassigned |
+| ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
@@ -264,6 +264,22 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-21 — GitHub Copilot (GPT-5.4) — MaestroClaw Copilot/Codex Adapter Enablement
+
+**What was done**: Implemented `copilot_cli` and `codex_cli` adapters for MaestroClaw, added a shared command resolver that maps Windows npm shims to their underlying Node entrypoints, registered both adapters, updated the worker README, and closed the old "not executable yet" blocker. Validated with `npm --prefix packages\maestroclaw run build` and live `Reply with exactly OK` smoke runs through both adapters.
+
+**Files touched**: `packages/maestroclaw/src/adapters/command.ts`, `packages/maestroclaw/src/adapters/copilot-cli.ts`, `packages/maestroclaw/src/adapters/codex-cli.ts`, `packages/maestroclaw/src/adapters/index.ts`, `packages/maestroclaw/README.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Bypass Windows `.cmd`/`.ps1` quoting issues by resolving the shim's JavaScript entrypoint and invoking it directly with `process.execPath`.
+- Keep Copilot prompt delivery indirect via a temporary workspace prompt file so large build prompts do not hit Windows command-length limits.
+- Ignore stderr on successful Copilot/Codex exits so progress/status logs do not get misreported as worker errors.
+
+**What didn't work**:
+- `shell: true` mangled spaced arguments for both CLIs on Windows.
+- Spawning the npm `.ps1` wrappers under PowerShell timed out even though the same commands worked manually in the shell.
+- `cmd.exe /d /s /c` was good enough for simple version probes but still too brittle for the real run path, so the final fix bypasses shim shells entirely.
 
 ### 2026-04-21 — GitHub Copilot (GPT-5.4) — MaestroClaw Capability Routing + Lease Recovery
 

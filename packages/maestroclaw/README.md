@@ -1,6 +1,6 @@
 # MaestroClaw — Local Execution Node
 
-MaestroClaw is Maestro's local execution worker. It polls the Maestro control plane for approved jobs and runs them on your machine using local CLI tools (Claude Code, Copilot CLI, etc.) — so you use your existing subscriptions instead of burning API tokens through edge functions.
+MaestroClaw is Maestro's local execution worker. It polls the Maestro control plane for approved jobs and runs them on your machine using local CLI tools (Claude Code, Copilot CLI, Codex CLI, etc.) — so you use your existing subscriptions instead of burning API tokens through edge functions.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ Maestro (web)  ──submit job──▶  Supabase (executor_jobs table)
 MaestroClaw (local)  ◀──poll──         │
        │                               │
        ├── claim job                   │
-       ├── run adapter (claude_code)   │
+       ├── run adapter (claude_code / copilot_cli / codex_cli) │
        ├── report events               │
        └── complete ──────────────────▶│
 ```
@@ -74,6 +74,8 @@ You'll see:
 |---------|-------------|----------|
 | `shell_stub` | Echo adapter for testing | Nothing |
 | `claude_code` | Runs prompts via `claude --print` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed + authenticated |
+| `copilot_cli` | Runs prompts via `copilot -p` with workspace prompt indirection | GitHub Copilot CLI installed + authenticated |
+| `codex_cli` | Runs prompts via `codex exec -` stdin mode | Codex CLI installed + authenticated |
 
 ### Adding an Adapter
 
@@ -108,7 +110,7 @@ MaestroClaw now advertises its supported adapters on heartbeat. The control plan
 ## Security
 
 - **Outbound-only**: Worker initiates all connections
-- **Executor token auth**: Worker actions authenticate with `X-Executor-Token` (SHA-256 hashed, stored server-side)
+- **Executor token auth**: Worker actions authenticate with `X-Executor-Token` (HMAC-backed server-side hash, legacy SHA-256 still accepted during migration)
 - **Ephemeral workspaces**: Cloned per job, deleted after
 - **Scoped paths**: Jobs can restrict which files the adapter may touch
 - **Approval gate**: Jobs require explicit approval before execution (auto-approve configurable)
