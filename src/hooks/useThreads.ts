@@ -20,6 +20,49 @@ interface ConciergeRuntimeChoice {
   provider: string;
 }
 
+const BUILD_PLAN_REPAIR_PROMPT = `You are Maestro's build-plan recovery assistant.
+Your job is to turn a broad or under-specified build request into a conservative FIRST executable build slice.
+
+Return JSON only:
+{
+  "description": "Brief description of what will be built now, including any key assumptions",
+  "files": [
+    { "path": "src/example.tsx", "action": "create", "description": "What this file accomplishes in the first slice" }
+  ],
+  "commit_message": "feat: descriptive commit message"
+}
+
+Rules:
+- Never ask follow-up questions
+- Choose a first slice that is reviewable and executable now
+- Prefer 3-8 files, maximum 10
+- If codebase context is available, fit the existing stack and paths
+- If codebase context is missing, assume a conventional modern web-app structure
+- Focus on app shell, primary interaction, and clearly requested backend entrypoints
+- Return ONLY valid JSON`;
+
+const BUILD_PLAN_CONTEXT_FILES = [
+  'package.json',
+  'src/main.tsx',
+  'src/App.tsx',
+  'README.md',
+  'tsconfig.json',
+  'vite.config.ts',
+  'server/index.ts',
+];
+
+const BUILD_PLAN_CLARIFICATION_PATTERNS = [
+  /don't have a target yet/i,
+  /need specifics/i,
+  /need to know/i,
+  /what are we building/i,
+  /what's the repository context/i,
+  /what tech stack/i,
+  /what's the desired outcome/i,
+  /give me even a one-sentence description/i,
+  /before i can produce/i,
+];
+
 const THREAD_OUTPUT_REDACTION_RULES: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
   { pattern: /\bgh(?:p|o|u|s|r)_[A-Za-z0-9_]{20,}\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
@@ -78,6 +121,95 @@ function parseStructuredJson<T>(raw: string, label: string): T {
   } catch {
     throw new Error(`${label} returned malformed JSON.`);
   }
+}
+
+function looksLikeClarificationResponse(raw: string): boolean {
+  const text = raw.trim();
+  if (!text) return false;
+  return BUILD_PLAN_CLARIFICATION_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function maybeExtractPlannerMessage(candidate: unknown): string | null {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const parsed = candidate as Record<string, unknown>;
+  return typeof parsed.content === 'string' && !Array.isArray(parsed.files)
+    ? parsed.content.trim()
+    : null;
+}
+
+function summarizeBuildRequest(userMessage: string): string {
+  const normalized = userMessage.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'the requested build';
+  return normalized.length > 96 ? `${normalized.slice(0, 93).trimEnd()}...` : normalized;
+}
+
+function pushUniqueBuildFile(files: ChatBuildFile[], next: ChatBuildFile) {
+  if (files.some((file) => file.path === next.path)) return;
+  files.push(next);
+}
+
+function buildConservativeFallbackPlan(userMessage: string): ChatBuildPlan {
+  const lower = userMessage.toLowerCase();
+  const files: ChatBuildFile[] = [];
+  const wantsBackend = /\b(api|backend|server|auth|database|sql|service|admin|dashboard)\b/.test(lower);
+  const wantsLanding = /\b(site|website|homepage|landing|portal|public|school|district)\b/.test(lower);
+  const wantsDashboard = /\b(dashboard|admin|portal|console)\b/.test(lower);
+  const wantsModeToggle = /\b(toggle|tutorial mode|live mode|mode switch|mode toggle|side by side)\b/.test(lower);
+
+  pushUniqueBuildFile(files, {
+    path: 'src/App.tsx',
+    action: 'update',
+    description: 'Refocus the app shell around the requested experience and wire the first reviewable slice into the main entry surface.',
+  });
+
+  if (wantsLanding || files.length === 1) {
+    pushUniqueBuildFile(files, {
+      path: 'src/features/build/LandingExperience.tsx',
+      action: 'create',
+      description: 'Create the primary landing experience for the first build slice, including the public-facing narrative and core entry points.',
+    });
+  }
+
+  if (wantsModeToggle) {
+    pushUniqueBuildFile(files, {
+      path: 'src/components/ExperienceModeToggle.tsx',
+      action: 'create',
+      description: 'Add the top-level mode switch that lets users move between the two requested learning or usage modes.',
+    });
+  }
+
+  if (wantsDashboard) {
+    pushUniqueBuildFile(files, {
+      path: 'src/features/build/DashboardSurface.tsx',
+      action: 'create',
+      description: 'Add the first dashboard surface that demonstrates the requested internal or administrative experience.',
+    });
+  }
+
+  if (wantsBackend) {
+    pushUniqueBuildFile(files, {
+      path: 'server/index.ts',
+      action: 'create',
+      description: 'Stand up the backend entrypoint for the first slice so the requested server-side behaviors have a concrete integration surface.',
+    });
+    pushUniqueBuildFile(files, {
+      path: 'server/routes/experience.ts',
+      action: 'create',
+      description: 'Define the initial backend route layer that supports the first slice of the requested experience.',
+    });
+  }
+
+  pushUniqueBuildFile(files, {
+    path: 'README.md',
+    action: 'update',
+    description: 'Document the first-slice assumptions, scope, and how to run or review the generated build.',
+  });
+
+  return {
+    description: `Assumption-based starter build plan for ${summarizeBuildRequest(userMessage)}. This first pass focuses on a reviewable foundation slice because the planner returned clarification prose instead of structured JSON.`,
+    files: files.slice(0, 8),
+    commit_message: 'feat: scaffold first build slice',
+  };
 }
 
 function normalizeChatBuildPlan(candidate: unknown): ChatBuildPlan {
@@ -663,21 +795,76 @@ export function useThreads() {
 
     try {
       await ensureAuth();
+      const conversationHistory = buildConversationContext(threadId);
+      const planningPrompt = conversationHistory
+        ? `${conversationHistory}\n\nCurrent build request: ${userMessage}`
+        : userMessage;
+      const activeRepoConnection = state.activeRepoConnection
+        ?? state.repoConnections?.find((repo) => repo.is_active)
+        ?? null;
+      const plannerContextFiles = activeRepoConnection
+        ? BUILD_PLAN_CONTEXT_FILES.map((path) => ({ path }))
+        : undefined;
+
+      const invokeBuildPlanner = async (
+        candidate: ConciergeRuntimeChoice,
+        prompt: string,
+        agentRole: string,
+        agentName: string,
+      ): Promise<string> => {
+        const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+          prompt,
+          provider: candidate.provider,
+          model: candidate.model,
+          agentName,
+          agentRole,
+          mode: 'analysis',
+          session_id: state.activeSession?.id,
+          repo_connection_id: activeRepoConnection?.id,
+          context_files: plannerContextFiles,
+        });
+
+        return result.content ?? result.text ?? '';
+      };
+
       for (const candidate of getConciergeCandidates()) {
         try {
-          const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-            prompt: userMessage,
-            provider: candidate.provider,
-            model: candidate.model,
-            agentName: 'BuildPlanner',
-            agentRole: BUILD_PLAN_PROMPT,
-            mode: 'analysis',
-            session_id: state.activeSession?.id,
-          });
+          const raw = await invokeBuildPlanner(candidate, planningPrompt, BUILD_PLAN_PROMPT, 'BuildPlanner');
 
-          const raw = result.content ?? result.text ?? '';
-          const parsed = parseStructuredJson<unknown>(raw, 'Build planner');
-          return normalizeChatBuildPlan(parsed);
+          try {
+            const parsed = parseStructuredJson<unknown>(raw, 'Build planner');
+            return normalizeChatBuildPlan(parsed);
+          } catch (parseOrNormalizeError) {
+            const plannerMessage = raw;
+            const shouldRepair = looksLikeClarificationResponse(plannerMessage);
+            const parsedCandidate = (() => {
+              try {
+                return parseStructuredJson<unknown>(raw, 'Build planner');
+              } catch {
+                return null;
+              }
+            })();
+            const extractedMessage = maybeExtractPlannerMessage(parsedCandidate);
+            const shouldFallback = shouldRepair || (extractedMessage ? looksLikeClarificationResponse(extractedMessage) : false);
+
+            if (!shouldFallback) {
+              throw parseOrNormalizeError;
+            }
+
+            try {
+              const repairPrompt = `Original build request:\n${planningPrompt}\n\nThe previous planner response was not usable JSON:\n${raw}\n\nReturn the conservative first executable build slice as valid JSON now.`;
+              const repairedRaw = await invokeBuildPlanner(candidate, repairPrompt, BUILD_PLAN_REPAIR_PROMPT, 'BuildPlannerRepair');
+              const repaired = parseStructuredJson<unknown>(repairedRaw, 'Build planner recovery');
+              return normalizeChatBuildPlan(repaired);
+            } catch {
+              await addMessage(
+                threadId,
+                'system',
+                '⚠️ Build planner asked for clarification instead of returning JSON, so Maestro generated a conservative first-pass plan. Review the file list before approving.',
+              );
+              return buildConservativeFallbackPlan(userMessage);
+            }
+          }
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
         }
@@ -693,7 +880,7 @@ export function useThreads() {
       `❌ Could not generate build plan.${lastError?.message ? ` ${lastError.message}` : ''}`,
     );
     return null;
-  }, [state.activeSession, ensureAuth, addMessage, getConciergeCandidates]);
+  }, [state.activeSession, state.activeRepoConnection, state.repoConnections, ensureAuth, addMessage, buildConversationContext, getConciergeCandidates]);
 
   // Execute the build: call orchestrate in build mode for each file, then commit via github-execute
   const executeBuildPlan = useCallback(async (

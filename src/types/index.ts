@@ -645,6 +645,10 @@ Analyze their request and return a JSON build plan:
 Rules:
 - "path" must be repo-relative (e.g., src/components/Button.tsx)
 - "action" is one of: "create", "update", "delete"
+- Never ask follow-up questions or request more context
+- If repo context is missing or thin, make reasonable assumptions and state them briefly in "description"
+- If the request is broad, return the first executable build slice (1-8 files) rather than the entire product
+- Prefer existing repo conventions when codebase context is provided; otherwise choose conventional, reviewable paths
 - Keep file count reasonable (1-10 files per plan)
 - commit_message should follow conventional commits (feat:, fix:, refactor:, etc.)
 - Focus on what the user asked for — do not add unnecessary files
