@@ -265,6 +265,20 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-21 — GitHub Copilot (GPT-5.4) — Executor State Refresh for Claw Build Dispatch
+
+**What was done**: Fixed the stale executor-state bug that could make Build fail with `No online executor advertises adapter "claude_code"` even when MaestroClaw was already running. `useBuildExecution` now refreshes executors from Supabase before local dispatch gives up, and `useWorkspace` keeps executor/job state fresh while the app is open via focus/visibility refresh plus a 15s polling pass aligned to the worker heartbeat cadence.
+
+**Files touched**: `src/hooks/useBuildExecution.ts`, `src/hooks/useWorkspace.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Refresh executor state at the moment of local dispatch so Build can recover from stale in-memory executor data without forcing a page reload.
+- Keep workspace executor state warm in the background because MaestroClaw heartbeats/status transitions (`online` ↔ `busy`) are part of normal operation and the UI should track them.
+- Leave executor capability matching strict (`adapter` must be advertised) and fix freshness instead of weakening adapter checks.
+
+**What didn't work**:
+- Loading `executors` only during workspace init left the app blind to later heartbeats and status flips, so a healthy worker could appear unavailable until a manual refresh.
+
 ### 2026-04-21 — GitHub Copilot (GPT-5.4) — Pre-Build Builder Roster Shows MaestroClaw Options
 
 **What was done**: Fixed the Pre-Build builder picker so it no longer depends on council-chat `is_active` agents. The builder roster now surfaces connected cloud builders plus MaestroClaw local builders, and builder-lane validation resolves against the full workspace agent list so locked Claw builders do not get rejected as invalid. This closes the follow-up UX bug where Claw Build correctly handed off to Pre-Build, but the picker looked like the wrong surface because no local CLI builders appeared.

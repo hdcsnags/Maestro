@@ -153,6 +153,17 @@ export function useBuildExecution() {
     return rawAdapters.some((value): value is string => typeof value === 'string' && value === adapter);
   }, []);
 
+  const selectOnlineExecutor = useCallback((executors: Executor[], adapter?: string): Executor | null => {
+    const STALE_MS = 60_000; // 60s — if heartbeat older than this, treat as offline
+    return executors.find(executor => {
+      if (executor.status !== 'online') return false;
+      if (!executor.last_seen_at) return false;
+      if (Date.now() - new Date(executor.last_seen_at).getTime() >= STALE_MS) return false;
+      if (adapter && !executorSupportsAdapter(executor, adapter)) return false;
+      return true;
+    }) ?? null;
+  }, [executorSupportsAdapter]);
+
   const resolveLocalAdapter = useCallback((task: BuildTask): string => {
     const agent = resolveAgent(task.lane_owner ?? '');
     return agent?.provider_group === 'maestroclaw'
@@ -160,16 +171,21 @@ export function useBuildExecution() {
       : 'claude_code';
   }, [resolveAgent]);
 
+  const refreshExecutors = useCallback(async (): Promise<Executor[]> => {
+    const authSession = await ensureSession();
+    const { data } = await supabase
+      .from('executors')
+      .select('*')
+      .eq('owner_user_id', authSession.user.id)
+      .order('created_at', { ascending: false });
+    const executors = (data ?? []) as Executor[];
+    dispatch({ type: 'SET_EXECUTORS', payload: executors });
+    return executors;
+  }, [ensureSession, dispatch]);
+
   const findOnlineExecutor = useCallback((adapter?: string): Executor | null => {
-    const STALE_MS = 60_000; // 60s — if heartbeat older than this, treat as offline
-    return state.executors.find(e => {
-      if (e.status !== 'online') return false;
-      if (!e.last_seen_at) return false;
-      if (Date.now() - new Date(e.last_seen_at).getTime() >= STALE_MS) return false;
-      if (adapter && !executorSupportsAdapter(e, adapter)) return false;
-      return true;
-    }) ?? null;
-  }, [state.executors, executorSupportsAdapter]);
+    return selectOnlineExecutor(state.executors, adapter);
+  }, [state.executors, selectOnlineExecutor]);
 
   const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
     const adapter = resolveLocalAdapter(task);
@@ -259,7 +275,12 @@ export function useBuildExecution() {
     // use model as the adapter name, e.g. 'claude_code', 'copilot_cli').
     // Falls back to 'claude_code' for non-Claw agents routed locally.
     const adapter = resolveLocalAdapter(task);
-    const matchingExecutor = findOnlineExecutor(adapter);
+    let matchingExecutor = findOnlineExecutor(adapter);
+
+    if (!matchingExecutor) {
+      const refreshedExecutors = await refreshExecutors();
+      matchingExecutor = selectOnlineExecutor(refreshedExecutors, adapter);
+    }
 
     if (!matchingExecutor) {
       await updateTaskStatus(task.id, 'failed', {
@@ -312,7 +333,7 @@ export function useBuildExecution() {
 
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
-  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor]);
+  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor, refreshExecutors, selectOnlineExecutor]);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)

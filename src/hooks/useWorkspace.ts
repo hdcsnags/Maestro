@@ -384,6 +384,39 @@ export function useWorkspace() {
     })();
   }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadAgentSkills, loadRepoConnections, loadExecutors, loadExecutorJobs]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshExecutorState = () => {
+      void loadExecutors();
+      void loadExecutorJobs();
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      refreshExecutorState();
+    }, 15_000);
+
+    const handleFocus = () => {
+      refreshExecutorState();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshExecutorState();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, loadExecutors, loadExecutorJobs]);
+
   return {
     ensureWorkspace,
     ensureAgents,
