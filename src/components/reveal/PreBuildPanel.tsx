@@ -161,12 +161,39 @@ export default function PreBuildPanel() {
     () => ((state.activeSession?.build_spec ?? {}) as Record<string, unknown>),
     [state.activeSession?.build_spec],
   );
-  const activeAgents = useMemo(
-    () => state.agents.filter(agent => agent.is_active),
+  const persistedBuilderIds = useMemo(
+    () => Array.isArray(buildSpec.primary_builder_agent_ids)
+      ? buildSpec.primary_builder_agent_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+    [buildSpec],
+  );
+  const allAgents = useMemo(
+    () => state.agents,
     [state.agents],
   );
+  const activeAgents = useMemo(
+    () => allAgents.filter(agent => agent.is_active),
+    [allAgents],
+  );
+  const connectedProviders = useMemo(
+    () => new Set(
+      state.providerConnections
+        .filter(connection => connection.is_connected)
+        .map(connection => connection.provider),
+    ),
+    [state.providerConnections],
+  );
+  const builderCandidateAgents = useMemo(
+    () => allAgents.filter(agent =>
+      agent.is_active
+      || agent.provider_group === 'maestroclaw'
+      || connectedProviders.has(agent.provider)
+      || persistedBuilderIds.includes(agent.id),
+    ),
+    [allAgents, connectedProviders, persistedBuilderIds],
+  );
   const rankedBuilderAgents = useMemo(
-    () => activeAgents
+    () => builderCandidateAgents
       .map(agent => ({
         id: agent.id,
         name: agent.name,
@@ -176,7 +203,7 @@ export default function PreBuildPanel() {
         model: agent.model,
       }))
       .sort((a, b) => scoreBuildCandidate(b, hasOnlineExecutor) - scoreBuildCandidate(a, hasOnlineExecutor)),
-    [activeAgents, hasOnlineExecutor],
+    [builderCandidateAgents, hasOnlineExecutor],
   );
   const persistedBuilderCount = useMemo(() => {
     const raw = buildSpec.builder_count;
@@ -184,12 +211,6 @@ export default function PreBuildPanel() {
       ? raw
       : null;
   }, [buildSpec]);
-  const persistedBuilderIds = useMemo(
-    () => Array.isArray(buildSpec.primary_builder_agent_ids)
-      ? buildSpec.primary_builder_agent_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : [],
-    [buildSpec],
-  );
   const [builderCount, setBuilderCount] = useState<number>(2);
   const [selectedBuilderIds, setSelectedBuilderIds] = useState<string[]>([]);
   const selectedBuilderSet = useMemo(() => new Set(selectedBuilderIds), [selectedBuilderIds]);
@@ -286,10 +307,10 @@ export default function PreBuildPanel() {
   ), [selectedBuilderAgents, activeAgents]);
 
   const resolveLaneAgent = useCallback((lane: LaneEntry) => (
-    activeAgents.find(agent => agent.id === lane.agent_id)
-      ?? activeAgents.find(agent => agent.display_name === lane.agent_name || agent.name === lane.agent_name)
+    allAgents.find(agent => agent.id === lane.agent_id)
+      ?? allAgents.find(agent => agent.display_name === lane.agent_name || agent.name === lane.agent_name)
       ?? null
-  ), [activeAgents]);
+  ), [allAgents]);
 
   const autoFillFromSuggestions = useCallback(() => {
     if (suggestedLanes.length === 0) return;
@@ -489,7 +510,7 @@ export default function PreBuildPanel() {
 
     try {
       if (selectedBuilderIds.length === 0) {
-        throw new Error('Select at least one active builder before generating ARCHITECT.md.');
+        throw new Error('Select at least one builder before generating ARCHITECT.md.');
       }
 
       const nextBuildSpec = {
@@ -677,7 +698,7 @@ export default function PreBuildPanel() {
       </div>
       <div className="reveal-card" style={{ marginBottom: '20px' }}>
         <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '12px', lineHeight: 1.6 }}>
-          Pre-Build locks which builders Architect and Build can use for this session. Empty repos will be initialized on first execution.
+          Pre-Build locks which builders Architect and Build can use for this session. Builder slots include connected cloud models and MaestroClaw local builders, even if they are not active in council chat. Empty repos will be initialized on first execution.
         </div>
         <div className="flex gap-2" style={{ marginBottom: '12px', flexWrap: 'wrap' }}>
           {BUILDER_COUNT_OPTIONS.map(count => {
@@ -740,7 +761,7 @@ export default function PreBuildPanel() {
             </div>
           )) : (
             <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--risk)', lineHeight: 1.6 }}>
-              No active builders available. Re-enable Claude Sonnet or GPT builders in the Orchestra drawer before generating ARCHITECT.md.
+              No builder candidates are available yet. Connect a build-capable provider or bring a MaestroClaw executor online.
             </div>
           )}
         </div>

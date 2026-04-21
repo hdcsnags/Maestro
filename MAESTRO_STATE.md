@@ -265,6 +265,20 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-21 — GitHub Copilot (GPT-5.4) — Pre-Build Builder Roster Shows MaestroClaw Options
+
+**What was done**: Fixed the Pre-Build builder picker so it no longer depends on council-chat `is_active` agents. The builder roster now surfaces connected cloud builders plus MaestroClaw local builders, and builder-lane validation resolves against the full workspace agent list so locked Claw builders do not get rejected as invalid. This closes the follow-up UX bug where Claw Build correctly handed off to Pre-Build, but the picker looked like the wrong surface because no local CLI builders appeared.
+
+**Files touched**: `src/components/reveal/PreBuildPanel.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treat Pre-Build builder selection as its own roster concern instead of piggybacking on the active council-chat roster.
+- Always surface MaestroClaw builders in Pre-Build, even if they are not active in Orchestra chat, because builder locking is the real source of truth for Build.
+- Keep reviewer/read-only lane pools unchanged so this fix stays scoped to builder selection and validation.
+
+**What didn't work**:
+- Using `activeAgents` for both picker population and lane validation hid Claw builders entirely unless the user manually pre-activated them in Orchestra, which made the handoff feel like the wrong Pre-Build flow.
+
 ### 2026-04-21 — GitHub Copilot (GPT-5.4) — Claw Build Handoff Routed Into Pre-Build / Build Workspace
 
 **What was done**: Fixed the Claw Build UX contract so chat build requests no longer pretend to plan/build in-thread before a builder path exists. `useThreads.buildFromChat()` now stores the user's requested build focus in `sessions.build_spec`, checks whether Pre-Build has already locked builders plus `ARCHITECT.md`, and either routes the session into `pre_build` or hands off into the canonical Build workspace. `concierge` `pre_build_complete` / `decompose_tasks` now read that saved `requested_build_prompt`, so the real Build plan and task slices retain the Claw request after handoff. Redeployed `concierge` live after the change.
