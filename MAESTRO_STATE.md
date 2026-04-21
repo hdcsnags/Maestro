@@ -196,6 +196,8 @@ Legacy (unused): agent_skills, flags
 | Build v3 Phase 1 routing layer: `dispatchTask()` branches on `execution_backend` (edge/local/auto), `resolveBackend()` picks route, `pollExecutorJob()` polls for MaestroClaw completion, local→edge fallback on failure | 2026-04-18 (`npm run typecheck`) |
 | Build v3 execution backend selector: Pre-Build "Lock" screen shows Edge/Local/Auto toggle, persists to `sessions.execution_backend`, shows executor online status | 2026-04-18 (`npm run typecheck`) |
 | Build v3 auto-routing: local only when an online executor advertises the required adapter; stale claimed/running jobs re-queue after 90s lease expiry | 2026-04-21 (`npm --prefix packages\maestroclaw run build`, `npm run build`) |
+| Claw local builds no longer send `branch` when no GitHub repo is connected — `branch: 'main'` hardcoded fallback removed so `executor-api` validation no longer rejects every task with "branch requires repo_url" | 2026-04-21 (`npm run typecheck`, commit `bdd9546`) |
+| TypeScript strict-mode clean (0 errors): `BuildTask.id` made required; `executor_jobs` query explicitly typed (missing from `database.types.ts`); `synthesizeRef` widened to `Promise<unknown>`; `ClawMode.tsx directThread` annotated `Thread\|null\|undefined` | 2026-04-21 (`npm run typecheck`, commit `3e7f150`) |
 | Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -264,6 +266,25 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-21 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build Dispatch Bug Fix + TypeScript Cleanup
+
+**What was done**:
+1. **`branch requires repo_url` blocker** (commit `bdd9546`): Greenfield Claw builds have no GitHub repo bound, so `repoConn` is null. `dispatchTaskLocal` was sending `branch: repoConn?.default_branch ?? 'main'` — the `?? 'main'` fallback fired even when there was no repo, causing `executor-api`'s `validateRepoContext()` to reject every single task. Fixed to `?? null` so no branch is sent for repo-less builds.
+2. **28 pre-existing TypeScript strict-mode errors** (commit `3e7f150`) in 4 files:
+   - `src/types/index.ts`: `BuildTask.id` made required (`id?: string` → `id: string`) — every DB-loaded task has an id; the optional was a type-modeling mistake causing ~20 `string | undefined` errors in `useBuildExecution.ts` and `BuildWorkspace.tsx`
+   - `src/hooks/useBuildExecution.ts` `pollExecutorJob`: `executor_jobs` table is not in `database.types.ts` (never regenerated after Claw migrations) — Supabase returned `never` for the named-column select; fixed with explicit type cast
+   - `src/hooks/useOrchestration.ts`: `synthesizeRef` was typed `Promise<void>` but `synthesize` returns `Promise<{content}|null|undefined>`; widened to `Promise<unknown>`
+   - `src/components/reveal/ClawMode.tsx` `handleFocusAgent`: `directThread` inferred `Thread|undefined` from `.find()` but `createThread()` returns `Thread|null`; annotated explicitly as `Thread|null|undefined`
+
+**Files touched**: `src/hooks/useBuildExecution.ts`, `src/types/index.ts`, `src/hooks/useOrchestration.ts`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- `executor_jobs` in `database.types.ts` is stale (missing post-Claw tables). Rather than regenerating types (requires live Supabase access and risks schema drift), added an explicit type cast with a comment pointing to the root cause. The real fix is to run `npx supabase gen types typescript` after all Claw migrations are confirmed applied to remote.
+- `BuildTask.id` is now required — the interface models DB-loaded rows only; client-side task construction never happens without a DB round-trip.
+
+**What didn't work**:
+- N/A — both fixes were clean first attempts, typecheck went 0-error immediately.
 
 ### 2026-04-21 — GitHub Copilot (GPT-5.4) — Executor State Refresh for Claw Build Dispatch
 
