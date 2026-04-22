@@ -7,6 +7,10 @@ export interface ClawConfig {
   pollIntervalMs: number;
   workspaceDir: string;
   keepSucceededWorkspaces: boolean;
+  /** Max retry attempts per job before marking failed (default: 3). */
+  maxRetries: number;
+  /** Create a git checkpoint commit after each successful file write (default: true). */
+  enableCheckpoints: boolean;
 }
 
 function required(key: string): string {
@@ -30,5 +34,8 @@ export function loadConfig(): ClawConfig {
       `${process.env.HOME ?? process.env.USERPROFILE}/.maestroclaw/workspaces`,
     keepSucceededWorkspaces:
       (process.env.KEEP_SUCCEEDED_WORKSPACES ?? "true").toLowerCase() === "true",
+    maxRetries: parseInt(process.env.MAX_RETRIES ?? "3", 10),
+    enableCheckpoints:
+      (process.env.ENABLE_CHECKPOINTS ?? "true").toLowerCase() === "true",
   };
 }

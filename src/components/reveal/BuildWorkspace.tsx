@@ -1747,6 +1747,9 @@ export default function BuildWorkspace() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '400px', overflowY: 'auto' }}>
                 {buildExec.tasks.map((task) => {
                   const agent = state.agents.find(a => a.id === task.lane_owner);
+                  // Parse Ralph Loop retry prefix from result_content e.g. "[↩ 2] ..."
+                  const retryMatch = task.result_content?.match(/^\[↩ (\d+)\]/);
+                  const retryCount = retryMatch ? parseInt(retryMatch[1], 10) : 0;
                   const statusColor = task.status === 'completed' ? '#5ab88e'
                     : task.status === 'dispatched' ? 'var(--gold)'
                     : task.status === 'failed' ? 'var(--risk)'
@@ -1776,6 +1779,15 @@ export default function BuildWorkspace() {
                       {agent && (
                         <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>
                           {agent.display_name ?? agent.name}
+                        </span>
+                      )}
+                      {retryCount > 0 && task.status === 'completed' && (
+                        <span style={{
+                          fontSize: '9px', color: 'var(--warn)', flexShrink: 0,
+                          background: 'rgba(230,168,60,0.1)', border: '1px solid rgba(230,168,60,0.25)',
+                          borderRadius: '4px', padding: '1px 5px',
+                        }} title={`Succeeded after ${retryCount + 1} attempts`}>
+                          ↩ {retryCount}
                         </span>
                       )}
                       {task.status === 'failed' && (
