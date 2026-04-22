@@ -78,7 +78,7 @@ export class CopilotCliAdapter implements Adapter {
           "--allow-all-tools",
           "--no-ask-user",
           "--add-dir",
-          workDir,
+          ".", // cwd is already workDir; using "." avoids Windows path-doubling when workDir was relative
           "--output-format",
           "text",
           "--silent",

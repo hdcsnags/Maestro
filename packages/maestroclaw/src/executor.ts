@@ -24,7 +24,9 @@ export async function executeJob(
   config: ClawConfig,
   job: ExecutorJob
 ): Promise<void> {
-  const jobDir = join(config.workspaceDir, job.id);
+  // Always use an absolute jobDir — if workspaceDir is relative, join+resolve here
+  // prevents child process --add-dir flags from doubling the path segment.
+  const jobDir = resolve(join(config.workspaceDir, job.id));
   let workDir = jobDir;
   let jobSucceeded = false;
 
