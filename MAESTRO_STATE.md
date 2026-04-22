@@ -267,6 +267,32 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Concierge Build Handoff Loop Fix + Gemini CLI Adapter
+
+**What was done**:
+1. **Concierge build handoff loop fixed** (`src/hooks/useThreads.ts`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/BuildWorkspace.tsx`):
+   - Root cause: `buildFromChat` had no guard when `current_phase === 'build'`; every Concierge Build-mode message re-ran the full flow and looped "Build setup confirmed, handing off…"
+   - Fix A: Guard added at top of `buildFromChat` — if phase is already `build` or `bouncer`, adds a user + system message pointing to the drawer, dispatches `SET_BUILD_DRAWER_EXPANDED`, and returns early
+   - Fix B: `handleBuild` in ClawMode now calls `setComposerIntent('chat')` after `buildFromChat` resolves — subsequent sends go to Concierge chat, not back into the build loop
+   - Fix C: Drawer reset effect changed from `setDrawerCollapsed(true)` → `setDrawerCollapsed(false)` — drawer starts expanded when build phase becomes active so user immediately sees it
+   - Fix D: On successful handoff, `buildFromChat` now dispatches `SET_BUILD_DRAWER_EXPANDED: true` so ClawMode sibling padding updates immediately
+   - Commit: `72ff3a8`
+2. **ClawGemini adapter** (`packages/maestroclaw/src/adapters/gemini-cli.ts`):
+   - Follows same pattern as `claude-code.ts` (stdin pipe, `--model`, `--yolo` for non-interactive)
+   - Primary: `gemini-2.5-pro`, fallback: `gemini-2.5-flash`; rate-limit auto-retry
+   - Registered in `adapters/index.ts`, added `ClawGemini` to `AGENT_DEFAULTS` (slot_index 3), `gemini_cli` to PROVIDER_REGISTRY
+   - Env vars: `CLAW_GEMINI_MODEL`, `CLAW_GEMINI_FALLBACK_MODEL`
+   - Commit: `1e87e31`
+
+**Files touched**: `src/hooks/useThreads.ts`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `packages/maestroclaw/src/adapters/gemini-cli.ts`, `packages/maestroclaw/src/adapters/index.ts`, `src/types/index.ts`, `packages/maestroclaw/.env.example`
+
+**Decisions made**:
+- Drawer now starts expanded (not collapsed) on build handoff — user explicitly triggered Build from Concierge, they want to see it
+- `composerIntent` always resets to `'chat'` after any `buildFromChat` call; user must explicitly re-select Build mode to re-enter that flow
+- Guard covers both `'build'` and `'bouncer'` phases (user in bouncer review shouldn't re-trigger build dispatch)
+
+**What didn't work**: N/A — fixes worked first pass, typecheck clean.
+
 ### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Build Drawer + Sonnet 4.6 Model Pin + error_text Fix
 
 **What was done**:
