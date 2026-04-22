@@ -780,6 +780,8 @@ export default function ClawMode() {
 
     await buildFromChat(threadId, text);
     await loadThreadMessages(threadId);
+    // Reset intent to chat so subsequent messages don't re-trigger build flow
+    setComposerIntent('chat');
   }, [input, state.isConciergeSending, state.activeThread, buildFromChat, loadThreadMessages]);
 
   const handleApproveBuild = useCallback(async () => {

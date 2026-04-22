@@ -1079,6 +1079,19 @@ export function useThreads() {
   ): Promise<void> => {
     if (!user || !state.activeSession) return;
 
+    // Guard: if build is already running, expand the drawer and redirect.
+    // Without this, every Concierge message in Build mode re-triggers the full flow.
+    if (state.activeSession.current_phase === 'build' || state.activeSession.current_phase === 'bouncer') {
+      await addMessage(threadId, 'user', userMessage);
+      dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
+      await addMessage(
+        threadId,
+        'system',
+        '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Build (File by File)** to dispatch tasks to your locked builders.',
+      );
+      return;
+    }
+
     dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
     dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
     dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
@@ -1109,6 +1122,7 @@ export function useThreads() {
 
       await updateSessionBuildState('build', nextBuildSpec);
       dispatch({ type: 'CLOSE_TRANSIENT' });
+      dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
       dispatch({ type: 'SHOW_TOAST', payload: 'Build routed to Build Workspace' });
 
       const backendLabel = buildSetup.executionBackend === 'local'
