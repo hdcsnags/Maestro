@@ -467,6 +467,7 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   { name: 'ClawClaude',  display_name: '🖥️ ClawClaude',  role: 'Local build · Claude Code CLI',   provider: 'maestroclaw', model: 'claude_code',  color: '#c9a84c', is_active: false, slot_index: 0, provider_group: 'maestroclaw', stability_tier: 'stable' },
   { name: 'ClawCopilot', display_name: '🖥️ ClawCopilot', role: 'Local build · Copilot CLI',       provider: 'maestroclaw', model: 'copilot_cli',  color: '#c9a84c', is_active: false, slot_index: 1, provider_group: 'maestroclaw', stability_tier: 'stable' },
   { name: 'ClawCodex',   display_name: '🖥️ ClawCodex',   role: 'Local build · OpenAI Codex CLI',  provider: 'maestroclaw', model: 'codex_cli',    color: '#c9a84c', is_active: false, slot_index: 2, provider_group: 'maestroclaw', stability_tier: 'stable' },
+  { name: 'ClawGemini',  display_name: '🖥️ ClawGemini',  role: 'Local build · Google Gemini CLI', provider: 'maestroclaw', model: 'gemini_cli',   color: '#c9a84c', is_active: false, slot_index: 3, provider_group: 'maestroclaw', stability_tier: 'stable' },
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
@@ -565,7 +566,7 @@ export const PROVIDER_REGISTRY = [
   { id: 'openai', name: 'OpenAI', models: ['gpt-5.4-mini', 'gpt-5.4'] },
   { id: 'google', name: 'Google Gemini', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
-  { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli'] },
+  { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli', 'gemini_cli'] },
 ];
 
 // ─── Execution in Chat (Phase 2) ──────────────────────────────
