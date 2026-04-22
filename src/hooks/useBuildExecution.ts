@@ -68,6 +68,8 @@ export function useBuildExecution() {
   const isRunningRef = useRef(false); // synchronous guard against double-execution
   const [isDecomposing, setIsDecomposing] = useState(false);
   const abortRef = useRef(false);
+  const [adapterOverride, setAdapterOverride] = useState<string | null>(null);
+  const adapterOverrideRef = useRef<string | null>(null); // ref for sync access in closures
 
   const ensureSession = useCallback(async () => {
     if (session?.access_token) return session;
@@ -165,6 +167,8 @@ export function useBuildExecution() {
   }, [executorSupportsAdapter]);
 
   const resolveLocalAdapter = useCallback((task: BuildTask): string => {
+    // adapterOverrideRef is synchronous (no stale-closure lag vs useState)
+    if (adapterOverrideRef.current) return adapterOverrideRef.current;
     const agent = resolveAgent(task.lane_owner ?? '');
     return agent?.provider_group === 'maestroclaw'
       ? agent.model
@@ -638,6 +642,39 @@ export function useBuildExecution() {
     }));
   }, [updateTaskStatus]);
 
+  // Swap the active adapter for all remaining failed tasks, reset them to queued,
+  // and return the number of tasks re-queued. Caller should then call execute().
+  const swapAdapter = useCallback(async (newAdapter: string): Promise<number> => {
+    adapterOverrideRef.current = newAdapter;
+    setAdapterOverride(newAdapter);
+
+    const failedIds = tasksRef.current
+      .filter(t => t.status === 'failed')
+      .map(t => t.id);
+
+    if (failedIds.length === 0) return 0;
+
+    await supabase
+      .from('build_tasks')
+      .update({ status: 'queued', failure_reason: null, provider_error: null } as never)
+      .in('id', failedIds);
+
+    const updated = tasksRef.current.map(t =>
+      t.status === 'failed'
+        ? { ...t, status: 'queued' as BuildTaskStatus, failure_reason: null, provider_error: null }
+        : t
+    );
+    tasksRef.current = updated;
+    setTasks(updated);
+    setProgress(prev => ({
+      ...prev,
+      failed: 0,
+      queued: prev.queued + failedIds.length,
+    }));
+
+    return failedIds.length;
+  }, []);
+
   // ── Collect completed tasks into file_manifest format ────────────────
 
   const collectManifest = useCallback(() => {
@@ -659,11 +696,13 @@ export function useBuildExecution() {
     progress,
     isRunning,
     isDecomposing,
+    adapterOverride,
     decompose,
     execute,
     abort,
     skipTask,
     retryTask,
+    swapAdapter,
     collectManifest,
   };
 }

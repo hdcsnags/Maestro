@@ -11,7 +11,7 @@ import {
   Hammer, Play, Shield, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
   Pause, XCircle, ThumbsUp, GitBranch, RotateCcw,
-  FileCode, SkipForward, ClipboardCheck,
+  FileCode, SkipForward, ClipboardCheck, Zap,
 } from 'lucide-react';
 
 /* ── Types ─────────────────────────────────────────────────── */
@@ -149,6 +149,17 @@ export default function BuildWorkspace() {
   const buildExec = useBuildExecution();
   const session = state.activeSession;
   const agents = state.agents;
+
+  // Claw agents available for mid-build adapter swap
+  const clawAgents = useMemo(() =>
+    agents.filter(a => a.provider_group === 'maestroclaw'),
+  [agents]);
+
+  // Swap active adapter for all failed tasks and immediately resume the build loop
+  const handleSwapAndRetry = useCallback(async (adapter: string) => {
+    await buildExec.swapAdapter(adapter);
+    buildExec.execute();
+  }, [buildExec]);
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
   const isClawMode = state.clawModeActive;
@@ -1151,7 +1162,7 @@ export default function BuildWorkspace() {
               </span>
               {buildExec.progress.failed > 0 && (
                 <span className="text-xs flex-shrink-0" style={{ color: 'var(--risk)' }}>
-                  · {buildExec.progress.failed} failed
+                  · {buildExec.progress.failed} failed{drawerCollapsed && !buildExec.isRunning ? ' · open to fix ↑' : ''}
                 </span>
               )}
               <div className="mx-2 h-0.5 rounded-full overflow-hidden flex-1" style={{ background: 'rgba(255,255,255,0.08)', maxWidth: '120px' }}>
@@ -1683,6 +1694,51 @@ export default function BuildWorkspace() {
                   )}
                 </div>
               </div>
+
+              {/* Adapter swap banner — shown when tasks failed and build is paused */}
+              {buildExec.progress.failed > 0 && !buildExec.isRunning && clawAgents.length > 0 && (
+                <div style={{
+                  padding: '14px 18px', marginBottom: '16px', borderRadius: '12px',
+                  background: 'rgba(224,90,90,0.05)', border: '1px solid rgba(224,90,90,0.18)',
+                }}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: '10px' }}>
+                    <Zap size={13} style={{ color: 'var(--risk)', flexShrink: 0 }} />
+                    <span style={{ fontSize: '12px', color: 'var(--risk)', fontWeight: 500 }}>
+                      {buildExec.progress.failed} task{buildExec.progress.failed !== 1 ? 's' : ''} failed
+                      {buildExec.adapterOverride && (
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                          {' '}· switching to{' '}
+                          <span style={{ color: '#5ab88e' }}>{buildExec.adapterOverride}</span>
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    Rate limit or adapter error — pick a builder to retry all failed tasks:
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {clawAgents.map(agent => {
+                      const isActive = buildExec.adapterOverride === agent.model;
+                      return (
+                        <button
+                          key={agent.id}
+                          className="reveal-pill"
+                          style={{
+                            height: '28px', fontSize: '11px', padding: '0 12px',
+                            background: isActive ? 'rgba(90,184,142,0.1)' : 'rgba(255,255,255,0.04)',
+                            borderColor: isActive ? 'rgba(90,184,142,0.35)' : 'rgba(255,255,255,0.08)',
+                            color: isActive ? '#5ab88e' : 'var(--text-muted)',
+                            fontWeight: isActive ? 500 : 400,
+                          }}
+                          onClick={() => handleSwapAndRetry(agent.model)}
+                        >
+                          {agent.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Task list */}
               <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: '10px' }}>
