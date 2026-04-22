@@ -208,6 +208,7 @@ Legacy (unused): agent_skills, flags
 | Artifact synthesis pipeline: executor.ts `extractFileContent()` strips markdown fences from CLI `--print` output, constructs `artifact_manifest` array from text | 2026-04-19 (commit `0353aac`) |
 | Claude Code stdin pipe: adapter rewritten to use `spawn()` + `proc.stdin.write(prompt)` instead of CLI arg — fixes Windows 8K char truncation | 2026-04-19 (commit `3e455ea`) |
 | Artifacts written to disk: executor writes built files to per-job workspace AND session-scoped `builds/{session_id}/` directory for consolidated project view | 2026-04-20 (commits `38c7dd5`, `cfb60c6`) |
+| **Ralph Loop + Git Checkpoints**: per-file retry with quality checks (HTML, truncation, JSON, min-length), path-aware validation, total-timeout budget, graceful close on exhaustion, git checkpoint after each successful write (lock-safe), `[↩ N]` prefix on result_summary, UI amber retry badge | 2026-04-22 (`npm run typecheck`, `npm --prefix packages\maestroclaw run build`, commit `82ea6bb`) |
 | Full 5-file build via MaestroClaw: dispatched 5 jobs (App.tsx, Hero.tsx, Services.tsx, Footer.tsx, App.module.css), all succeeded with artifacts stored in DB | 2026-04-20 (live smoke test) |
 | **Claw Mode Phase 0** — thread foundation + concierge chat: migration for `threads`/`thread_messages` tables + `agent_role` column on agents, `useThreads` hook, `ClawMode` full-screen chat component with model picker, Claw button in composer, Escape to close | 2026-04-20 (`npm run typecheck`, `npm run build`, migration applied, commits `ba41ed1`→`ff25942`) |
 | **Claw Mode Phase 1** — broadcast from chat + carousel + direct agent chat: three-view system (Concierge/Carousel/Focus), Broadcast button dispatches to council agents, FolioCarousel embedded in Claw Mode, agent quick-focus bar for direct chat, Synthesize merges threads back to concierge, `sendToAgent()` for direct thread conversations, `ClawView` type + state management | 2026-04-20 (`npm run typecheck`, `npm run build`) |
@@ -267,7 +268,39 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
-### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Concierge Build Handoff Loop Fix + Gemini CLI Adapter
+### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Ralph Loop + Git Checkpoints
+
+**What was done**:
+1. **Ralph Loop (per-file retry loop)** (`packages/maestroclaw/src/executor.ts`):
+   - `assessOutputQuality()`: path-aware checks — `.html` files can have `<!DOCTYPE`, `.json` targets get parse validation, known-small-ext files skip the min-length guard, truncation markers caught by 6 regex patterns
+   - `buildRetryPrompt()`: injects failure reason + retry header before original prompt; no raw previous output injected (context contamination prevention)
+   - `cleanForRetry()`: deletes target file from workDir before each retry attempt (prevents Copilot `--allow-all-tools` stale file reads)
+   - Total timeout budget: `deadline = Date.now() + timeout_seconds * 1000 - 8000` computed once; `remainingMs` passed to each `adapter.run()` call; loop aborts if <10s remain
+   - `result_summary` prefix: `[↩ N] ` for files that needed retries (N = retry count, not attempts)
+   - Graceful close on exhaustion: summary + last failure reason written instead of raw error
+2. **Git checkpoints** (`packages/maestroclaw/src/executor.ts`):
+   - `ensureGitRepo()`: lazy `git init --initial-branch=main` + user config if no `.git` dir; returns bool (non-fatal if git unavailable)
+   - `createCheckpoint()`: checks `.git/index.lock` first (concurrent executor safety), then `git add -A && git commit`. Non-fatal — swallows "nothing to commit" silently
+   - Fires after each successful file write to `builds/{session_id.slice(0,8)}/`; gated by `ENABLE_CHECKPOINTS` env var
+3. **Config additions** (`packages/maestroclaw/src/config.ts`):
+   - `maxRetries: number` (from `MAX_RETRIES` env, default 3)
+   - `enableCheckpoints: boolean` (from `ENABLE_CHECKPOINTS` env, default true)
+4. **`.env.example`** updated with `MAX_RETRIES=3` and `ENABLE_CHECKPOINTS=true`
+5. **UI retry badge** (`src/components/reveal/BuildWorkspace.tsx`):
+   - Parses `[↩ N]` prefix from `task.result_content`; shows amber pill `↩ N` badge on completed task cards that needed retries
+   - Tooltip: "Succeeded after N+1 attempts"
+
+**Files touched**: `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/config.ts`, `packages/maestroclaw/.env.example`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Total timeout budget (not per-retry) — prevents wall-time multiplication on high-retry scenarios
+- No raw output in retry prompts — avoids steering the model toward prior failure content
+- Git checkpoint concurrency: best-effort lock detection only (`.git/index.lock` check). Multi-process race will occasionally skip a checkpoint — acceptable for v1
+- Retry badge only on `completed` tasks (not on `failed`) — failed tasks show retry/skip buttons instead
+
+**What didn't work**: N/A — typecheck clean both front and claw package, committed `82ea6bb`.
+
+
 
 **What was done**:
 1. **Concierge build handoff loop fixed** (`src/hooks/useThreads.ts`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/BuildWorkspace.tsx`):
