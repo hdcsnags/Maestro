@@ -1,9 +1,36 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult } from "./types.js";
 
+// Model to use for generation. Override via CLAW_CLAUDE_MODEL in .env.
+// Defaults to Sonnet to avoid burning Opus quota on bulk builds.
+const PRIMARY_MODEL = process.env.CLAW_CLAUDE_MODEL ?? "claude-sonnet-4-5";
+
+// Optional fallback model. When set, a rate-limited primary run automatically
+// retries with this model instead of failing the whole job.
+const FALLBACK_MODEL = process.env.CLAW_CLAUDE_FALLBACK_MODEL ?? "";
+
+// Substrings in stdout that indicate the CLI hit a usage/rate limit.
+const RATE_LIMIT_SIGNALS = [
+  "you've hit your limit",
+  "rate limit",
+  "quota exceeded",
+  "too many requests",
+  "usage limit",
+];
+
+function isRateLimited(output: string): boolean {
+  const lower = output.toLowerCase();
+  return RATE_LIMIT_SIGNALS.some((s) => lower.includes(s));
+}
+
 /**
  * Claude Code adapter — runs prompts through the `claude` CLI.
  * Requires Claude Code to be installed and authenticated locally.
+ *
+ * Model selection (in priority order):
+ *   1. CLAW_CLAUDE_MODEL env var (e.g. "claude-sonnet-4-5")
+ *   2. Falls back to CLAW_CLAUDE_FALLBACK_MODEL on rate-limit failures
+ *   3. Hard default: claude-sonnet-4-5
  */
 export class ClaudeCodeAdapter implements Adapter {
   name = "claude_code";
@@ -26,12 +53,28 @@ export class ClaudeCodeAdapter implements Adapter {
     workDir: string,
     timeoutMs: number
   ): Promise<AdapterResult> {
-    console.log(`  🤖 claude_code: running in ${workDir}`);
+    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL);
+
+    if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
+      console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} — retrying with fallback ${FALLBACK_MODEL}`);
+      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL);
+    }
+
+    return result;
+  }
+
+  private runWithModel(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+    model: string,
+  ): Promise<AdapterResult> {
+    console.log(`  🤖 claude_code: running in ${workDir} (model: ${model})`);
 
     return new Promise((resolve) => {
       const proc = spawn(
         "claude",
-        ["--print", "--output-format", "text"],
+        ["--print", "--output-format", "text", "--model", model],
         {
           cwd: workDir,
           timeout: timeoutMs,

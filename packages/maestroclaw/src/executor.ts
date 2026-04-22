@@ -134,13 +134,13 @@ export async function executeJob(
       // Complete with artifact manifest in array format
       await completeJob(config, job.id, result.success, {
         result_summary: result.output.slice(0, 10_000),
-        error_text: result.error,
+        error_text: result.error ?? (!result.success ? result.output.slice(0, 2_000) : undefined),
         artifact_manifest: manifestArray,
       });
     } else {
       await completeJob(config, job.id, result.success, {
         result_summary: result.output.slice(0, 10_000),
-        error_text: result.error,
+        error_text: result.error ?? (!result.success ? result.output.slice(0, 2_000) : undefined),
       });
     }
 
