@@ -3,7 +3,7 @@ import type { Adapter, AdapterResult } from "./types.js";
 
 // Model to use for generation. Override via CLAW_CLAUDE_MODEL in .env.
 // Defaults to Sonnet to avoid burning Opus quota on bulk builds.
-const PRIMARY_MODEL = process.env.CLAW_CLAUDE_MODEL ?? "claude-sonnet-4-5";
+const PRIMARY_MODEL = process.env.CLAW_CLAUDE_MODEL ?? "claude-sonnet-4-6";
 
 // Optional fallback model. When set, a rate-limited primary run automatically
 // retries with this model instead of failing the whole job.
