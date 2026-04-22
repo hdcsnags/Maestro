@@ -151,9 +151,11 @@ export default function BuildWorkspace() {
   const agents = state.agents;
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
+  const isClawMode = state.clawModeActive;
 
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [stage, setStage] = useState<BuildStage>('preparing');
+  const [drawerCollapsed, setDrawerCollapsed] = useState(true);
   const [error, setError] = useState('');
 
   // Broadcast step state
@@ -223,6 +225,23 @@ export default function BuildWorkspace() {
     setBouncerLoading(false);
     setCompletenessResult(null);
   }, [session?.id, isVisible]);
+
+  // Reset drawer to collapsed whenever a new build starts in Claw mode
+  useEffect(() => {
+    if (isVisible && isClawMode) setDrawerCollapsed(true);
+  }, [session?.id, isVisible, isClawMode]);
+
+  // Sync local drawerCollapsed → context (guarded against no-op dispatches)
+  useEffect(() => {
+    if (!isClawMode || !isVisible) {
+      if (state.buildDrawerExpanded) dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: false });
+      return;
+    }
+    const expanded = !drawerCollapsed;
+    if (state.buildDrawerExpanded !== expanded) {
+      dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: expanded });
+    }
+  }, [drawerCollapsed, isClawMode, isVisible, state.buildDrawerExpanded, dispatch]);
 
   const normalizedBuildPlan: NormalizedBuildPlan | null = useMemo(() => {
     if (!state.buildPlan) return null;
@@ -1094,15 +1113,75 @@ export default function BuildWorkspace() {
     : stage === 'task_building' ? `Build — ${buildExec.progress.completed}/${buildExec.progress.total} Files`
     : 'Build in Progress';
   const hasCritical = bouncerResult?.findings.some(f => f.severity === 'critical_pause') ?? false;
+  const drawerExpandedHeight = 'clamp(56px, 50dvh, calc(100dvh - 240px))';
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col" style={{ background: 'rgba(8,8,6,0.92)', backdropFilter: 'blur(8px)' }}>
-      {/* ── Phase rail ─────────────────────────────────────── */}
-      <PhaseRail currentPhase={session.current_phase ?? 'build'} />
+    <div
+      className={isClawMode
+        ? 'fixed left-0 right-0 bottom-0 z-50 flex flex-col'
+        : 'fixed inset-0 z-40 flex flex-col'}
+      style={{
+        background: 'rgba(8,8,6,0.96)',
+        backdropFilter: 'blur(8px)',
+        ...(isClawMode ? {
+          height: drawerCollapsed ? '56px' : drawerExpandedHeight,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          transition: 'height 0.25s cubic-bezier(0.4,0,0.2,1)',
+        } : {}),
+      }}
+    >
+      {/* ── Claw mode: drawer handle ─────────────────────────── */}
+      {isClawMode && (
+        <button
+          type="button"
+          className="flex items-center gap-3 px-4 w-full text-left flex-shrink-0 hover:bg-white/[0.02] transition-colors"
+          style={{ height: '56px', borderBottom: drawerCollapsed ? 'none' : '1px solid rgba(255,255,255,0.06)' }}
+          onClick={() => setDrawerCollapsed(c => !c)}
+          aria-expanded={!drawerCollapsed}
+          aria-label={drawerCollapsed ? 'Expand build drawer' : 'Collapse build drawer'}
+        >
+          <Hammer size={14} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+          <span className="font-mono-dm text-xs tracking-widest uppercase" style={{ color: 'var(--gold)', flexShrink: 0 }}>
+            {headerLabel}
+          </span>
+          {(stage === 'task_building' || stage === 'task_decomposing') && (
+            <>
+              <span className="text-xs text-white/55 flex-shrink-0">
+                {buildExec.progress.completed}/{buildExec.progress.total}
+              </span>
+              {buildExec.progress.failed > 0 && (
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--risk)' }}>
+                  · {buildExec.progress.failed} failed
+                </span>
+              )}
+              <div className="mx-2 h-0.5 rounded-full overflow-hidden flex-1" style={{ background: 'rgba(255,255,255,0.08)', maxWidth: '120px' }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: buildExec.progress.total > 0
+                      ? `${Math.round(((buildExec.progress.completed + buildExec.progress.failed) / buildExec.progress.total) * 100)}%`
+                      : '0%',
+                    background: buildExec.progress.failed > 0 ? 'var(--warn)' : 'var(--ok)',
+                  }}
+                />
+              </div>
+            </>
+          )}
+          <span className="ml-auto text-white/40 flex-shrink-0">
+            {drawerCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </span>
+        </button>
+      )}
 
-      {/* ── Main content ───────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto" style={{ padding: '0 32px 32px' }}>
-        <div style={{ maxWidth: '880px', margin: '0 auto' }}>
+      {/* ── Full workspace content (hidden when claw drawer is collapsed) ── */}
+      {(!isClawMode || !drawerCollapsed) && (
+        <>
+          {/* Phase rail — full-screen mode only */}
+          {!isClawMode && <PhaseRail currentPhase={session.current_phase ?? 'build'} />}
+
+          {/* ── Main content ─────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto overscroll-contain" style={{ padding: '0 32px 32px' }}>
+            <div style={{ maxWidth: '880px', margin: '0 auto' }}>
 
           {/* Header */}
           <div className="flex items-center justify-between" style={{ marginBottom: '28px' }}>
@@ -2174,6 +2253,8 @@ export default function BuildWorkspace() {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

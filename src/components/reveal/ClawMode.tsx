@@ -855,12 +855,17 @@ export default function ClawMode() {
       : 'Chat, broadcast to the orchestra, execute commands, or build to a repo.';
 
   // ─── Render ───────────────────────────────────────────────
+  const isBuilding = state.activeSession?.current_phase === 'build' || state.activeSession?.current_phase === 'bouncer';
+  const drawerPadding = isBuilding
+    ? (state.buildDrawerExpanded ? 'clamp(56px, 50dvh, calc(100dvh - 240px))' : '56px')
+    : '0px';
+
   return (
     <div
       ref={dialogRef}
       onKeyDownCapture={handleDialogKeyDownCapture}
       className="relative flex flex-col h-full w-full"
-      style={{ isolation: 'isolate' }}
+      style={{ isolation: 'isolate', paddingBottom: drawerPadding }}
       role="dialog"
       aria-modal="true"
       aria-label="Claw Mode workspace"
