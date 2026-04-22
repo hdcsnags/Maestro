@@ -267,6 +267,32 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Build Drawer + Sonnet 4.6 Model Pin + error_text Fix
+
+**What was done**:
+1. **ClawClaude model pinned to Sonnet 4.6** (`packages/maestroclaw/src/adapters/claude-code.ts`): Adapter now passes `--model claude-sonnet-4-6` (fallback `claude-sonnet-4-5`) instead of defaulting to Opus 4.7. Rate-limit detection (`isRateLimited()`) scans stdout for limit keywords and auto-retries with fallback model. `CLAW_CLAUDE_MODEL` + `CLAW_CLAUDE_FALLBACK_MODEL` env vars allow override without code change.
+2. **`error_text` from stdout on soft failures** (`packages/maestroclaw/src/executor.ts`): Rate-limit messages were landing in stdout but `error_text` was only populated from stderr. Fixed to capture stdout as `error_text` when the job fails.
+3. **Build drawer in Claw Mode** (`src/context/MaestroContext.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/ClawMode.tsx`):
+   - When `clawModeActive`, BuildWorkspace renders as a fixed bottom drawer (not full-screen overlay)
+   - Collapsed state: 56px handle bar showing phase label + live progress (X/Y files, failed count, inline progress bar)
+   - Expanded state: `clamp(56px, 50dvh, calc(100dvh - 240px))` — viewport-safe height
+   - Smooth 0.25s cubic-bezier height transition
+   - Auto-collapses on new build (session.id change)
+   - `buildDrawerExpanded` synced to context so ClawMode root gets matching `paddingBottom` (prevents drawer from covering composer)
+   - PhaseRail hidden in Claw drawer mode (not needed with handle bar)
+   - `overscroll-contain` on scroll region prevents scroll bleed into Concierge chat
+
+**Files touched**: `packages/maestroclaw/src/adapters/claude-code.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/.env.example`, `src/context/MaestroContext.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Drawer auto-collapses on build start so user always sees Concierge first; they opt-in to watch build details
+- `buildDrawerExpanded` in global state (not just local) so ClawMode sibling can react to it for padding without prop drilling
+- Fallback from Sonnet 4.6 → Sonnet 4.5 (not Opus) — cost control is the priority
+- No repo branch requirement for greenfield Claw builds (repo_url null allowed when no GitHub repo connected)
+
+**What didn't work**:
+- Initial build attempts failed with `result_summary: "You've hit your limit"` — confirmed root cause was Opus 4.7 defaulting (7x token burn vs Sonnet)
+
 ### 2026-04-21 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build Dispatch Bug Fix + TypeScript Cleanup
 
 **What was done**:
