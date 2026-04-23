@@ -734,7 +734,17 @@ Generate the build plan.`;
       // Track which files are assigned to avoid duplicates
       const assignedFiles = new Set<string>();
 
-      for (const builder of effectiveBuilders) {
+      // Separate builders with explicit lane paths from catch-all builders (empty paths).
+      // Sort both groups by agent_id for deterministic round-robin order across runs.
+      const scopedBuilders = effectiveBuilders
+        .filter((b) => b.lane_paths.length > 0)
+        .sort((a, b) => (a.agent_id ?? "").localeCompare(b.agent_id ?? ""));
+      const catchAllBuilders = effectiveBuilders
+        .filter((b) => b.lane_paths.length === 0)
+        .sort((a, b) => (a.agent_id ?? "").localeCompare(b.agent_id ?? ""));
+
+      // Pass 1: assign files to builders with explicit lane paths
+      for (const builder of scopedBuilders) {
         const laneFiles = matchFilesToLane(allFiles, builder.lane_paths);
         const fallback = pickFallback(builder);
 
@@ -753,30 +763,64 @@ Generate the build plan.`;
             lane_owner_name: builder.agent_name,
             fallback_owner: fallback,
             dependencies: [],
-            prompt_slice: "", // filled below
+            prompt_slice: "",
             priority,
           });
         }
       }
 
-      // Also catch unassigned files (files that don't match any lane)
-      for (const filePath of allFiles) {
-        if (assignedFiles.has(filePath)) continue;
-        assignedFiles.add(filePath);
-        taskCounter++;
-        const taskId = `task-${String(taskCounter).padStart(3, "0")}`;
-        // Assign to the first builder as a catch-all
-        const owner = effectiveBuilders[0];
-        tasks.push({
-          task_id: taskId,
-          file_path: filePath,
-          lane_owner: owner.agent_id ?? "",
-          lane_owner_name: owner.agent_name,
-          fallback_owner: pickFallback(owner),
-          dependencies: [],
-          prompt_slice: "",
-          priority: filePriority(filePath),
-        });
+      // Pass 2: distribute remaining (unassigned) files round-robin across catch-all builders.
+      // Catch-all builders are those with empty lane_paths — they accept whatever isn't
+      // claimed by scoped builders. If no catch-all builders exist, remaining files are
+      // left unassigned here and handled below.
+      let rrIndex = 0;
+      if (catchAllBuilders.length > 0) {
+        for (const filePath of allFiles) {
+          if (assignedFiles.has(filePath)) continue;
+          assignedFiles.add(filePath);
+
+          const builder = catchAllBuilders[rrIndex % catchAllBuilders.length];
+          rrIndex++;
+          taskCounter++;
+          const taskId = `task-${String(taskCounter).padStart(3, "0")}`;
+
+          tasks.push({
+            task_id: taskId,
+            file_path: filePath,
+            lane_owner: builder.agent_id ?? "",
+            lane_owner_name: builder.agent_name,
+            fallback_owner: pickFallback(builder),
+            dependencies: [],
+            prompt_slice: "",
+            priority: filePriority(filePath),
+          });
+        }
+      }
+
+      // Pass 3: catch truly unassigned files (no catch-all builders, files outside all scoped lanes).
+      // Assign round-robin across scoped builders as a last resort.
+      {
+        let fallbackRr = 0;
+        for (const filePath of allFiles) {
+          if (assignedFiles.has(filePath)) continue;
+          assignedFiles.add(filePath);
+
+          const owner = scopedBuilders[fallbackRr % scopedBuilders.length] ?? effectiveBuilders[0];
+          fallbackRr++;
+          taskCounter++;
+          const taskId = `task-${String(taskCounter).padStart(3, "0")}`;
+
+          tasks.push({
+            task_id: taskId,
+            file_path: filePath,
+            lane_owner: owner.agent_id ?? "",
+            lane_owner_name: owner.agent_name,
+            fallback_owner: pickFallback(owner),
+            dependencies: [],
+            prompt_slice: "",
+            priority: filePriority(filePath),
+          });
+        }
       }
 
       // Sort by priority

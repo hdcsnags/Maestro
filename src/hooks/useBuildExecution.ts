@@ -545,10 +545,11 @@ export function useBuildExecution() {
         return p;
       };
 
-      let maxPasses = 5; // prevent infinite loops on reroute cycles
-      while (maxPasses > 0) {
-        maxPasses--;
-
+      // Guard against reroute cycles: if the number of resolved tasks (completed +
+      // failed + skipped) doesn't grow after a full wave, we're in a deadlock/cycle.
+      // Allow up to 3 consecutive no-progress waves before aborting.
+      let noProgressWaves = 0;
+      while (noProgressWaves < 3) {
         // Find tasks ready to dispatch
         const ready = currentTasks.filter(t => {
           if (t.status !== 'queued' && t.status !== 'rerouted') return false;
@@ -572,36 +573,36 @@ export function useBuildExecution() {
         if (ready.length === 0) break;
         if (abortRef.current) break;
 
-        // Dispatch up to 2 in parallel (one per builder) to avoid overwhelming
-        const batches: BuildTask[][] = [];
-        const seenOwners = new Set<string>();
+        // Snapshot resolved count before this wave to detect progress
+        const resolvedBefore = currentTasks.filter(
+          t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped'
+        ).length;
+
+        // Build one batch: one task per unique lane owner, all dispatched concurrently.
+        // This lets every builder work in parallel without an artificial cap.
         const batch: BuildTask[] = [];
+        const seenOwners = new Set<string>();
 
         for (const task of ready) {
           if (abortRef.current) break;
           const ownerId = task.lane_owner ?? '';
-          if (!seenOwners.has(ownerId) && batch.length < 2) {
+          if (!seenOwners.has(ownerId)) {
             batch.push(task);
             seenOwners.add(ownerId);
           }
         }
-        if (batch.length > 0) batches.push(batch);
 
-        // Dispatch remaining one at a time
-        const remaining = ready.filter(t => !batch.includes(t));
-        for (const task of remaining) {
-          batches.push([task]);
-        }
+        await Promise.all(batch.map(task => dispatchTask(task)));
+        recountProgress();
 
-        for (const b of batches) {
-          if (abortRef.current) break;
-
-          await Promise.all(b.map(async (task) => {
-            await dispatchTask(task);
-          }));
-
-          // Refresh from ref (synchronous — no React batching delay)
-          recountProgress();
+        // Check progress: if resolved count didn't increase, count toward deadlock guard
+        const resolvedAfter = currentTasks.filter(
+          t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped'
+        ).length;
+        if (resolvedAfter <= resolvedBefore) {
+          noProgressWaves++;
+        } else {
+          noProgressWaves = 0;
         }
       }
 
