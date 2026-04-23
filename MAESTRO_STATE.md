@@ -205,7 +205,7 @@ Legacy (unused): agent_skills, flags
 | MaestroClaw in Orchestra drawer: dedicated section with executor online/offline status badge, `hasKey()` returns true (no API key needed) | 2026-04-19 (commit `4d68c12`) |
 | MaestroClaw hidden from Vault: `maestroclaw` filtered from API key management loop | 2026-04-19 (commit `1a02dae`) |
 | Auto-backend-switch: selecting a Claw builder in Pre-Build auto-switches execution backend to `local` | 2026-04-19 (code verified) |
-| Artifact synthesis pipeline: executor.ts `extractFileContent()` strips markdown fences from CLI `--print` output, constructs `artifact_manifest` array from text | 2026-04-19 (commit `0353aac`) |
+| Artifact synthesis pipeline: executor.ts `extractFileContent()` now extracts `content` from JSON manifest format (Strategy 0 — with bad-escape fixup), falls back to markdown fence strip (Strategy 1), then raw code heuristic (Strategy 2). Fixes Claw writing raw JSON envelopes to disk. | 2026-04-22 (`npm run typecheck`, commit `d6398c4`) |
 | Claude Code stdin pipe: adapter rewritten to use `spawn()` + `proc.stdin.write(prompt)` instead of CLI arg — fixes Windows 8K char truncation | 2026-04-19 (commit `3e455ea`) |
 | Artifacts written to disk: executor writes built files to per-job workspace AND session-scoped `builds/{session_id}/` directory for consolidated project view | 2026-04-20 (commits `38c7dd5`, `cfb60c6`) |
 | **Ralph Loop + Git Checkpoints**: per-file retry with quality checks (HTML, truncation, JSON, min-length), path-aware validation, total-timeout budget, graceful close on exhaustion, git checkpoint after each successful write (lock-safe), `[↩ N]` prefix on result_summary, UI amber retry badge | 2026-04-22 (`npm run typecheck`, `npm --prefix packages\maestroclaw run build`, commit `82ea6bb`) |
@@ -267,6 +267,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Fix: Claw writes raw JSON envelope instead of file content
+
+**What was done**:
+Root cause identified and fixed: `extractFileContent()` in `executor.ts` was returning the raw JSON manifest object (`{"path":...,"content":...,"operation":"create"}`) as file content instead of extracting the `content` field. This caused every Claw-built file to contain the JSON envelope rather than actual source code.
+
+Fix: added **Strategy 0** (manifest extraction) before the existing fence/code strategies:
+- `tryParseManifest()`: attempts `JSON.parse()` on the text; on failure, re-escapes invalid JSON escape sequences (`\[` `\'` etc → `\\[` `\\'`) and retries. LLMs producing TypeScript code with regex literals/strings embed bare backslash sequences that aren't valid JSON escapes.
+- **0a**: entire output is the manifest
+- **0b**: manifest inside a markdown code fence (handles `\`\`\`json {...} \`\`\`` wrapping)
+- **0c**: greedy from first `{` (handles output where closing fence is missing)
+- Falls through to fence/code extraction if no manifest found (backward compatible)
+
+**Files touched**: `packages/maestroclaw/src/executor.ts`
+**Commit**: `d6398c4`
+**Typecheck**: clean (both claw and frontend)
+
+**What didn't work**: N/A — fix clean first pass.
+
+---
 
 ### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Ralph Loop + Git Checkpoints
 
