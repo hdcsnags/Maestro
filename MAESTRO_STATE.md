@@ -225,10 +225,10 @@ Legacy (unused): agent_skills, flags
 | **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
-| **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | In planning |
+| **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | **Partially addressed — Phases 1–4 shipped (commit `36ab1c7`); Phase 5 (Concierge scope intelligence) pending** |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
-| **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | In planning |
+| **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | ✅ **Fixed in Phase 1 (commit `2dd4752`)** |
 | Kimi K2 intermittently shows bracket `{` as title despite parser fix — may be model-side output discipline | 2026-04-17 | Unassigned |
 | Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
@@ -255,12 +255,12 @@ These areas change often and should be re-verified after any significant work se
 2. ~~**Claw Mode Phase 2 — Execution in Chat**~~ ✅ Done
 3. ~~**Claw Mode Phase 3 — Build from Chat**~~ ✅ Done
 4. ~~**Claw Mode Phase 4 — Polish + Promotion**~~ ✅ Done
-5. **🔴 Claw Build v2 — Phase 1: Parallel poll loop** (`maestroclaw/src/index.ts`, `config.ts`): Replace sequential await with concurrent job pool. See CLAW_BUILD_V2_SPEC.md §Phase 1.
-6. **🔴 Claw Build v2 — Phase 2: Session adapter mode** (`adapters/claude-code.ts` + types): Add `runSession()` method (no `--print`, `--dangerously-skip-permissions`). See CLAW_BUILD_V2_SPEC.md §Phase 2.
-7. **🔴 Claw Build v2 — Phase 3: Session executor** (`executor.ts`): `executeSessionJob()`, file snapshot diff, session-level Ralph Loop, full artifact manifest. See CLAW_BUILD_V2_SPEC.md §Phase 3.
-8. **🔴 Claw Build v2 — Phase 4: Web UI session dispatch** (`useBuildExecution.ts`, `BuildWorkspace.tsx`): `dispatchSessionLocal()`, module scope splitting, session progress UI. See CLAW_BUILD_V2_SPEC.md §Phase 4.
-9. **Claw Build v2 — Phase 5: Concierge scope intelligence** (`useThreads.ts`): Concierge reads ARCHITECT.md, proposes module splits, user approves. See CLAW_BUILD_V2_SPEC.md §Phase 5.
-10. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
+5. ~~**🔴 Claw Build v2 — Phase 1: Parallel poll loop**~~ ✅ Done (commit `2dd4752`)
+6. ~~**🔴 Claw Build v2 — Phase 2: Session adapter mode**~~ ✅ Done (commit `36ab1c7`)
+7. ~~**🔴 Claw Build v2 — Phase 3: Session executor**~~ ✅ Done (commit `36ab1c7`)
+8. ~~**🔴 Claw Build v2 — Phase 4: Web UI session dispatch**~~ ✅ Done (commit `36ab1c7`)
+9. **🔴 Claw Build v2 — Phase 5: Concierge scope intelligence** (`useThreads.ts`): Concierge reads ARCHITECT.md, proposes module splits, user approves. See CLAW_BUILD_V2_SPEC.md §Phase 5.
+10. **Smoke test `build_session` job end-to-end**: First real session build to verify `--dangerously-skip-permissions` works headlessly on Windows + `context_bundle` JSONB in `executor_jobs` is being forwarded by `executor-api`.
 11. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
 12. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
 
@@ -269,6 +269,47 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Phases 2–4 Implementation
+
+**What was done**:
+1. **Phase 2 — Session adapter mode** (`adapters/types.ts`, `claude-code.ts`, `copilot-cli.ts`, `codex-cli.ts`, `gemini-cli.ts`):
+   - Added optional `runSession?()` to `Adapter` interface (backward-compatible)
+   - `claude-code.ts`: `runSession()` uses `--print --dangerously-skip-permissions` (no `--output-format text`). Private `runSessionWithModel()` helper. Rate-limit fallback preserved.
+   - `copilot-cli.ts` + `codex-cli.ts`: extracted `executeWithTools()` private helper; `run()` and `runSession()` both delegate to it (they already have full file-write access via `--allow-all-tools`/`--full-auto`)
+   - `gemini-cli.ts`: `runSession()` delegates to `run()` (Gemini `--yolo` already writes files)
+
+2. **Phase 3 — `executeSessionJob()`** (`executor.ts`, `api.ts`, `index.ts`):
+   - Added `context_bundle: Record<string, unknown> | null` to `ExecutorJob` in `api.ts`
+   - Added helpers: `SessionContextBundle`, `walkDir()` (mtime snapshot), `collectWrittenFiles()` (before/after diff), `buildSessionPrompt()`, `buildFixPassPrompt()`
+   - `executeSessionJob()`: clone/init → snapshot before → `adapter.runSession()` (or `run()` fallback) → snapshot after → diff → session Ralph Loop (one fix pass) → git checkpoint → write to build dir → complete with artifact_manifest
+   - `index.ts` routes `job_type === "build_session"` → `executeSessionJob()`
+
+3. **Phase 4 — Web-side session dispatch** (`useBuildExecution.ts`, `BuildWorkspace.tsx`, `types/index.ts`):
+   - `SessionBuildProgress` interface + `sessionProgress` / `isSessionRunning` state in hook
+   - `dispatchSessionLocal(adapter, prompt, scope, architectMd?)`: submits `build_session` job (1800s timeout)
+   - `pollSessionJob(jobId)`: 5s interval, 40-min max
+   - `executeSession(adapter, scope)`: full orchestration — builds prompt from `state.buildPlan?.build_prompt`, injects `architect_content`
+   - `collectSessionManifest()`: returns same shape as `collectManifest()` for GitHub push reuse
+   - `BuildWorkspace.tsx`: purple "Session Build" button in task_building stage → session config popover (adapter dropdown + scope glob input) → `handleSessionBuild()` → `session_building` stage panel (Loader/CheckCircle/Alert status, file list, jobId) → "Push N files to GitHub" button on success / "Retry Session" on failure
+   - Topbar inline status for `session_building` stage
+
+**Files touched**: `packages/maestroclaw/src/adapters/types.ts`, `claude-code.ts`, `copilot-cli.ts`, `gemini-cli.ts`, `codex-cli.ts`, `packages/maestroclaw/src/api.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/index.ts`, `src/hooks/useBuildExecution.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/types/index.ts`
+
+**Commit**: `36ab1c7` — `feat(claw): session build v2 — phases 2-4 (adapters, executor, web dispatch)`
+
+**Typecheck**: `npm run typecheck` exits 0
+
+**Decisions made**:
+- `runSession()` fallback: `adapter.runSession?.bind(adapter) ?? adapter.run.bind(adapter)` — if adapter doesn't implement `runSession`, session prompt drives the same `run()` method
+- Session job timeout: 1800s (30 min); poll timeout: 40 min. File task timeout stays 600s.
+- `timeout_seconds: 1800` submitted but `context_bundle` JSONB column must exist in `executor_jobs` table — migration `20260406180000` added `context_bundle`; verify remote DB has it before first session build
+- Dir snapshot uses mtime: `walkDir()` stores abs-path → mtimeMs; `collectWrittenFiles()` skips unchanged entries
+
+**Open risks**:
+- `claude --print --dangerously-skip-permissions` on Windows: not yet smoke-tested in session mode (file-write path uses dir-diff, not stdout)
+- `executor_jobs.context_bundle` JSONB: must confirm the `executor-api` edge function forwards this field from submit body to DB
+- Phase 5 (Concierge scope intelligence) not yet built
 
 ### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Architecture Diagnosis + Spec
 
