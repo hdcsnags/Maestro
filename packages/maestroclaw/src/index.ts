@@ -4,7 +4,7 @@ import "dotenv/config";
 import { loadConfig } from "./config.js";
 import { heartbeat, pollForJob, claimJob, type ExecutorCapabilities } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
-import { executeJob } from "./executor.js";
+import { executeJob, executeSessionJob } from "./executor.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -76,7 +76,11 @@ async function main() {
           console.log(`  🔒 Claimed: ${claimed.id.slice(0, 8)} [${activeJobs}/${config.maxConcurrentJobs} active]`);
 
           // Fire-and-forget — do not await; poll loop continues immediately
-          void executeJob(config, claimed)
+          const jobRunner = claimed.job_type === "build_session"
+            ? executeSessionJob(config, claimed)
+            : executeJob(config, claimed);
+
+          void jobRunner
             .catch((err: unknown) => {
               const msg = err instanceof Error ? err.message : String(err);
               console.error(`  ⚠️ Job ${claimed.id.slice(0, 8)} error: ${msg}`);

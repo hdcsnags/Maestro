@@ -35,6 +35,25 @@ export class CopilotCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
   ): Promise<AdapterResult> {
+    return this.executeWithTools(prompt, workDir, timeoutMs);
+  }
+
+  // Session mode: Copilot already writes files via --allow-all-tools --no-ask-user.
+  // runSession() delegates to the same execution path — the session prompt is what
+  // instructs Copilot to write a whole scope rather than return JSON for one file.
+  async runSession(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+  ): Promise<AdapterResult> {
+    return this.executeWithTools(prompt, workDir, timeoutMs);
+  }
+
+  private async executeWithTools(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+  ): Promise<AdapterResult> {
     console.log(`  🤖 copilot_cli: running in ${workDir}`);
 
     const promptFileName = `.maestroclaw-copilot-prompt-${Date.now()}.md`;

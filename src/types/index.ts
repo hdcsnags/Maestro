@@ -343,6 +343,7 @@ export interface ExecutorJob {
   error_text: string | null;
   artifact_manifest: unknown;
   build_task_id: string | null;
+  context_bundle: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   claimed_at: string | null;

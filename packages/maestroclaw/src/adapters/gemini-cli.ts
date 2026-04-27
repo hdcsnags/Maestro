@@ -65,6 +65,16 @@ export class GeminiCliAdapter implements Adapter {
     return result;
   }
 
+  // Session mode: Gemini --yolo already grants full file write access.
+  // runSession() delegates to run() — the session prompt drives the different behaviour.
+  async runSession(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+  ): Promise<AdapterResult> {
+    return this.run(prompt, workDir, timeoutMs);
+  }
+
   private runWithModel(
     prompt: string,
     workDir: string,

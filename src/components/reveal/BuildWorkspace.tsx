@@ -39,7 +39,7 @@ interface BouncerResult {
   review_source?: 'build_tasks' | 'github_files' | 'file_names_only';
 }
 
-type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done' | 'task_decomposing' | 'task_building';
+type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done' | 'task_decomposing' | 'task_building' | 'session_building';
 type BroadcastProgressState = 'dispatching' | 'waiting' | 'partial' | 'ready';
 
 interface NormalizedBuilderAgent {
@@ -150,6 +150,11 @@ export default function BuildWorkspace() {
   const session = state.activeSession;
   const agents = state.agents;
 
+  // Session build state (Phase 4)
+  const [selectedSessionAdapter, setSelectedSessionAdapter] = useState<string>('copilot_cli');
+  const [sessionScope, setSessionScope] = useState('**');
+  const [showSessionConfig, setShowSessionConfig] = useState(false);
+
   // Claw agents available for mid-build adapter swap
   const clawAgents = useMemo(() =>
     agents.filter(a => a.provider_group === 'maestroclaw'),
@@ -160,6 +165,103 @@ export default function BuildWorkspace() {
     await buildExec.swapAdapter(adapter);
     buildExec.execute();
   }, [buildExec]);
+
+  // Session build: dispatch one build_session job for the full scope
+  const handleSessionBuild = useCallback(async () => {
+    setShowSessionConfig(false);
+    setStage('session_building');
+    setError('');
+    await buildExec.executeSession(selectedSessionAdapter, sessionScope);
+    // Stage stays 'session_building' — user pushes to GitHub via the panel button
+  }, [buildExec, selectedSessionAdapter, sessionScope]);
+
+  // Push session build manifest to GitHub (mirrors handleTaskExecuteToGithub)
+  const handleSessionExecuteToGithub = useCallback(async () => {
+    if (!session || !user) return;
+    setStage('executing');
+    setError('');
+
+    try {
+      if (!state.activeRepoConnection?.id) {
+        throw new Error('No active GitHub repo is connected.');
+      }
+
+      const manifest = buildExec.collectSessionManifest();
+      if (manifest.length === 0) {
+        throw new Error('Session produced no files. Cannot push to GitHub.');
+      }
+
+      const { data: runData, error: runErr } = await supabase
+        .from('execution_runs')
+        .insert({
+          session_id: session.id,
+          user_id: user.id,
+          strategy: 'synthesized' as const,
+          status: 'running',
+        } as never)
+        .select()
+        .maybeSingle();
+
+      if (runErr || !runData) throw new Error(runErr?.message ?? 'Failed to create execution run');
+
+      const patches = [{
+        agent_name: `Session Build (${selectedSessionAdapter})`,
+        agent_id: 'build-session',
+        content: `${manifest.length} files from session build`,
+        scoped_paths: [] as string[],
+        commit_message: `Session build: ${manifest.length} files for ${session.title ?? 'session'}`,
+        conductor_approved: true,
+        file_manifest: manifest.map(f => ({
+          path: f.path,
+          content: f.content,
+          operation: f.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+          content_hash: null,
+        })),
+      }];
+
+      const execResult = await invokeEdgeFunction<{
+        status?: string;
+        written_files?: string[];
+        prs?: string[];
+        errors?: string[];
+        branches?: Array<{ branch?: string; pr_url?: string }>;
+        backup_branch?: string;
+        skipped_files?: Array<{ path: string; reason: string }>;
+        collisions?: unknown[];
+        handoffs_requested?: Array<{ from_agent: string; path: string }>;
+      }>('github-execute', {
+        session_id: session.id,
+        execution_run_id: (runData as { id: string }).id,
+        repo_connection_id: state.activeRepoConnection.id,
+        patches,
+        mode: 'synthesized',
+        conductor_approved: true,
+      });
+
+      const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+      await supabase
+        .from('execution_runs')
+        .update({ status, result: execResult as never } as never)
+        .eq('id', (runData as { id: string }).id);
+
+      setWrittenFiles(execResult.written_files ?? []);
+      setSkippedFiles(execResult.skipped_files ?? []);
+      setPrUrls(execResult.prs ?? []);
+      setCollisionCount((execResult.collisions ?? []).length);
+      setHandoffs((execResult.handoffs_requested ?? []) as { from_agent: string; path: string }[]);
+      setBackupBranch(execResult.backup_branch ?? '');
+
+      dispatch({
+        type: 'ADD_EXECUTION_RUN',
+        payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+      });
+
+      setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStage('session_building');
+    }
+  }, [session, user, state.activeRepoConnection, buildExec, selectedSessionAdapter, dispatch]);
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
   const isClawMode = state.clawModeActive;
@@ -1178,6 +1280,15 @@ export default function BuildWorkspace() {
               </div>
             </>
           )}
+          {stage === 'session_building' && (
+            <>
+              <span className="text-xs flex-shrink-0" style={{ color: '#a78bfa' }}>
+                {buildExec.sessionProgress.status === 'running' ? 'session running…'
+                  : buildExec.sessionProgress.status === 'succeeded' ? `${buildExec.sessionProgress.filesWritten} files written`
+                  : 'session failed'}
+              </span>
+            </>
+          )}
           <span className="ml-auto text-white/40 flex-shrink-0">
             {drawerCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </span>
@@ -1337,7 +1448,49 @@ export default function BuildWorkspace() {
                     Resume Build
                   </button>
                 )}
+                {!buildExec.isRunning && (
+                  <button
+                    className="reveal-pill"
+                    style={{
+                      height: '36px', fontSize: '12px', padding: '0 16px',
+                      background: 'rgba(120,90,200,0.1)', color: '#a78bfa',
+                      borderColor: 'rgba(120,90,200,0.3)', fontWeight: 500,
+                    }}
+                    onClick={() => setShowSessionConfig(v => !v)}
+                  >
+                    <Zap size={13} />
+                    Session Build
+                  </button>
+                )}
               </div>
+            )}
+            {stage === 'session_building' && buildExec.sessionProgress.status === 'succeeded' && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 20px',
+                  background: 'var(--gold)', color: 'var(--void)',
+                  borderColor: 'transparent', fontWeight: 500,
+                }}
+                onClick={handleSessionExecuteToGithub}
+              >
+                <Play size={14} />
+                Push {buildExec.sessionProgress.filesWritten} files to GitHub
+              </button>
+            )}
+            {stage === 'session_building' && buildExec.sessionProgress.status === 'failed' && (
+              <button
+                className="reveal-pill"
+                style={{
+                  height: '36px', fontSize: '12px', padding: '0 16px',
+                  background: 'rgba(212,168,67,0.1)', color: 'var(--gold)',
+                  borderColor: 'rgba(212,168,67,0.3)', fontWeight: 500,
+                }}
+                onClick={handleSessionBuild}
+              >
+                <RotateCcw size={13} />
+                Retry Session
+              </button>
             )}
           </div>
 
@@ -1892,6 +2045,139 @@ export default function BuildWorkspace() {
                 <RotateCcw size={13} />
                 Back to Plan
               </button>
+            </section>
+          )}
+
+          {/* ── Session config popover (shown from task_building) ──── */}
+          {showSessionConfig && stage === 'task_building' && (
+            <section style={{ marginBottom: '20px' }}>
+              <div style={{
+                padding: '18px 20px', borderRadius: '12px',
+                background: 'rgba(120,90,200,0.06)', border: '1px solid rgba(120,90,200,0.2)',
+              }}>
+                <div className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#a78bfa', marginBottom: '14px' }}>
+                  Session Build Config
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-dim)', display: 'block', marginBottom: '6px' }}>
+                      Adapter
+                    </label>
+                    <select
+                      value={selectedSessionAdapter}
+                      onChange={e => setSelectedSessionAdapter(e.target.value)}
+                      style={{
+                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '8px', color: 'var(--text-primary)', fontSize: '12px',
+                        padding: '8px 12px', width: '100%',
+                      }}
+                    >
+                      <option value="claude_code">Claude Code</option>
+                      <option value="copilot_cli">Copilot CLI</option>
+                      <option value="codex_cli">Codex CLI</option>
+                      <option value="gemini_cli">Gemini CLI</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text-dim)', display: 'block', marginBottom: '6px' }}>
+                      Scope (glob)
+                    </label>
+                    <input
+                      type="text"
+                      value={sessionScope}
+                      onChange={e => setSessionScope(e.target.value)}
+                      placeholder="** (entire project)"
+                      style={{
+                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: '8px', color: 'var(--text-primary)', fontSize: '12px',
+                        padding: '8px 12px', width: '100%',
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="reveal-pill primary"
+                      style={{ height: '36px', fontSize: '12px', padding: '0 20px', fontWeight: 500 }}
+                      onClick={handleSessionBuild}
+                    >
+                      <Zap size={13} />
+                      Launch Session
+                    </button>
+                    <button
+                      className="reveal-pill"
+                      style={{ height: '36px', fontSize: '12px', padding: '0 16px' }}
+                      onClick={() => setShowSessionConfig(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* ── Session building panel ────────────────────────── */}
+          {stage === 'session_building' && (
+            <section style={{ marginBottom: '28px' }}>
+              <div style={{
+                padding: '24px 20px', borderRadius: '12px',
+                background: 'rgba(120,90,200,0.04)', border: '1px solid rgba(120,90,200,0.15)',
+              }}>
+                <div className="flex items-center gap-3" style={{ marginBottom: '16px' }}>
+                  {buildExec.sessionProgress.status === 'running' ? (
+                    <Loader2 size={16} className="animate-spin" style={{ color: '#a78bfa', flexShrink: 0 }} />
+                  ) : buildExec.sessionProgress.status === 'succeeded' ? (
+                    <CheckCircle2 size={16} style={{ color: '#5ab88e', flexShrink: 0 }} />
+                  ) : (
+                    <AlertTriangle size={16} style={{ color: 'var(--risk)', flexShrink: 0 }} />
+                  )}
+                  <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: 500 }}>
+                    {buildExec.sessionProgress.status === 'running'
+                      ? `Session build running… (${selectedSessionAdapter})`
+                      : buildExec.sessionProgress.status === 'succeeded'
+                      ? `Session complete — ${buildExec.sessionProgress.filesWritten} file${buildExec.sessionProgress.filesWritten === 1 ? '' : 's'} written`
+                      : `Session failed`}
+                  </span>
+                </div>
+
+                {buildExec.sessionProgress.errorText && (
+                  <div style={{
+                    padding: '10px 14px', borderRadius: '8px',
+                    background: 'rgba(224,90,90,0.06)', border: '1px solid rgba(224,90,90,0.15)',
+                    fontSize: '12px', color: 'var(--risk)', marginBottom: '14px',
+                  }}>
+                    {buildExec.sessionProgress.errorText}
+                  </div>
+                )}
+
+                {buildExec.sessionProgress.status === 'succeeded' && buildExec.sessionProgress.manifest.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '16px' }}>
+                    {buildExec.sessionProgress.manifest.slice(0, 20).map(f => (
+                      <div key={f.path} className="flex items-center gap-2" style={{
+                        padding: '5px 10px', borderRadius: '6px',
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid rgba(255,255,255,0.04)',
+                      }}>
+                        <FileCode size={11} style={{ color: '#a78bfa', flexShrink: 0 }} />
+                        <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.path}
+                        </span>
+                      </div>
+                    ))}
+                    {buildExec.sessionProgress.manifest.length > 20 && (
+                      <span style={{ fontSize: '11px', color: 'var(--text-dim)', padding: '4px 10px' }}>
+                        …and {buildExec.sessionProgress.manifest.length - 20} more files
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {buildExec.sessionProgress.jobId && (
+                  <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontFamily: 'monospace', display: 'block' }}>
+                    Job: {buildExec.sessionProgress.jobId.slice(0, 8)}
+                  </span>
+                )}
+              </div>
             </section>
           )}
 

@@ -1,5 +1,5 @@
-import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { join, dirname, resolve, extname, sep } from "node:path";
+import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync, unlinkSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { join, dirname, resolve, extname, sep, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
@@ -396,6 +396,301 @@ export async function executeJob(
           const namedDir = join(config.workspaceDir, `${label}-${job.id.slice(0, 8)}`);
           renameSync(jobDir, namedDir);
           console.log(`  📁 Workspace preserved: ${namedDir}`);
+        } catch {
+          console.warn(`  ⚠ Could not rename workspace ${jobDir}`);
+        }
+      } else {
+        try {
+          rmSync(jobDir, { recursive: true, force: true });
+        } catch {
+          console.warn(`  ⚠ Could not clean up ${jobDir}`);
+        }
+      }
+    }
+  }
+}
+
+// ─── Session Build Support ─────────────────────────────────────────────────
+
+/**
+ * Context bundle passed from web side for build_session jobs.
+ * All fields optional — executor applies sensible defaults.
+ */
+interface SessionContextBundle {
+  /** Glob pattern for this builder's scope, default "**" (all files). */
+  scope?: string;
+  /** Raw content of ARCHITECT.md from the cloned repo or web-side fetch. */
+  architect_content?: string;
+  /** Files this session is expected to produce. Used for fix-pass detection. */
+  expected_files?: string[];
+  /** Read-only files from other builders injected as context. */
+  context_files?: Array<{ path: string; content: string }>;
+  /** Failover: parent job ID when this session is resuming from a handoff. */
+  parent_job_id?: string;
+}
+
+/**
+ * Recursive directory snapshot — maps absolute path → mtime (ms).
+ * Skips .git, node_modules, and .maestroclaw-* temp files.
+ */
+function walkDir(dir: string): Map<string, number> {
+  const result = new Map<string, number>();
+
+  function walk(current: string): void {
+    let entries: string[];
+    try {
+      entries = readdirSync(current);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry === ".git" || entry === "node_modules") continue;
+      if (entry.startsWith(".maestroclaw-")) continue;
+      const full = join(current, entry);
+      try {
+        const st = statSync(full);
+        if (st.isDirectory()) {
+          walk(full);
+        } else {
+          result.set(full, st.mtimeMs);
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  walk(dir);
+  return result;
+}
+
+/**
+ * Compares two dir snapshots (before/after) and reads the content of every
+ * new or modified file. Returns a { relative-path → content } map.
+ */
+function collectWrittenFiles(
+  workDir: string,
+  before: Map<string, number>,
+  after: Map<string, number>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [fullPath, mtime] of after) {
+    const prevMtime = before.get(fullPath);
+    if (prevMtime !== undefined && prevMtime === mtime) continue;
+    const rel = relative(workDir, fullPath).replace(/\\/g, "/");
+    try {
+      result[rel] = readFileSync(fullPath, "utf-8");
+    } catch {
+      // Unreadable (binary/locked) — skip
+    }
+  }
+  return result;
+}
+
+/** Builds the initial session prompt including ARCHITECT.md, scope, and context files. */
+function buildSessionPrompt(job: ExecutorJob, bundle: SessionContextBundle): string {
+  const parts: string[] = [
+    "SESSION BUILD MODE — you are an autonomous CLI agent with full file-system access.",
+    "Write files directly to disk. Do NOT output JSON envelopes — just create the files.",
+    "",
+  ];
+
+  if (bundle.scope && bundle.scope !== "**") {
+    parts.push(
+      `SCOPE: You are responsible for files matching: ${bundle.scope}`,
+      "Only create files within your scope. Do not modify files outside your scope.",
+      "",
+    );
+  }
+
+  if (bundle.architect_content) {
+    parts.push(
+      "=== ARCHITECT.md (Project Blueprint) ===",
+      bundle.architect_content,
+      "=== END ARCHITECT.md ===",
+      "",
+    );
+  }
+
+  if (bundle.expected_files && bundle.expected_files.length > 0) {
+    parts.push("EXPECTED FILES — you MUST create all of these:");
+    for (const f of bundle.expected_files) parts.push(`  - ${f}`);
+    parts.push("");
+  }
+
+  if (bundle.context_files && bundle.context_files.length > 0) {
+    parts.push("CONTEXT FILES (read-only — from other builders, do not modify):");
+    for (const cf of bundle.context_files) {
+      parts.push(`--- ${cf.path} ---`, cf.content, "---");
+    }
+    parts.push("");
+  }
+
+  parts.push("=== BUILD REQUEST ===", job.prompt, "=== END BUILD REQUEST ===");
+  return parts.join("\n");
+}
+
+/** Builds a targeted fix-pass prompt for missing expected files. */
+function buildFixPassPrompt(
+  job: ExecutorJob,
+  missing: string[],
+  written: string[],
+): string {
+  const parts: string[] = [
+    "FIX PASS — some expected files are missing. Do NOT rewrite already-written files.",
+    "",
+  ];
+  if (written.length > 0) {
+    parts.push("Already written (skip these):");
+    for (const f of written) parts.push(`  ✅ ${f}`);
+    parts.push("");
+  }
+  parts.push("MISSING — you MUST create all of these now:");
+  for (const f of missing) parts.push(`  ❌ ${f}`);
+  parts.push("", "Original build request:", job.prompt);
+  return parts.join("\n");
+}
+
+/**
+ * Runs a `build_session` job: one adapter call covering the full project scope.
+ *
+ * Flow:
+ *   1. Clone/init repo → snapshot before
+ *   2. Run adapter.runSession() with full ARCHITECT.md + scope context
+ *   3. Snapshot after → diff to collect written files
+ *   4. Session Ralph Loop: one fix pass if expected_files are missing
+ *   5. Git checkpoint → write to build dir → complete job with artifact manifest
+ */
+export async function executeSessionJob(
+  config: ClawConfig,
+  job: ExecutorJob,
+): Promise<void> {
+  const jobDir = resolve(join(config.workspaceDir, job.id));
+  let workDir = jobDir;
+  let jobSucceeded = false;
+
+  const REPORT_RESERVE_MS = 10_000;
+  const deadlineMs = Date.now() + job.timeout_seconds * 1_000 - REPORT_RESERVE_MS;
+  const bundle = (job.context_bundle ?? {}) as SessionContextBundle;
+
+  try {
+    await reportEvent(config, job.id, "status_change", { status: "running" });
+    mkdirSync(jobDir, { recursive: true });
+
+    if (job.repo_url) {
+      console.log(`  📦 [session] Cloning ${job.repo_url}...`);
+      const cloneArgs = ["clone", "--depth", "1"];
+      if (job.branch) cloneArgs.push("--branch", job.branch);
+      cloneArgs.push(job.repo_url, "repo");
+      execFileSync("git", cloneArgs, { cwd: jobDir, timeout: 60_000, stdio: "pipe" });
+      workDir = join(jobDir, "repo");
+    } else {
+      workDir = join(jobDir, "repo");
+      mkdirSync(workDir, { recursive: true });
+      if (config.enableCheckpoints) ensureGitRepo(workDir);
+    }
+
+    const adapter = getAdapter(job.adapter);
+    if (!(await adapter.check())) {
+      throw new Error(`Adapter "${job.adapter}" is not available on this machine`);
+    }
+
+    // Use runSession if the adapter provides it; otherwise fall back to run
+    const runSession = adapter.runSession
+      ? adapter.runSession.bind(adapter)
+      : adapter.run.bind(adapter);
+
+    // ── Pass 1: initial session run ──────────────────────────────────────────
+    const before = walkDir(workDir);
+    const sessionPrompt = buildSessionPrompt(job, bundle);
+    const pass1Ms = Math.max(10_000, deadlineMs - Date.now());
+
+    console.log(`  🚀 [session] ${job.adapter} — scope "${bundle.scope ?? "**"}"...`);
+    const pass1 = await runSession(sessionPrompt, workDir, pass1Ms);
+
+    if (pass1.output) await reportEvent(config, job.id, "stdout", { text: pass1.output.slice(0, 50_000), pass: 1 });
+    if (pass1.error) await reportEvent(config, job.id, "stderr", { text: pass1.error.slice(0, 10_000), pass: 1 });
+
+    const after1 = walkDir(workDir);
+    const written: Record<string, string> = collectWrittenFiles(workDir, before, after1);
+    const writtenPaths = Object.keys(written);
+
+    console.log(`  📝 [session] Pass 1: ${writtenPaths.length} file(s) written`);
+    writtenPaths.slice(0, 20).forEach((p) => console.log(`    • ${p}`));
+    if (writtenPaths.length > 20) console.log(`    ... and ${writtenPaths.length - 20} more`);
+
+    // ── Pass 2: fix pass for missing expected files ──────────────────────────
+    const expectedFiles = bundle.expected_files ?? [];
+    const missing = expectedFiles.filter((f) => !writtenPaths.includes(f));
+
+    if (missing.length > 0 && deadlineMs - Date.now() > 60_000) {
+      console.log(`  🔄 [session] Fix pass: ${missing.length} missing file(s)`);
+      await reportEvent(config, job.id, "retry", { reason: "missing_expected_files", missing, written: writtenPaths });
+
+      const fixMs = Math.max(10_000, deadlineMs - Date.now() - REPORT_RESERVE_MS);
+      const beforeFix = walkDir(workDir);
+      const pass2 = await runSession(buildFixPassPrompt(job, missing, writtenPaths), workDir, fixMs);
+
+      if (pass2.output) await reportEvent(config, job.id, "stdout", { text: pass2.output.slice(0, 50_000), pass: 2 });
+      const afterFix = walkDir(workDir);
+      const fixWritten = collectWrittenFiles(workDir, beforeFix, afterFix);
+      for (const [p, c] of Object.entries(fixWritten)) written[p] = c;
+
+      const totalPaths = Object.keys(written);
+      console.log(`  📝 [session] After fix pass: ${totalPaths.length} file(s) total`);
+    }
+
+    // ── Git checkpoint ───────────────────────────────────────────────────────
+    if (config.enableCheckpoints) createCheckpoint(workDir, `session:${job.id.slice(0, 8)}`);
+
+    // ── Write to shared session build dir ────────────────────────────────────
+    if (job.session_id && Object.keys(written).length > 0) {
+      const buildDir = join(config.workspaceDir, "builds", job.session_id.slice(0, 8));
+      for (const [filePath, content] of Object.entries(written)) {
+        const fullPath = resolveSafeArtifactPath(buildDir, filePath);
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, content, "utf-8");
+      }
+      console.log(`  📂 [session] → builds/${job.session_id.slice(0, 8)}/`);
+      if (config.enableCheckpoints) {
+        if (ensureGitRepo(buildDir)) createCheckpoint(buildDir, `session:${job.id.slice(0, 8)}`);
+      }
+    }
+
+    // ── Complete ─────────────────────────────────────────────────────────────
+    const manifestArray = Object.entries(written).map(([path, content]) => ({
+      path, content, operation: "create" as const,
+    }));
+    jobSucceeded = manifestArray.length > 0;
+
+    if (jobSucceeded) {
+      await reportEvent(config, job.id, "artifact", { manifest: manifestArray });
+      await completeJob(config, job.id, true, {
+        result_summary: `Session build: ${manifestArray.length} file(s) written`,
+        artifact_manifest: manifestArray,
+      });
+    } else {
+      await completeJob(config, job.id, false, {
+        result_summary: pass1.output?.slice(0, 10_000) ?? "",
+        error_text: "Session produced no files — check adapter stdout events for details.",
+      });
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`  ❌ [session] ${job.id.slice(0, 8)} failed:`, message);
+    try {
+      await reportEvent(config, job.id, "error", { message });
+      await completeJob(config, job.id, false, { error_text: message });
+    } catch (reportErr) {
+      console.error("  Failed to report error:", reportErr);
+    }
+  } finally {
+    if (existsSync(jobDir)) {
+      if (jobSucceeded && config.keepSucceededWorkspaces) {
+        try {
+          const namedDir = join(config.workspaceDir, `${job.repo_name ?? "session"}-${job.id.slice(0, 8)}`);
+          renameSync(jobDir, namedDir);
+          console.log(`  📁 [session] Workspace preserved: ${namedDir}`);
         } catch {
           console.warn(`  ⚠ Could not rename workspace ${jobDir}`);
         }

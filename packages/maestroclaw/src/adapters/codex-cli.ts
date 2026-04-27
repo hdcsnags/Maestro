@@ -31,6 +31,24 @@ export class CodexCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
   ): Promise<AdapterResult> {
+    return this.executeWithTools(prompt, workDir, timeoutMs);
+  }
+
+  // Session mode: Codex --full-auto already writes files directly.
+  // runSession() delegates to run() — the session prompt drives scope.
+  async runSession(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+  ): Promise<AdapterResult> {
+    return this.executeWithTools(prompt, workDir, timeoutMs);
+  }
+
+  private async executeWithTools(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+  ): Promise<AdapterResult> {
     console.log(`  🤖 codex_cli: running in ${workDir}`);
 
     const outputFilePath = join(workDir, `.maestroclaw-codex-last-message-${Date.now()}.txt`);

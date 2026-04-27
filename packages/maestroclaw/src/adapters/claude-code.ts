@@ -63,6 +63,23 @@ export class ClaudeCodeAdapter implements Adapter {
     return result;
   }
 
+  async runSession(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number
+  ): Promise<AdapterResult> {
+    // Session mode: --dangerously-skip-permissions lets Claude write files without prompts.
+    // --output-format is omitted — we collect files via dir-diff, not by parsing stdout.
+    const result = await this.runSessionWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL);
+
+    if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
+      console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} (session) — retrying with fallback ${FALLBACK_MODEL}`);
+      return this.runSessionWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL);
+    }
+
+    return result;
+  }
+
   private runWithModel(
     prompt: string,
     workDir: string,
@@ -89,7 +106,55 @@ export class ClaudeCodeAdapter implements Adapter {
       proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
       proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
 
-      // Pipe the prompt via stdin to avoid CLI argument length limits
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+
+      proc.on("close", (code) => {
+        resolve({
+          success: code === 0,
+          output: stdout,
+          ...(stderr ? { error: stderr } : {}),
+        });
+      });
+
+      proc.on("error", (err) => {
+        resolve({
+          success: false,
+          output: stdout,
+          error: err.message,
+        });
+      });
+    });
+  }
+
+  private runSessionWithModel(
+    prompt: string,
+    workDir: string,
+    timeoutMs: number,
+    model: string,
+  ): Promise<AdapterResult> {
+    console.log(`  🤖 claude_code [session]: running in ${workDir} (model: ${model})`);
+
+    return new Promise((resolve) => {
+      // --dangerously-skip-permissions: Claude writes files without asking for approval.
+      // --output-format omitted: executor collects files via dir-diff, not stdout parsing.
+      const proc = spawn(
+        "claude",
+        ["--print", "--dangerously-skip-permissions", "--model", model],
+        {
+          cwd: workDir,
+          timeout: timeoutMs,
+          shell: true,
+          env: { ...process.env },
+        }
+      );
+
+      let stdout = "";
+      let stderr = "";
+
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
       proc.stdin.write(prompt);
       proc.stdin.end();
 
