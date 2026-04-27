@@ -16,6 +16,7 @@ async function main() {
   const config = loadConfig();
   console.log(`📡 Supabase: ${config.supabaseUrl}`);
   console.log(`⏱  Poll interval: ${config.pollIntervalMs}ms`);
+  console.log(`⚡ Max concurrent jobs: ${config.maxConcurrentJobs}`);
 
   // Check adapters
   const adapters = await checkAdapters();
@@ -40,6 +41,7 @@ async function main() {
 
   // Poll loop
   let running = true;
+  let activeJobs = 0;
   let consecutiveErrors = 0;
   const MAX_CONSECUTIVE_ERRORS = 10;
 
@@ -62,21 +64,32 @@ async function main() {
 
   while (running) {
     try {
-      const job = await pollForJob(config);
+      // Only poll when under capacity — no blocking await when full
+      if (activeJobs < config.maxConcurrentJobs) {
+        const job = await pollForJob(config);
 
-      if (job) {
-        console.log(`📋 Job found: ${job.id.slice(0, 8)} [${job.adapter}] "${job.prompt.slice(0, 60)}..."`);
+        if (job) {
+          console.log(`📋 Job found: ${job.id.slice(0, 8)} [${job.adapter}] "${job.prompt.slice(0, 60)}..."`);
 
-        // Claim the job
-        const claimed = await claimJob(config, job.id);
-        console.log(`  🔒 Claimed job ${claimed.id.slice(0, 8)}`);
+          const claimed = await claimJob(config, job.id);
+          activeJobs++;
+          console.log(`  🔒 Claimed: ${claimed.id.slice(0, 8)} [${activeJobs}/${config.maxConcurrentJobs} active]`);
 
-        // Execute
-        await executeJob(config, claimed);
-        console.log();
+          // Fire-and-forget — do not await; poll loop continues immediately
+          void executeJob(config, claimed)
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error(`  ⚠️ Job ${claimed.id.slice(0, 8)} error: ${msg}`);
+            })
+            .finally(() => {
+              activeJobs--;
+              console.log(`  🏁 Job ${claimed.id.slice(0, 8)} done [${activeJobs}/${config.maxConcurrentJobs} active]`);
+            });
+        }
+
+        consecutiveErrors = 0;
       }
-
-      consecutiveErrors = 0;
+      // At capacity — skip poll, fall through to wait
     } catch (err: unknown) {
       consecutiveErrors++;
       const message = err instanceof Error ? err.message : String(err);
@@ -89,13 +102,26 @@ async function main() {
       }
     }
 
-    // Wait before next poll
+    // Wait before next poll (or next capacity check if full)
     if (running) {
       await new Promise((r) => setTimeout(r, config.pollIntervalMs));
     }
   }
 
   clearInterval(heartbeatTimer);
+
+  // Drain active jobs before exit (up to 30s)
+  if (activeJobs > 0) {
+    console.log(`⏳ Waiting for ${activeJobs} active job(s) to finish (max 30s)...`);
+    const drainDeadline = Date.now() + 30_000;
+    while (activeJobs > 0 && Date.now() < drainDeadline) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (activeJobs > 0) {
+      console.log(`⚠️ Force-exiting with ${activeJobs} job(s) still running.`);
+    }
+  }
+
   console.log("👋 MaestroClaw stopped.");
 }
 
@@ -103,3 +129,4 @@ main().catch((err) => {
   console.error("Fatal error:", err);
   process.exit(1);
 });
+

@@ -352,6 +352,40 @@ Session builds show a different UI:
 **Scope:** Concierge reads ARCHITECT.md, proposes module splits for multi-builder sessions, user approves before build starts.
 **Risk:** Low. Purely additive — Concierge message that blocks until user responds.
 
+### Phase 6 — Adapter failover + session handoff *(flagged, not yet scheduled)*
+**Problem:** If the active adapter hits a rate limit or hard error mid-session, the job dies. No other adapter can resume because no handoff state exists.
+
+**What makes this possible after Phase 3:**
+- Git checkpoints (Ralph Loop) preserve exactly what was written before failure
+- `artifact_manifest` on the failed job records which files completed
+- `ARCHITECT.md` + scope are already in `context_bundle`
+- A new adapter can reconstruct "what's done" from the git log and "what's left" by diffing against ARCHITECT.md
+
+**Design sketch:**
+```
+1. Executor catches adapter error / rate-limit signal
+2. Reads git log to build completed_files[] from checkpoint tags
+3. Builds remaining_scope[] = expected_files[] - completed_files[]
+4. If remaining_scope is non-empty and a fallback adapter is registered:
+   a. Re-submit ONE new build_session job for the fallback adapter
+   b. Inject completed_files as context (same as multi-builder context sharing)
+   c. Set prompt: "These files are already written (see context). Continue from remaining scope."
+5. Original job marked status: "partial" with artifact_manifest of what completed
+6. Fallback job linked via parent_job_id (new column or context_bundle field)
+7. UI shows: "[↩ failover to CopilotCLI] 12/47 files from ClawClaude preserved"
+```
+
+**Config needed:**
+```env
+ADAPTER_FALLBACK_ORDER=claude_code,copilot_cli,gemini_code
+FAILOVER_ON_RATE_LIMIT=true
+FAILOVER_ON_HARD_ERROR=false   # only rate limits auto-failover; other errors go to Concierge
+```
+
+**Concierge card on failover:** Rate-limit failovers are silent (auto). Hard errors surface as a Concierge suggestion card — user one-tap approves the failover or dismisses. Human in the loop when it matters, invisible when it doesn't.
+
+**Prerequisites:** Phase 3 (`executeSessionJob()`) must be complete. Phase 2 adapter session modes must be consistent across adapters.
+
 ---
 
 ## Known Open Questions
