@@ -225,9 +225,10 @@ Legacy (unused): agent_skills, flags
 | **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
+| **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | In planning |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
-| Sonnet timeouts on artifact-heavy analysis prompts (possibly needs prompt trimming or dedicated artifact mode) | 2026-04-17 | Unassigned |
+| **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | In planning |
 | Kimi K2 intermittently shows bracket `{` as title despite parser fix — may be model-side output discipline | 2026-04-17 | Unassigned |
 | Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
@@ -253,20 +254,49 @@ These areas change often and should be re-verified after any significant work se
 1. ~~**Claw Mode Phase 1 — Broadcast from Chat**~~ ✅ Done
 2. ~~**Claw Mode Phase 2 — Execution in Chat**~~ ✅ Done
 3. ~~**Claw Mode Phase 3 — Build from Chat**~~ ✅ Done
-4. ~~**Claw Mode Phase 4 — Polish + Promotion**~~ ✅ Done — Claw is primary workspace shell, thread sidebar, context header, intent composer, markdown in chat, 3 bug fixes, contrast/animation polish
-5. **Filter Claw agents from broadcast**: Claw agents error with "Provider maestroclaw not supported" when included in broadcast. Need to exclude `provider_group === 'maestroclaw'` from the broadcast agent list.
-6. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
-7. **End-to-end Pre-Build UI → Claw test**: Full flow from Pre-Build UI (not just direct DB job insertion).
-8. **Artifact → GitHub bridge for Claw builds**: Wire Claw artifacts through `github-execute` edge function.
-9. **Build v3 Phase 2 — Context bundling**: `buildContextBundle()`, AGENTS.md generation per job.
-10. **Sonnet artifact timeout investigation**: Profile why Sonnet times out on artifact-heavy prompts.
-11. Retire legacy broadcast path once v2 is battle-tested across multiple projects
+4. ~~**Claw Mode Phase 4 — Polish + Promotion**~~ ✅ Done
+5. **🔴 Claw Build v2 — Phase 1: Parallel poll loop** (`maestroclaw/src/index.ts`, `config.ts`): Replace sequential await with concurrent job pool. See CLAW_BUILD_V2_SPEC.md §Phase 1.
+6. **🔴 Claw Build v2 — Phase 2: Session adapter mode** (`adapters/claude-code.ts` + types): Add `runSession()` method (no `--print`, `--dangerously-skip-permissions`). See CLAW_BUILD_V2_SPEC.md §Phase 2.
+7. **🔴 Claw Build v2 — Phase 3: Session executor** (`executor.ts`): `executeSessionJob()`, file snapshot diff, session-level Ralph Loop, full artifact manifest. See CLAW_BUILD_V2_SPEC.md §Phase 3.
+8. **🔴 Claw Build v2 — Phase 4: Web UI session dispatch** (`useBuildExecution.ts`, `BuildWorkspace.tsx`): `dispatchSessionLocal()`, module scope splitting, session progress UI. See CLAW_BUILD_V2_SPEC.md §Phase 4.
+9. **Claw Build v2 — Phase 5: Concierge scope intelligence** (`useThreads.ts`): Concierge reads ARCHITECT.md, proposes module splits, user approves. See CLAW_BUILD_V2_SPEC.md §Phase 5.
+10. **Fix GPT OSS phantom agent**: Fires during builds when not selected. Likely a remnant/ghost agent — needs investigation.
+11. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
+12. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
 
 ---
 
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Architecture Diagnosis + Spec
+
+**What was done**:
+1. **Root-cause analysis of Claw build failures**:
+   - Claw poll loop (`index.ts`) is single-threaded — `await executeJob()` blocks the entire process. One job at a time. 79-file build = 79 sequential runs.
+   - Current build model sends N isolated single-file blind prompts to Claude Code. Each job has zero context about other files. Imports break, types mismatch, output is incoherent across files.
+   - No project-level review pass. Files complete individually with no agent seeing the full picture.
+   - This is the correct model for stateless web API calls (edge builds). It is wrong for CLI agents that can use tool access to iterate over a real codebase.
+2. **Created `CLAW_BUILD_V2_SPEC.md`**:
+   - Full architecture spec for session-granular Claw builds
+   - New `build_session` job type (one job per builder/module, not per file)
+   - Session adapter mode (Claude Code without `--print`, `--dangerously-skip-permissions` for direct file writes)
+   - `executeSessionJob()` design: file snapshot diff, context injection, session-level Ralph Loop, manifest collection
+   - Concurrent poll loop design (`MAX_CONCURRENT_JOBS`)
+   - Web UI dispatch changes (session dispatch path, module scope splitting, session progress UI)
+   - 5-phase implementation plan with backward-compat guarantee for edge builds
+   - Known open questions flagged (Windows `--dangerously-skip-permissions`, multi-builder context sharing, greenfield push)
+3. **Updated `MAESTRO_STATE.md`**: architecture debt + sequential poll loop added as broken issues; Next Logical Steps rewritten with 5-phase Claw Build v2 plan.
+
+**Files touched**: `CLAW_BUILD_V2_SPEC.md` (created), `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Session-granular is the correct primitive for CLI agents. File-granular stays for edge/web builds (backward compat — no regressions).
+- No new DB tables needed — `job_type: "build_session"` reuses `executor_jobs`, `context_bundle` JSONB carries `architect_content` + `context_files`.
+- Multi-builder context sharing: v1 = sequential with context handoff. Parallel is Phase 6+.
+
+**What didn't work**: Planning session only — no implementation yet.
 
 ### 2026-04-22 — GitHub Copilot (Claude Sonnet 4.6) — Ralph Loop + Git Checkpoints
 
