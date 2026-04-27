@@ -25,7 +25,7 @@ const SCAFFOLD_MESSAGES = [
   'Generating Architect.md…',
 ];
 
-const BUILDER_COUNT_OPTIONS = [1, 2, 3, 5] as const;
+const BUILDER_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 
 interface BuildAgentCandidate {
   id: string;

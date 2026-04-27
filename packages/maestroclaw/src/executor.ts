@@ -411,12 +411,66 @@ export async function executeJob(
 }
 
 /**
+ * Attempts to parse a JSON manifest object {"path":..., "content":...} from a string.
+ * Handles LLM-produced JSON that may have bad escape sequences (e.g. \[ \' in content)
+ * by re-escaping any backslash not followed by a valid JSON escape char.
+ */
+function tryParseManifest(s: string): { path: string; content: string } | null {
+  const attempts = [
+    s,
+    // Fix invalid escape sequences: \X where X ∉ valid JSON escapes → \\X
+    s.replace(/\\([^"\\\/bfnrtu\n\r])/g, "\\\\$1"),
+  ];
+
+  for (const candidate of attempts) {
+    try {
+      const p = JSON.parse(candidate) as Record<string, unknown>;
+      if (typeof p.path === "string" && typeof p.content === "string") {
+        return { path: p.path, content: p.content };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
+/**
  * Extracts file content from CLI adapter text output.
- * Claude --print mode wraps code in markdown fences. This strips them
- * and returns the inner content. Falls back to raw output if no fences found.
+ *
+ * Strategy 0: JSON manifest — build prompts ask models to return
+ *   {"path":"...","content":"...","operation":"create"}. If that's present
+ *   (directly, inside a code fence, or greedily from first '{'), extract
+ *   the content field only. This prevents raw JSON envelopes being written
+ *   to disk as the file content.
+ *
+ * Strategy 1: Largest markdown code fence (Claude --print mode).
+ * Strategy 2: Raw output when it looks like source code.
  */
 function extractFileContent(output: string): string {
-  // Strategy 1: Find the largest fenced code block
+  const text = output.trim();
+
+  // ── Strategy 0: JSON manifest extraction ──────────────────────────────────
+
+  // 0a: entire output is the manifest
+  const direct = tryParseManifest(text);
+  if (direct) return direct.content;
+
+  // 0b: manifest is inside a code fence
+  const fenceJson = /```(?:json)?\s*\n([\s\S]*?)\n```/m.exec(text);
+  if (fenceJson) {
+    const fromFence = tryParseManifest(fenceJson[1].trim());
+    if (fromFence) return fromFence.content;
+  }
+
+  // 0c: greedy — find first '{' and attempt parse from there
+  const jsonStart = text.indexOf("{");
+  if (jsonStart >= 0) {
+    const greedy = tryParseManifest(text.slice(jsonStart));
+    if (greedy) return greedy.content;
+  }
+
+  // ── Strategy 1: Largest fenced code block ─────────────────────────────────
   const fencePattern = /```[\w]*\n([\s\S]*?)```/g;
   let bestBlock = "";
   let match: RegExpExecArray | null;
@@ -430,8 +484,7 @@ function extractFileContent(output: string): string {
 
   if (bestBlock.length > 50) return bestBlock;
 
-  // Strategy 2: If output looks like raw code (no markdown prose),
-  // use it directly — Claude sometimes outputs bare code with --print
+  // ── Strategy 2: Raw code output (Claude --print bare code) ────────────────
   const lines = output.trim().split("\n");
   const codeIndicators = lines.filter(l =>
     /^(import |export |const |let |var |function |class |<|\/\/|\/\*|\{|\}|#|@|<!DOCTYPE)/.test(l.trim())
@@ -441,6 +494,6 @@ function extractFileContent(output: string): string {
     return output.trim();
   }
 
-  // Strategy 3: Nothing usable
+  // ── Strategy 3: Nothing usable ────────────────────────────────────────────
   return "";
 }
