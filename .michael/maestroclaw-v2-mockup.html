@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MaestroClaw V2 UX Direction — Mockup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Syne:wght@400..800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #08080a;
+            --void-2: #0e0e12;
+            --void-3: #15151c;
+            --gold: #c9a84c;
+            --gold-glow: rgba(201,168,76,0.1);
+            --gold-dim: rgba(201,168,76,0.4);
+            --text: #e8e6e0;
+            --text-muted: rgba(232, 230, 224, 0.4);
+            --border: rgba(255, 255, 255, 0.08);
+            --emerald: #4ebb7f;
+            --amber: #e0a94a;
+            --risk: #e05a5a;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--void);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+            font-size: 14px;
+        }
+
+        /* ─── Sidebar ─── */
+        .sidebar {
+            width: 240px;
+            background-color: rgba(0,0,0,0.2);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 16px 0;
+        }
+
+        .sidebar-section {
+            margin-bottom: 24px;
+        }
+
+        .sidebar-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text-muted);
+            padding: 0 16px 8px;
+            font-weight: 600;
+        }
+
+        .thread-item {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .thread-item:hover {
+            background-color: rgba(255,255,255,0.03);
+            color: white;
+        }
+
+        .thread-item.active {
+            color: var(--gold);
+            background-color: var(--gold-glow);
+            border-left: 2px solid var(--gold);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--gold);
+        }
+
+        /* ─── Main Content ─── */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* ─── Context Header ─── */
+        .header {
+            height: 48px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 10;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background-color: rgba(255,255,255,0.04);
+            color: rgba(255,255,255,0.5);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge.gold { color: var(--gold); background: var(--gold-glow); }
+        .badge.emerald { color: var(--emerald); background: rgba(78, 187, 127, 0.1); }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* ─── Chat Area ─── */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .message-group {
+            max-width: 800px;
+            margin: 0 auto;
+            width: 100%;
+            padding: 0 24px;
+        }
+
+        .message-header {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Concierge Bubble */
+        .bubble-concierge {
+            background-color: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            padding: 16px 20px;
+            border-radius: 12px;
+            border-bottom-left-radius: 2px;
+            line-height: 1.6;
+        }
+
+        .bubble-concierge h2 {
+            font-family: 'Syne', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--gold);
+            margin-bottom: 8px;
+        }
+
+        /* Ghost Terminal Bubble */
+        .bubble-terminal {
+            background-color: #050505;
+            border: 1px solid var(--emerald);
+            box-shadow: 0 0 15px rgba(78, 187, 127, 0.1);
+            padding: 0;
+            border-radius: 8px;
+            overflow: hidden;
+            font-family: 'DM Mono', monospace;
+        }
+
+        .terminal-header {
+            background-color: rgba(78, 187, 127, 0.1);
+            padding: 6px 12px;
+            font-size: 10px;
+            color: var(--emerald);
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(78, 187, 127, 0.2);
+        }
+
+        .terminal-body {
+            padding: 12px;
+            font-size: 12px;
+            color: var(--emerald);
+            line-height: 1.4;
+            position: relative;
+        }
+
+        .terminal-body::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, rgba(0,0,0,0.15) 1px, transparent 1px, transparent 2px);
+            pointer-events: none;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 14px;
+            background-color: var(--emerald);
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Diff Approval Card */
+        .diff-card {
+            background-color: rgba(224, 169, 74, 0.03);
+            border: 1px solid rgba(224, 169, 74, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 12px;
+        }
+
+        .diff-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .diff-title {
+            font-family: 'Syne', sans-serif;
+            font-weight: 600;
+            color: var(--amber);
+            font-size: 14px;
+        }
+
+        .diff-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            background: #000;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 12px;
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .diff-col { display: flex; flex-direction: column; }
+        .diff-line { padding: 2px 0; opacity: 0.5; white-space: pre; }
+        .diff-line.added { background: rgba(78, 187, 127, 0.1); color: var(--emerald); opacity: 1; }
+        .diff-line.removed { background: rgba(224, 90, 90, 0.1); color: var(--risk); opacity: 1; }
+
+        .diff-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background: var(--amber); color: var(--void); }
+        .btn-primary:hover { filter: brightness(1.1); }
+        .btn-ghost { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); }
+
+        /* ─── Composer ─── */
+        .composer {
+            border-top: 1px solid var(--border);
+            padding: 24px;
+            background-color: var(--void);
+        }
+
+        .composer-inner {
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .intent-bar {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+        }
+
+        .intent-selector {
+            width: 120px;
+            height: 48px;
+            background: rgba(224, 169, 74, 0.1);
+            border: 1px solid rgba(224, 169, 74, 0.2);
+            color: var(--amber);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .input-area {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px 16px;
+            min-height: 48px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .staged-command-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--amber);
+            opacity: 0.7;
+        }
+
+        .input-text {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            width: 100%;
+        }
+
+        .send-btn {
+            width: 48px;
+            height: 48px;
+            background: var(--amber);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--void);
+            cursor: pointer;
+        }
+
+        .nudge-tag {
+            position: absolute;
+            bottom: -18px;
+            right: 0;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-label">Active Threads</div>
+            <div class="thread-item">
+                <span class="status-dot"></span>
+                Concierge Spine
+            </div>
+            <div class="thread-item active">
+                <span class="status-dot" style="background-color: var(--emerald);"></span>
+                Build: Auth Layer
+            </div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-label">Recent Broadcasts</div>
+            <div class="thread-item">📡 Setup Strategy (4)</div>
+            <div class="thread-item">📡 Theme Config (3)</div>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="header">
+            <div class="header-left">
+                <div class="badge gold">
+                    <span class="pulse"></span>
+                    Concierge: Sonnet 4.6
+                </div>
+                <div class="badge emerald">
+                    <span class="pulse"></span>
+                    MaestroClaw: Online
+                </div>
+            </div>
+            <div class="badge">
+                📂 maestro-orch / main
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <!-- User Prompt -->
+            <div class="message-group" style="display: flex; justify-content: flex-end;">
+                <div style="background: var(--gold-glow); border: 1px solid var(--gold-dim); padding: 12px 18px; border-radius: 12px; border-bottom-right-radius: 2px; max-width: 70%; font-size: 13px;">
+                    Initialize the auth layer using Supabase. I need the provider and a custom hook.
+                </div>
+            </div>
+
+            <!-- Concierge Message -->
+            <div class="message-group">
+                <div class="message-header">🎙 Concierge</div>
+                <div class="bubble-concierge">
+                    <h2>Architecture Plan: Auth Layer</h2>
+                    I've designed the auth module. I'll need to install the Supabase client, scaffold the `AuthProvider.tsx`, and create the `useAuth` hook. Sending instructions to Claw now.
+                </div>
+            </div>
+
+            <!-- Ghost Terminal -->
+            <div class="message-group">
+                <div class="message-header">⚡ MaestroClaw Execution</div>
+                <div class="bubble-terminal">
+                    <div class="terminal-header">
+                        <span>maestro-orch — npm install</span>
+                        <span>0.8s elapsed</span>
+                    </div>
+                    <div class="terminal-body">
+                        $ npm install @supabase/supabase-js<br>
+                        <span style="opacity: 0.6;">added 14 packages, and audited 1202 packages in 3s</span><br>
+                        $ touch src/context/AuthContext.tsx<br>
+                        $ touch src/hooks/useAuth.ts<br>
+                        <span class="cursor"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Diff Approval Card -->
+            <div class="message-group">
+                <div class="message-header">🏗 Build Proposal</div>
+                <div class="diff-card">
+                    <div class="diff-header">
+                        <div class="diff-title">src/context/AuthContext.tsx</div>
+                        <div class="badge">12 lines added</div>
+                    </div>
+                    <div class="diff-container">
+                        <div class="diff-col">
+                            <div class="diff-line">...</div>
+                            <div class="diff-line removed">- export const Auth = () => {}</div>
+                            <div class="diff-line">...</div>
+                        </div>
+                        <div class="diff-col">
+                            <div class="diff-line">...</div>
+                            <div class="diff-line added">+ export function AuthProvider({ children }) {</div>
+                            <div class="diff-line added">+   const [user, setUser] = useState(null);</div>
+                            <div class="diff-line added">+   return &lt;AuthContext.Provider value={user}&gt;{children}&lt;/AuthContext.Provider&gt;</div>
+                            <div class="diff-line added">+ }</div>
+                        </div>
+                    </div>
+                    <div class="diff-actions">
+                        <button class="btn btn-primary">Approve & Write</button>
+                        <button class="btn btn-ghost">Tweak Code</button>
+                        <button class="btn btn-ghost">Reject</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Composer -->
+        <div class="composer">
+            <div class="composer-inner">
+                <div class="intent-bar">
+                    <div class="intent-selector">
+                        <span>⚡</span>
+                        Execute
+                    </div>
+                    <div class="input-area">
+                        <div class="staged-command-label">Staged Command</div>
+                        <input type="text" class="input-text" value="gh repo create maestro-auth-lib --public">
+                    </div>
+                    <div class="send-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    </div>
+                </div>
+                <div class="nudge-tag">Nudge MaestroClaw? Press <strong>Tab + N</strong></div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

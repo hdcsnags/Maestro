@@ -254,6 +254,46 @@ function normalizeChatBuildPlan(candidate: unknown): ChatBuildPlan {
   };
 }
 
+// ── Phase 5: Scope intelligence helpers ────────────────────────────────────
+
+const IGNORE_DIRS = new Set([
+  'node_modules', 'dist', 'build', 'coverage', 'out', '.git',
+  'public', 'static', 'assets', '__tests__', 'test', 'tests',
+]);
+
+const FRONTEND_DIRS = ['src', 'app', 'frontend', 'web', 'client', 'ui', 'pages', 'components'];
+const BACKEND_DIRS = ['server', 'api', 'backend', 'functions', 'services', 'lambda', 'workers'];
+
+/** Extract top-level dirs from ASCII tree lines (├──, └──, etc.) only — avoids false positives from import paths. */
+function extractTreeDirs(architectMd: string): string[] {
+  const found = new Set<string>();
+  const treePattern = /[├└]\s*(?:──\s*)?([a-z][a-z0-9_-]{0,30})(?:\/|$)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = treePattern.exec(architectMd)) !== null) {
+    const dir = m[1].toLowerCase();
+    if (!IGNORE_DIRS.has(dir)) found.add(dir);
+  }
+  return Array.from(found);
+}
+
+/**
+ * Suggest a primary build scope from ARCHITECT.md.
+ * Returns `{ primary, secondary }` globs — purely advisory, not runtime-enforced.
+ */
+function suggestSessionScope(architectMd: string | null | undefined): {
+  primary: string;
+  secondary: string | null;
+} {
+  if (!architectMd?.trim()) return { primary: '**', secondary: null };
+  const dirs = extractTreeDirs(architectMd);
+  const primaryDir = FRONTEND_DIRS.find((d) => dirs.includes(d));
+  const secondaryDir = BACKEND_DIRS.find((d) => dirs.includes(d));
+  return {
+    primary: primaryDir ? `${primaryDir}/**` : '**',
+    secondary: secondaryDir ? `${secondaryDir}/**` : null,
+  };
+}
+
 export function useThreads() {
   const { state, dispatch } = useMaestro();
   const { user, session: authSession } = useAuth();
@@ -1073,6 +1113,7 @@ export function useThreads() {
   }, [user, state.activeSession, state.conciergeModel, state.repoConnections, ensureAuth, addMessage, dispatch, resolveConciergeRuntime]);
 
   // Full build-from-chat flow: plan → review → build → commit
+
   const buildFromChat = useCallback(async (
     threadId: string,
     userMessage: string,
@@ -1139,6 +1180,30 @@ export function useThreads() {
         'system',
         `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Build (File by File)** or **Broadcast (Legacy)**.`,
       );
+
+      // Phase 5: Scope intelligence — advisory only, local backend only
+      if (buildSetup.executionBackend === 'local') {
+        const scopes = suggestSessionScope(state.activeSession?.architect_md);
+        const builderCount = buildSetup.lockedBuilderIds.length;
+
+        let scopeMsg = `🎯 **Suggested Session Build scope** (from ARCHITECT.md):\n\n`;
+        scopeMsg += `• Primary: \`${scopes.primary}\``;
+        if (scopes.secondary) {
+          scopeMsg += `\n• Backend: \`${scopes.secondary}\``;
+        }
+        scopeMsg += `\n\n`;
+
+        if (builderCount > 1) {
+          scopeMsg += `You have **${builderCount} builders** locked. Use **Session Build** in the Build workspace once per builder — assign each a scope manually from the list above. `;
+          scopeMsg += `Session Build runs one builder at a time; click it again after the first job completes.`;
+        } else {
+          scopeMsg += `In **Build workspace → Session Build**, paste \`${scopes.primary}\` as the scope.`;
+        }
+
+        scopeMsg += `\n\n_⚠️ Scope suggestion only — Claude can still write outside this path. Enforcement is a future improvement._`;
+
+        await addMessage(threadId, 'system', scopeMsg);
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       await addMessage(threadId, 'system', `❌ Build handoff error: ${errorMessage}`);

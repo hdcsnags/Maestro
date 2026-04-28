@@ -9,7 +9,7 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-04-17 (MaestroClaw control plane); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
+| Last verified deploy | `executor-api` deployed 2026-04-27 (context_bundle forwarding fix + Phase 5); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None verified 2026-04-21 |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
@@ -226,6 +226,7 @@ Legacy (unused): agent_skills, flags
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | **Partially addressed — Phases 1–4 shipped (commit `36ab1c7`); Phase 5 (Concierge scope intelligence) pending** |
+| **Claw Build v2 UX is split across chat and classic Build drawer**: Claw chat `buildFromChat()` routes users into Pre-Build/BuildWorkspace; session build controls appear inside the `task_building` stage instead of as a first-class Claw thread/workspace flow. This hides the session-granular model from users even though `build_session` dispatch exists in code. | 2026-04-27 (code verified) | Unassigned |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
 | **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | ✅ **Fixed in Phase 1 (commit `2dd4752`)** |
@@ -259,8 +260,8 @@ These areas change often and should be re-verified after any significant work se
 6. ~~**🔴 Claw Build v2 — Phase 2: Session adapter mode**~~ ✅ Done (commit `36ab1c7`)
 7. ~~**🔴 Claw Build v2 — Phase 3: Session executor**~~ ✅ Done (commit `36ab1c7`)
 8. ~~**🔴 Claw Build v2 — Phase 4: Web UI session dispatch**~~ ✅ Done (commit `36ab1c7`)
-9. **🔴 Claw Build v2 — Phase 5: Concierge scope intelligence** (`useThreads.ts`): Concierge reads ARCHITECT.md, proposes module splits, user approves. See CLAW_BUILD_V2_SPEC.md §Phase 5.
-10. **Smoke test `build_session` job end-to-end**: First real session build to verify `--dangerously-skip-permissions` works headlessly on Windows + `context_bundle` JSONB in `executor_jobs` is being forwarded by `executor-api`.
+9. ~~**🔴 Claw Build v2 — Phase 5: Concierge scope intelligence**~~ ✅ Done (this session)
+10. **Smoke test `build_session` job end-to-end**: First real session build to verify `--dangerously-skip-permissions` works headlessly on Windows + `context_bundle` JSONB in `executor_jobs` is confirmed forwarded by `executor-api` (fix now deployed).
 11. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
 12. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
 
@@ -269,6 +270,37 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Phase 5 + executor-api context_bundle fix
+
+**What was done**:
+1. **`executor-api` context_bundle fix**: Submit handler now accepts, normalizes, and INSERTs `context_bundle` (rejects arrays/primitives, accepts plain objects only). Previously silently dropped — `executor_jobs.context_bundle` was always `{}` despite the column existing since migration `20260418230000`. Redeployed.
+2. **Phase 5 — Concierge scope intelligence** (`useThreads.ts`): After confirming build setup, Concierge posts a scope suggestion message for local backends. Reads ARCHITECT.md ASCII tree (lines with `├` / `└`) to extract top-level dirs, maps them to `FRONTEND_DIRS` / `BACKEND_DIRS` constants, returns `primary` + optional `secondary` globs. Helpers (`extractTreeDirs`, `suggestSessionScope`) are module-level pure functions. Message labels all suggestions as advisory.
+3. **`.gitignore` patterns**: Added generalized MaestroClaw preserved-workspace patterns using character classes — `*-[0-9a-f]{8}/` and `[0-9a-f]{8}-*/` — instead of repo-name-specific globs. Cleans up 100+ `boombop-*`/`ctfstyled-*`/UUID dirs from `git status`.
+
+**Files touched**: `supabase/functions/executor-api/index.ts`, `src/hooks/useThreads.ts`, `.gitignore`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Phase 5 scoped down from multi-builder scope plan (rubber-duck flagged Session Build is single-run; multi-builder UX not ready). Advisory message only.
+- `agentToAdapter()` not implemented — adapter inference from agent provider is wrong (MaestroClaw builders use `agent.model`). Scope message deliberately omits adapter recommendation.
+- Module-level helpers placed above `useThreads()` hook to keep them pure and avoid `useCallback` overhead for pure functions.
+- `context_bundle` normalization: plain objects pass, arrays and primitives replaced with `{}` — matches Deno edge function behavior expectations.
+
+**What didn't work**: N/A — typecheck clean, deploy succeeded.
+
+**Known risks carried forward**: Scope suggestion is advisory only. `dispatchSessionLocal()` still submits `allowed_paths: ['**']`; actual enforcement is a future phase.
+
+
+
+**What was done**: Read `AGENTS.md`, `MAESTRO_STATE.md`, `CLAW_BUILD_V2_SPEC.md`, `CLAW_MODE_SPEC.md`, and `CLAW_UI_ISSUES.md`; inspected the classic workspace and Claw mode UI paths in code. Compared the current UI implementation against the session-granular Claw Build v2 direction and identified that Claw build UX still hands off from chat into the classic Build drawer, with session-build controls buried inside `task_building` instead of surfaced as a first-class Claw thread/workspace flow.
+
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treat Claw Build v2 as the product direction for local/CLI execution, not just an executor implementation detail.
+- Record the Claw chat/build drawer split as an incomplete UX issue because it is code-verified and directly affects the build experience.
+
+**What didn't work**: No tests or live browser smoke were run; this was a source-code UX audit only. Routine sandboxed shell reads failed with `windows sandbox: setup refresh failed`, so read commands were rerun with approved escalation.
 
 ### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Phases 2–4 Implementation
 

@@ -597,6 +597,7 @@ Deno.serve(async (req: Request) => {
         allowed_paths?: unknown;
         timeout_seconds?: number;
         build_task_id?: string | null;
+        context_bundle?: unknown;
       }>(req, corsHeaders, {
         maxBytes: EXECUTOR_API_BODY_LIMITS.submit,
         label: "Executor submit body",
@@ -614,6 +615,7 @@ Deno.serve(async (req: Request) => {
         allowed_paths,
         timeout_seconds,
         build_task_id,
+        context_bundle,
       } = body;
 
       const promptText = typeof prompt === "string" ? prompt.trim() : "";
@@ -644,6 +646,13 @@ Deno.serve(async (req: Request) => {
         typeof timeout_seconds === "number" && Number.isFinite(timeout_seconds)
           ? Math.max(30, Math.min(3600, Math.round(timeout_seconds)))
           : 300;
+      // Normalize context_bundle: only accept plain objects, reject arrays/primitives
+      const contextBundle =
+        context_bundle !== null &&
+        typeof context_bundle === "object" &&
+        !Array.isArray(context_bundle)
+          ? (context_bundle as Record<string, unknown>)
+          : {};
 
       const repoContextError = validateRepoContext(repoUrl, branchName);
       if (repoContextError) return err(repoContextError);
@@ -675,6 +684,7 @@ Deno.serve(async (req: Request) => {
           approved_at: approvalRequired ? null : now,
           approved_by: approvalRequired ? null : userId,
           build_task_id: build_task_id ?? null,
+          context_bundle: contextBundle,
         })
         .select()
         .single();

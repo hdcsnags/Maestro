@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maestro V2 Evolution Mockup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;700&family=Syne:wght@600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #08080a;
+            --void-2: #0e0e12;
+            --void-3: #15151c;
+            --gold: #c9a84c;
+            --gold-glow: rgba(201,168,76,0.1);
+            --gold-dim: rgba(201,168,76,0.4);
+            --text: #e8e6e0;
+            --text-muted: rgba(232, 230, 224, 0.4);
+            --border: rgba(255, 255, 255, 0.08);
+            --emerald: #4ebb7f;
+            --amber: #e0a94a;
+            --risk: #e05a5a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--void);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ─── Shared Components ─── */
+        .scrim {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at center, transparent 0%, rgba(0,0,0,0.4) 100%);
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .grain {
+            position: fixed;
+            inset: 0;
+            background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* ─── State 1: ORB (Resting) ─── */
+        #view-orb {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .orb-container {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            margin-bottom: 40px;
+        }
+
+        .orb {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 30%, rgba(255,224,150,0.95) 0%, rgba(201,168,76,0.85) 28%, rgba(140,108,40,0.55) 62%, rgba(60,42,12,0.15) 88%, transparent 100%);
+            box-shadow: 0 0 60px 10px rgba(201,168,76, 0.35), 0 0 140px 30px rgba(201,168,76, 0.18), inset 0 0 40px rgba(255,224,150,0.25);
+            animation: maestro-orb-idle 3.2s ease-in-out infinite;
+        }
+
+        @keyframes maestro-orb-idle {
+            0%, 100% { transform: scale(1); filter: brightness(1); }
+            50% { transform: scale(1.03); filter: brightness(1.08); }
+        }
+
+        .status-text {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            animation: fade-in 1s ease-out;
+        }
+
+        /* ─── State 2: Prompting ─── */
+        .composer-container {
+            width: 100%;
+            max-width: 720px;
+            margin: 0 auto 40px;
+            padding: 0 20px;
+            z-index: 10;
+        }
+
+        .composer {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 16px;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: text;
+        }
+
+        .composer:hover { border-color: rgba(201,168,76,0.3); }
+
+        .composer-placeholder {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* ─── State 3: Claw Mode (Thread) ─── */
+        #view-claw {
+            display: none;
+            height: 100vh;
+            background-color: var(--void);
+            flex-direction: row;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .sidebar {
+            width: 260px;
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            background: rgba(0,0,0,0.2);
+        }
+
+        .sidebar-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text-muted);
+            padding: 0 20px 10px;
+        }
+
+        .thread-item {
+            padding: 10px 20px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            border-left: 2px solid transparent;
+        }
+
+        .thread-item.active {
+            color: var(--gold);
+            background: var(--gold-glow);
+            border-left-color: var(--gold);
+        }
+
+        .chat-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 40px;
+            overflow-y: auto;
+        }
+
+        .message {
+            max-width: 700px;
+            margin-bottom: 30px;
+        }
+
+        .msg-header {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bubble {
+            padding: 18px 22px;
+            border-radius: 16px;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        .bubble-user {
+            background: var(--gold-glow);
+            border: 1px solid var(--gold-dim);
+            border-bottom-right-radius: 4px;
+            margin-left: auto;
+        }
+
+        .bubble-concierge {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* V2 Enhancement: Terminal Bubble */
+        .bubble-terminal {
+            background: #020202;
+            border: 1px solid var(--emerald);
+            font-family: 'DM Mono', monospace;
+            padding: 0;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .term-header {
+            background: rgba(78, 187, 127, 0.1);
+            padding: 6px 12px;
+            font-size: 10px;
+            color: var(--emerald);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .term-body {
+            padding: 12px;
+            color: var(--emerald);
+            font-size: 12px;
+            min-height: 80px;
+        }
+
+        /* V2 Enhancement: Diff Card */
+        .diff-card {
+            background: rgba(224, 169, 74, 0.04);
+            border: 1px solid rgba(224, 169, 74, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .diff-title { color: var(--amber); font-weight: 600; margin-bottom: 12px; font-size: 13px; }
+
+        .diff-view {
+            background: #000;
+            border-radius: 6px;
+            padding: 10px;
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .diff-line.added { color: var(--emerald); background: rgba(78, 187, 127, 0.1); }
+
+        .btn {
+            background: var(--gold);
+            color: var(--void);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 12px;
+            margin-top: 15px;
+            cursor: pointer;
+        }
+
+        /* ─── Animations ─── */
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .transitioning-out {
+            opacity: 0;
+            transform: scale(0.95);
+            filter: blur(10px);
+        }
+
+    </style>
+</head>
+<body>
+    <div class="scrim"></div>
+    <div class="grain"></div>
+
+    <!-- VIEW 1: ORB & PROMPT -->
+    <div id="view-orb">
+        <div class="orb-container">
+            <div class="orb"></div>
+        </div>
+        <div class="status-text">Council Standing By</div>
+
+        <div style="height: 100px;"></div>
+
+        <div class="composer-container">
+            <div class="composer" onclick="transitionToClaw()">
+                <div class="composer-placeholder">Talk to the council... (Try: "Check my project code")</div>
+            </div>
+            <div style="text-align: center; margin-top: 12px; color: var(--text-muted); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;">
+                Press Enter to broadcast
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 2: CLAW MODE -->
+    <div id="view-claw">
+        <div class="sidebar">
+            <div class="sidebar-label">Threads</div>
+            <div class="thread-item">Concierge Spine</div>
+            <div class="thread-item active">Analysis: Project Audit</div>
+            <div class="thread-item">Build: UI Polish</div>
+        </div>
+
+        <div class="chat-content">
+            <div class="message" style="margin-left: auto;">
+                <div class="msg-header" style="justify-content: flex-end;">You</div>
+                <div class="bubble bubble-user">
+                    Check my project code and borrow what you need from the ORB.
+                </div>
+            </div>
+
+            <div class="message">
+                <div class="msg-header">🎙 Concierge</div>
+                <div class="bubble bubble-concierge">
+                    <p>I've analyzed the current ORB implementation in <code>EmptyStage.tsx</code>. It's a sophisticated radial-gradient system with CSS keyframes for state transitions.</p>
+                    <p style="margin-top: 10px;">I'm preparing a V2 evolution that integrates <strong>Ghost Terminals</strong> and <strong>Diff Approval</strong> cards. Starting audit of local assets now...</p>
+                </div>
+            </div>
+
+            <!-- V2 GHOST TERMINAL -->
+            <div class="message">
+                <div class="msg-header">⚡ MaestroClaw Execution</div>
+                <div class="bubble-terminal">
+                    <div class="term-header">
+                        <span>maestro-orch — local-audit</span>
+                        <span>0.4s</span>
+                    </div>
+                    <div class="term-body">
+                        $ grep -r "ORB_CONFIG" src/components/reveal/<br>
+                        src/components/reveal/EmptyStage.tsx: const ORB_CONFIG...<br>
+                        $ ls .michael/<br>
+                        maestroclaw-v2-mockup.html<br>
+                        $ cat tailwind.config.js | grep "gold"<br>
+                        gold: { DEFAULT: '#c9a84c', ... }
+                    </div>
+                </div>
+            </div>
+
+            <!-- V2 DIFF CARD -->
+            <div class="message">
+                <div class="msg-header">🏗 Build Proposal</div>
+                <div class="diff-card">
+                    <div class="diff-title">src/components/reveal/ClawMode.tsx — V2 Enhancements</div>
+                    <div class="diff-view">
+                        <div>
+                            <div style="opacity: 0.3;">...</div>
+                            <div style="opacity: 0.3;">&lt;textarea&gt;</div>
+                        </div>
+                        <div>
+                            <div style="opacity: 0.3;">...</div>
+                            <div class="diff-line added">+ &lt;GhostTerminal stream={activeJob} /&gt;</div>
+                            <div class="diff-line added">+ &lt;DiffApproval plan={buildPlan} /&gt;</div>
+                        </div>
+                    </div>
+                    <button class="btn">Confirm V2 Evolution</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function transitionToClaw() {
+            const orbView = document.getElementById('view-orb');
+            const clawView = document.getElementById('view-claw');
+
+            orbView.classList.add('transitioning-out');
+
+            setTimeout(() => {
+                orbView.style.display = 'none';
+                clawView.style.display = 'flex';
+                setTimeout(() => {
+                    clawView.style.opacity = '1';
+                    clawView.style.transform = 'translateY(0)';
+                }, 50);
+            }, 600);
+        }
+    </script>
+</body>
+</html>
