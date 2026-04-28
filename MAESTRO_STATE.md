@@ -226,7 +226,7 @@ Legacy (unused): agent_skills, flags
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | **Partially addressed — Phases 1–4 shipped (commit `36ab1c7`); Phase 5 (Concierge scope intelligence) pending** |
-| **Claw Build v2 UX is split across chat and classic Build drawer**: Claw chat `buildFromChat()` routes users into Pre-Build/BuildWorkspace; session build controls appear inside the `task_building` stage instead of as a first-class Claw thread/workspace flow. This hides the session-granular model from users even though `build_session` dispatch exists in code. | 2026-04-27 (code verified) | Unassigned |
+| **Claw Build v2 UX is split across chat and classic Build drawer**: Claw chat `buildFromChat()` routes users into Pre-Build/BuildWorkspace; session build controls appear inside the `task_building` stage instead of as a first-class Claw thread/workspace flow. This hides the session-granular model from users even though `build_session` dispatch exists in code. | 2026-04-27 (code verified) | ✅ **Fixed — commit `ef41036`** (in-thread ClawBuildSessionCard, routing bar, category message styling) |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
 | **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | ✅ **Fixed in Phase 1 (commit `2dd4752`)** |
@@ -262,9 +262,9 @@ These areas change often and should be re-verified after any significant work se
 8. ~~**🔴 Claw Build v2 — Phase 4: Web UI session dispatch**~~ ✅ Done (commit `36ab1c7`)
 9. ~~**🔴 Claw Build v2 — Phase 5: Concierge scope intelligence**~~ ✅ Done (this session)
 10. **Smoke test `build_session` job end-to-end**: First real session build to verify `--dangerously-skip-permissions` works headlessly on Windows + `context_bundle` JSONB in `executor_jobs` is confirmed forwarded by `executor-api` (fix now deployed).
-11. **🔴 UX: Claw build-session cards in-thread** (Codex #1 priority): Move build progress OUT of classic Build drawer into Claw mode as first-class event cards. `Plan → Scope → Execute → Review → Push` runway in-thread. One module card per builder with agent/adapter/scope/status/files/job ID.
-12. **UX: Premium event cards** (Codex #2): Replace emoji system messages in `useThreads.ts` with typed event card components (execution approval, command, build-session, file manifest, error/retry, PR).
-13. **UX: Segmented routing bar** (Codex #3): Replace hidden composer intent dropdown with visible routing bar above composer — Chat / Broadcast / Execute / Build with one-line consequence description.
+11. ~~**🔴 UX: Claw build-session cards in-thread**~~ ✅ Done (commit `ef41036`): `ClawBuildSessionCard` in-thread for local backend; auto/edge still use drawer.
+12. ~~**UX: Premium event cards**~~ ✅ Done (commit `ef41036`): category-based system message styling with `detectSystemCategory()`.
+13. ~~**UX: Segmented routing bar**~~ ✅ Done (commit `ef41036`): full-width routing bar above composer; `role="radiogroup"` + arrow-key nav; consequence label per intent.
 14. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
 15. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
 
@@ -273,6 +273,28 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-28 — GitHub Copilot (Claude Sonnet 4.6) — UX Phases 1–3: In-thread build card + category messages + routing bar
+
+**What was done**:
+1. **Phase 1 — In-thread build session card** (`ClawBuildSessionCard.tsx`, new file): Self-contained component that submits a `build_session` job to `executor-api`, polls `executor_jobs` via Supabase, shows adapter/scope config + executor online check + progress/success/failure states. On remount, re-attaches to `activeJobId` stored in context. On success: "Push via Build Workspace" CTA. Context stores `ClawBuildSessionState` with `threadId`, `builderNames`, `suggestedScope`, `executionBackend`, `activeJobId`.
+2. **Phase 1 — buildFromChat fork** (`useThreads.ts`): For `executionBackend === 'local'`, dispatches `SET_CLAW_BUILD_SESSION` and posts a success system message. For `auto`/`edge`, preserves existing `SET_BUILD_DRAWER_EXPANDED` path. Running-build guard updated to check `state.clawBuildSession` for local vs. drawer.
+3. **Phase 1 — BuildWorkspace gate** (`BuildWorkspace.tsx`): Auto-expand effect now guards with `&& !state.clawBuildSession` so drawer does not open when the in-thread card is active.
+4. **Phase 2 — Category-based system message styling** (`ClawMode.tsx`): `detectSystemCategory()` maps emoji prefix to `build | execute | approval | pr | error | info`. Each category gets distinct border, background, icon, and text color. `whiteSpace: pre-wrap` ensures newlines render without ReactMarkdown.
+5. **Phase 3 — Segmented routing bar** (`ClawMode.tsx`): Replaced intent dropdown + all associated state/refs/effects/handlers with a full-width segmented `role="radiogroup"` bar. Arrow key navigation via `handleRoutingKeyDown`. Active intent shows consequence label below bar ("Answer appears in thread", etc.). Added `consequence` field to `IntentConfig` + all `INTENT_CONFIG` entries.
+6. **Types + context** (`src/types/index.ts`, `src/context/MaestroContext.tsx`): `ClawBuildSessionState` interface added; `clawBuildSession` state field; `SET_CLAW_BUILD_SESSION` action; cleared in `SET_ACTIVE_SESSION` reducer block.
+
+**Files touched**: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/hooks/useThreads.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/ClawBuildSessionCard.tsx` (new), `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Card does NOT use `useBuildExecution` to avoid dual-instance state loss on thread switch; reimplements polling inline.
+- `executionBackend === 'auto'` and `'edge'` keep existing drawer path unchanged — no regression.
+- BuildWorkspace auto-expand gated rather than removed — still needed for auto/edge builds.
+- Phase 3 a11y: `role="radiogroup"` / `role="radio"` with arrow key nav per WAI-ARIA spec.
+
+**What didn't work**: N/A — typecheck clean (`npm run typecheck` exit 0), pushed to `ef41036`.
+
+**Known risks carried forward**: ClawBuildSessionCard shows "Push via Build Workspace" CTA — artifact→GitHub bridge still not wired end-to-end for session builds (next logical step #14).
 
 ### 2026-04-27 — GitHub Copilot (Claude Sonnet 4.6) — Claw Build v2 Phase 5 + executor-api context_bundle fix
 
