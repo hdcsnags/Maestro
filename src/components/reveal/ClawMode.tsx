@@ -677,7 +677,13 @@ export default function ClawMode() {
 
   const handleExecute = useCallback(async () => {
     const text = input.trim();
-    if (!text || state.isConciergeSending) return;
+    if (!text) return;
+
+    if (state.isConciergeSending) {
+      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — a request is still in progress.' });
+      return;
+    }
+
     setInput('');
 
     // Ensure we have a concierge thread
@@ -730,7 +736,13 @@ export default function ClawMode() {
 
   const handleBuild = useCallback(async () => {
     const text = input.trim();
-    if (!text || state.isConciergeSending) return;
+    if (!text) return;
+
+    if (state.isConciergeSending) {
+      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — a request is still in progress.' });
+      return;
+    }
+
     setInput('');
 
     const threadId = state.activeThread?.id;

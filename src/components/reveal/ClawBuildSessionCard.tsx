@@ -26,8 +26,8 @@ interface JobRow {
 // ─── Constants ────────────────────────────────────────────────
 const ADAPTERS = [
   { value: 'claude_code', label: 'Claude Code' },
-  { value: 'codex', label: 'OpenAI Codex' },
-  { value: 'copilot', label: 'GitHub Copilot' },
+  { value: 'codex_cli', label: 'OpenAI Codex' },
+  { value: 'copilot_cli', label: 'GitHub Copilot' },
 ];
 
 const STALE_MS = 60_000;
@@ -197,11 +197,25 @@ export default function ClawBuildSessionCard({ session }: { session: ClawBuildSe
     dispatch, pollJob,
   ]);
 
-  const handleAbort = useCallback(() => {
+  const handleAbort = useCallback(async () => {
     abortRef.current = true;
+
+    // Cancel the remote job if we have an ID
+    if (session.activeJobId) {
+      try {
+        await supabase
+          .from('executor_jobs')
+          .update({ status: 'cancelled' } as never)
+          .eq('id', session.activeJobId)
+          .eq('status', 'running');
+      } catch {
+        // best-effort — local abort still fires
+      }
+    }
+
     setPhase('failed');
     setErrorText('Aborted by user');
-  }, []);
+  }, [session.activeJobId]);
 
   const handleDismiss = useCallback(() => {
     abortRef.current = true;

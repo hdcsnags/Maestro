@@ -816,6 +816,28 @@ export function useThreads() {
   ): Promise<void> => {
     if (!user || !state.activeSession) return;
 
+    // Pre-flight: check that at least one executor is online before burning an LLM call
+    const hasOnlineExecutor = state.executors.some(ex => {
+      if (ex.status !== 'online') return false;
+      if (!ex.last_seen_at) return false;
+      return Date.now() - new Date(ex.last_seen_at).getTime() < 60_000;
+    });
+    if (!hasOnlineExecutor) {
+      await addMessage(threadId, 'system',
+        '⚠️ No executor is currently online.\n\nStart MaestroClaw on your local machine, then try again. Check the Vault → Executors panel for status.'
+      );
+      return;
+    }
+
+    // Pre-flight: check that at least one AI provider is connected to parse the intent
+    const hasConciergeProvider = state.providerConnections.some(c => c.is_connected);
+    if (!hasConciergeProvider) {
+      await addMessage(threadId, 'system',
+        '⚠️ No AI provider is connected.\n\nAdd an API key in Vault to allow Maestro to parse your execution intent.'
+      );
+      return;
+    }
+
     dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
 
     try {
@@ -827,7 +849,9 @@ export function useThreads() {
       const intent = await parseExecutionIntent(userMessage);
 
       if (!intent) {
-        await addMessage(threadId, 'system', '❌ Could not parse execution intent. Try rephrasing.');
+        await addMessage(threadId, 'system',
+          '❌ Could not parse execution intent.\n\nMake sure your Anthropic or OpenAI key is connected in Vault. Try rephrasing the command more specifically (e.g. "run npm install" or "list files in src/").'
+        );
         return;
       }
 
@@ -871,7 +895,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, addMessage, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
+  }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
   // ─── Build from Chat (Phase 3) ──────────────────────────────
 
