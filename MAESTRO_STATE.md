@@ -290,9 +290,9 @@ These areas change often and should be re-verified after any significant work se
 
 **Known risks carried forward**: Scope suggestion is advisory only. `dispatchSessionLocal()` still submits `allowed_paths: ['**']`; actual enforcement is a future phase.
 
+### 2026-04-27 — OpenAI Codex — Claw/Classic UX Audit
 
-
-**What was done**: Read `AGENTS.md`, `MAESTRO_STATE.md`, `CLAW_BUILD_V2_SPEC.md`, `CLAW_MODE_SPEC.md`, and `CLAW_UI_ISSUES.md`; inspected the classic workspace and Claw mode UI paths in code. Compared the current UI implementation against the session-granular Claw Build v2 direction and identified that Claw build UX still hands off from chat into the classic Build drawer, with session-build controls buried inside `task_building` instead of surfaced as a first-class Claw thread/workspace flow.
+**What was done**: Read `AGENTS.md`, `MAESTRO_STATE.md`, `CLAW_BUILD_V2_SPEC.md`, `CLAW_MODE_SPEC.md`, and `CLAW_UI_ISSUES.md`;inspected the classic workspace and Claw mode UI paths in code. Compared the current UI implementation against the session-granular Claw Build v2 direction and identified that Claw build UX still hands off from chat into the classic Build drawer, with session-build controls buried inside `task_building` instead of surfaced as a first-class Claw thread/workspace flow.
 
 **Files touched**: `MAESTRO_STATE.md`
 
