@@ -1158,7 +1158,7 @@ export function useThreads() {
         await addMessage(
           threadId,
           'system',
-          '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Build (File by File)** to dispatch tasks to your locked builders.',
+          '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Start Build** to dispatch tasks to your locked builders.',
         );
       }
       return;
@@ -1232,7 +1232,7 @@ export function useThreads() {
         await addMessage(
           threadId,
           'system',
-          `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Build (File by File)** or **Broadcast (Legacy)**.`,
+          `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Start Build** or **Broadcast (Legacy)**.`,
         );
       }
     } catch (err) {

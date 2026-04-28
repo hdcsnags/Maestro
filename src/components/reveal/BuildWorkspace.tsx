@@ -1325,7 +1325,7 @@ export default function BuildWorkspace() {
                   onClick={handleTaskBuild}
                 >
                   <FileCode size={14} />
-                  Build (File by File)
+                  Start Build
                 </button>
                 <button
                   className="reveal-pill"

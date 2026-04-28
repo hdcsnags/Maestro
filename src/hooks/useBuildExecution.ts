@@ -740,17 +740,28 @@ export function useBuildExecution() {
           t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped'
         ).length;
 
-        // Build one batch: one task per unique lane owner, all dispatched concurrently.
-        // This lets every builder work in parallel without an artificial cap.
+        // Build one batch of tasks to dispatch concurrently.
+        //
+        // Local/executor tasks: dispatch ALL ready tasks at once. The executor's
+        // maxConcurrentJobs cap is the real throttle — the web side just submits and polls.
+        // Submitting everything immediately lets both executors drain the queue in parallel
+        // without waiting for wave-by-wave roundtrips.
+        //
+        // Edge tasks: cap to one per lane owner to respect cloud provider rate limits.
         const batch: BuildTask[] = [];
-        const seenOwners = new Set<string>();
+        const seenEdgeOwners = new Set<string>();
 
         for (const task of ready) {
           if (abortRef.current) break;
-          const ownerId = task.lane_owner ?? '';
-          if (!seenOwners.has(ownerId)) {
+          const isLocal = resolveBackend(task) === 'local';
+          if (isLocal) {
             batch.push(task);
-            seenOwners.add(ownerId);
+          } else {
+            const ownerId = task.lane_owner ?? '';
+            if (!seenEdgeOwners.has(ownerId)) {
+              batch.push(task);
+              seenEdgeOwners.add(ownerId);
+            }
           }
         }
 
@@ -773,7 +784,7 @@ export function useBuildExecution() {
       isRunningRef.current = false;
       setIsRunning(false);
     }
-  }, [dispatchTask, state.activeSession?.id]);
+  }, [dispatchTask, resolveBackend, state.activeSession?.id]);
 
   // ── Manual actions ───────────────────────────────────────────────────
 
