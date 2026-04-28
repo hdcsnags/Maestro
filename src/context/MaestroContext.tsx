@@ -5,7 +5,7 @@ import {
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
-  ClawView, ExecutionIntent, ChatBuildPlan, ChatBuildPhase,
+  ClawView, ExecutionIntent, ChatBuildPlan, ChatBuildPhase, ClawBuildSessionState,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -63,6 +63,7 @@ export interface MaestroState {
   chatBuildPlan: ChatBuildPlan | null;
   chatBuildPhase: ChatBuildPhase;
   buildDrawerExpanded: boolean;
+  clawBuildSession: ClawBuildSessionState | null;
 }
 
 type Action =
@@ -139,7 +140,8 @@ type Action =
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
   | { type: 'SET_CHAT_BUILD_PLAN'; payload: ChatBuildPlan | null }
   | { type: 'SET_CHAT_BUILD_PHASE'; payload: ChatBuildPhase }
-  | { type: 'SET_BUILD_DRAWER_EXPANDED'; payload: boolean };
+  | { type: 'SET_BUILD_DRAWER_EXPANDED'; payload: boolean }
+  | { type: 'SET_CLAW_BUILD_SESSION'; payload: ClawBuildSessionState | null };
 
 const initial: MaestroState = {
   workspace: null,
@@ -193,6 +195,7 @@ const initial: MaestroState = {
   chatBuildPlan: null,
   chatBuildPhase: 'idle',
   buildDrawerExpanded: false,
+  clawBuildSession: null,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -246,6 +249,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         threads: [],
         threadMessages: [],
         activeThread: null,
+        clawBuildSession: null,
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -368,6 +372,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_CHAT_BUILD_PLAN': return { ...state, chatBuildPlan: action.payload };
     case 'SET_CHAT_BUILD_PHASE': return { ...state, chatBuildPhase: action.payload };
     case 'SET_BUILD_DRAWER_EXPANDED': return { ...state, buildDrawerExpanded: action.payload };
+    case 'SET_CLAW_BUILD_SESSION': return { ...state, clawBuildSession: action.payload };
     default: return state;
   }
 }

@@ -352,6 +352,15 @@ export interface ExecutorJob {
   completed_at: string | null;
 }
 
+// ─── Claw Build Session State (in-thread card) ──────────────
+export interface ClawBuildSessionState {
+  threadId: string;
+  builderNames: string[];
+  suggestedScope: string;
+  executionBackend: 'local' | 'auto' | 'edge';
+  activeJobId: string | null;
+}
+
 export interface ExecutionRun {
   id: string;
   session_id: string;

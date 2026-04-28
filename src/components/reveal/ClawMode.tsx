@@ -8,11 +8,13 @@ import { useOrchestration } from '../../hooks/useOrchestration';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread, type ChatBuildPhase } from '../../types';
 import FolioCarousel from './FolioCarousel';
+import ClawBuildSessionCard from './ClawBuildSessionCard';
 
 type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
 
 interface IntentConfig {
   label: string;
+  consequence: string;
   Icon: LucideIcon;
   actionIcon: LucideIcon;
   color: string;
@@ -24,6 +26,7 @@ interface IntentConfig {
 const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
   chat: {
     label: 'Chat',
+    consequence: 'Answer appears in thread',
     Icon: MessageSquare,
     actionIcon: Send,
     color: 'text-white/80',
@@ -33,6 +36,7 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
   },
   broadcast: {
     label: 'Broadcast',
+    consequence: 'Asks all active council agents',
     Icon: Radio,
     actionIcon: Radio,
     color: 'text-white/70',
@@ -42,6 +46,7 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
   },
   execute: {
     label: 'Execute',
+    consequence: 'Runs command via local executor',
     Icon: Zap,
     actionIcon: Zap,
     color: 'text-signal-warn/90',
@@ -51,6 +56,7 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
   },
   build: {
     label: 'Build',
+    consequence: 'Generates repo changes',
     Icon: Hammer,
     actionIcon: Hammer,
     color: 'text-signal-ok/90',
@@ -70,7 +76,7 @@ const THREAD_GROUPS = [
 const iconButtonClass = 'p-1.5 rounded-lg hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const headerButtonClass = 'flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
-const menuKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
+const routingKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -119,7 +125,6 @@ export default function ClawMode() {
     () => typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches,
   );
   const [composerIntent, setComposerIntent] = useState<ComposerIntent>('chat');
-  const [intentMenuOpen, setIntentMenuOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -127,9 +132,7 @@ export default function ClawMode() {
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const intentButtonRef = useRef<HTMLButtonElement>(null);
-  const intentRef = useRef<HTMLDivElement>(null);
-  const intentOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const routingBarRef = useRef<Array<HTMLButtonElement | null>>([]);
   const executionApprovalRef = useRef<HTMLDivElement>(null);
   const buildApprovalRef = useRef<HTMLDivElement>(null);
 
@@ -195,27 +198,6 @@ export default function ClawMode() {
       modelOptionRefs.current[selectedIndex]?.focus();
     });
   }, [modelPickerOpen, state.conciergeModel]);
-
-  // Close intent menu on click outside
-  useEffect(() => {
-    if (!intentMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (intentRef.current && !intentRef.current.contains(e.target as Node)) {
-        setIntentMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [intentMenuOpen]);
-
-  useEffect(() => {
-    if (!intentMenuOpen) return;
-    const selectedIndex = menuKeys.findIndex((intent) => intent === composerIntent && (intent !== 'build' || hasRepo));
-    const fallbackIndex = menuKeys.findIndex((intent) => intent !== 'build' || hasRepo);
-    requestAnimationFrame(() => {
-      intentOptionRefs.current[Math.max(selectedIndex, fallbackIndex, 0)]?.focus();
-    });
-  }, [intentMenuOpen, composerIntent, hasRepo]);
 
   // Below md, the thread sidebar behaves as an overlay instead of consuming the layout.
   useEffect(() => {
@@ -466,13 +448,6 @@ export default function ClawMode() {
 
   const handleDialogKeyDownCapture = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
-      if (intentMenuOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setIntentMenuOpen(false);
-        intentButtonRef.current?.focus();
-        return;
-      }
       if (modelPickerOpen) {
         e.preventDefault();
         e.stopPropagation();
@@ -504,7 +479,7 @@ export default function ClawMode() {
 
     e.preventDefault();
     focusable[nextIndex]?.focus();
-  }, [dispatch, intentMenuOpen, isMobile, modelPickerOpen, sidebarOpen]);
+  }, [dispatch, isMobile, modelPickerOpen, sidebarOpen]);
 
   const handleModelPickerButtonKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowDown', 'Enter', ' '].includes(e.key)) return;
@@ -546,49 +521,32 @@ export default function ClawMode() {
     }
   }, []);
 
-  const handleIntentButtonKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!['ArrowDown', 'Enter', ' '].includes(e.key)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setIntentMenuOpen(true);
-  }, []);
-
-  const handleIntentOptionKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const enabledIndices = menuKeys
-      .map((intent, menuIndex) => ({ intent, menuIndex }))
+  const handleRoutingKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const enabledIndices = routingKeys
+      .map((intent, i) => ({ intent, i }))
       .filter(({ intent }) => intent !== 'build' || hasRepo)
-      .map(({ menuIndex }) => menuIndex);
-    const enabledPosition = Math.max(enabledIndices.indexOf(index), 0);
+      .map(({ i }) => i);
+    const enabledPos = Math.max(enabledIndices.indexOf(index), 0);
 
-    if (e.key === 'ArrowDown') {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
-      e.stopPropagation();
-      intentOptionRefs.current[enabledIndices[(enabledPosition + 1) % enabledIndices.length]]?.focus();
-      return;
-    }
-    if (e.key === 'ArrowUp') {
+      const nextIdx = enabledIndices[(enabledPos + 1) % enabledIndices.length];
+      routingBarRef.current[nextIdx]?.focus();
+      setComposerIntent(routingKeys[nextIdx]);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
-      e.stopPropagation();
-      intentOptionRefs.current[enabledIndices[(enabledPosition - 1 + enabledIndices.length) % enabledIndices.length]]?.focus();
-      return;
-    }
-    if (e.key === 'Home') {
+      const prevIdx = enabledIndices[(enabledPos - 1 + enabledIndices.length) % enabledIndices.length];
+      routingBarRef.current[prevIdx]?.focus();
+      setComposerIntent(routingKeys[prevIdx]);
+    } else if (e.key === 'Home') {
       e.preventDefault();
-      e.stopPropagation();
-      intentOptionRefs.current[enabledIndices[0]]?.focus();
-      return;
-    }
-    if (e.key === 'End') {
+      routingBarRef.current[enabledIndices[0]]?.focus();
+      setComposerIntent(routingKeys[enabledIndices[0]]);
+    } else if (e.key === 'End') {
       e.preventDefault();
-      e.stopPropagation();
-      intentOptionRefs.current[enabledIndices[enabledIndices.length - 1]]?.focus();
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      setIntentMenuOpen(false);
-      intentButtonRef.current?.focus();
+      const last = enabledIndices[enabledIndices.length - 1];
+      routingBarRef.current[last]?.focus();
+      setComposerIntent(routingKeys[last]);
     }
   }, [hasRepo]);
 
@@ -835,7 +793,6 @@ export default function ClawMode() {
     : 'Talk to Concierge...';
 
   const intentCfg = INTENT_CONFIG[composerIntent];
-  const IntentIcon = intentCfg.Icon;
   const SubmitIcon = intentCfg.actionIcon;
   const SurfaceIcon = surfaceState.Icon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
@@ -1285,6 +1242,12 @@ export default function ClawMode() {
                 </div>
               )}
 
+              {/* In-thread build session card (local executor) */}
+              {state.clawBuildSession &&
+               state.clawBuildSession.threadId === state.activeThread?.id && (
+                <ClawBuildSessionCard session={state.clawBuildSession} />
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -1372,121 +1335,104 @@ export default function ClawMode() {
 
       {/* ─── Intent-First Composer ──────────────────────────── */}
       <div className="relative z-10 border-t border-white/[0.06] px-4 py-3">
-        <div className="flex flex-wrap items-end gap-2 max-w-4xl mx-auto sm:flex-nowrap">
-          {/* Intent selector */}
-          <div ref={intentRef} style={{ position: 'relative' }} className="order-2 sm:order-none">
-            <button
-              ref={intentButtonRef}
-              onClick={() => setIntentMenuOpen(!intentMenuOpen)}
-              onKeyDown={handleIntentButtonKeyDown}
-              className={`flex items-center gap-1.5 px-3 h-10 rounded-xl ${intentCfg.bg} border ${intentCfg.border}
-                         ${intentCfg.color} transition-all text-xs font-medium flex-shrink-0 ${focusRingClass}`}
-              aria-expanded={intentMenuOpen}
-              aria-haspopup="menu"
-              aria-label={`Composer intent: ${intentCfg.label}`}
-            >
-              <IntentIcon size={14} />
-              <span className="hidden sm:inline">{intentCfg.label}</span>
-              <ChevronDown size={11} className={`transition-transform ${intentMenuOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {intentMenuOpen && (
-              <div
-                style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, width: 180, maxWidth: 'calc(100vw - 32px)', zIndex: 9999 }}
-                className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
-                role="menu"
-                aria-label="Composer intents"
-              >
-                {menuKeys.map((intent, index) => {
-                  const cfg = INTENT_CONFIG[intent];
-                  const MenuIcon = cfg.Icon;
-                  const disabled = intent === 'build' && !hasRepo;
-                  return (
-                    <button
-                      key={intent}
-                      ref={(element) => { intentOptionRefs.current[index] = element; }}
-                      onClick={() => { if (!disabled) { setComposerIntent(intent); setIntentMenuOpen(false); } }}
-                      onKeyDown={(e) => handleIntentOptionKeyDown(e, index)}
-                      disabled={disabled}
-                      role="menuitemradio"
-                      aria-checked={composerIntent === intent}
-                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center gap-2 ${focusRingClass}
-                        ${composerIntent === intent ? 'bg-gold/10 text-gold' : 'text-white/60 hover:bg-white/5 hover:text-white/80'}
-                        ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
-                    >
-                      <MenuIcon size={14} />
-                      <span>{cfg.label}</span>
-                      {disabled && <span className="text-[10px] text-white/60 ml-auto">No repo</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+        <div className="max-w-4xl mx-auto space-y-2">
+          {/* Routing bar — segmented primary mode selector */}
+          <div
+            role="radiogroup"
+            aria-label="Composer intent"
+            className="flex items-center gap-1 rounded-xl bg-white/[0.03] border border-white/[0.07] p-1"
+          >
+            {routingKeys.map((intent, index) => {
+              const cfg = INTENT_CONFIG[intent];
+              const BarIcon = cfg.Icon;
+              const isActive = composerIntent === intent;
+              const disabled = intent === 'build' && !hasRepo;
+              return (
+                <button
+                  key={intent}
+                  ref={(el) => { routingBarRef.current[index] = el; }}
+                  role="radio"
+                  aria-checked={isActive}
+                  disabled={disabled}
+                  onClick={() => { if (!disabled) setComposerIntent(intent); }}
+                  onKeyDown={(e) => handleRoutingKeyDown(e, index)}
+                  title={disabled ? `${cfg.label} — requires a connected repo` : cfg.consequence}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium
+                             transition-all ${focusRingClass}
+                             ${isActive
+                               ? `${cfg.bg} ${cfg.color} border ${cfg.border}`
+                               : 'text-white/45 hover:text-white/70 hover:bg-white/[0.05]'}
+                             ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <BarIcon size={12} />
+                  <span className="hidden sm:inline">{cfg.label}</span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Input */}
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            rows={1}
-            className={`order-1 basis-full sm:order-none sm:basis-auto sm:flex-1 resize-none rounded-xl border
-                       px-4 py-3 text-sm text-white/90 placeholder:text-white/60
-                       focus:outline-none focus:ring-2
-                       transition-all min-h-[44px] max-h-[200px] ${modeTheme.input}`}
-            style={{ height: 'auto', overflow: 'hidden' }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = 'auto';
-              el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-            }}
-          />
+          {/* Active intent consequence label */}
+          <div className="text-[10px] text-white/40 px-1">
+            {intentCfg.consequence}
+            {composerIntent === 'build' && !hasRepo && <span className="text-signal-risk/60 ml-1">— connect a repo in Vault first</span>}
+          </div>
 
-          {/* Send button */}
-          <button
-            onClick={() => {
-              if (composerIntent === 'chat') handleSend();
-              else if (composerIntent === 'broadcast') handleBroadcast();
-              else if (composerIntent === 'execute') handleExecute();
-              else if (composerIntent === 'build') handleBuild();
-            }}
-            disabled={!input.trim() || state.isConciergeSending || state.isBroadcasting}
-            className={`flex items-center justify-center w-10 h-10 rounded-xl ${intentCfg.bg}
-                       ${intentCfg.buttonText} disabled:opacity-30 disabled:cursor-not-allowed
-                       transition-all flex-shrink-0 hover:brightness-110 ${focusRingClass}`}
-            aria-label={`${intentCfg.label} (Enter)`}
-            title={`${intentCfg.label} (Enter)`}
-          >
-            <SubmitIcon size={15} />
-          </button>
+          {/* Textarea + send row */}
+          <div className="flex items-end gap-2">
+            {/* Input */}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              rows={1}
+              className={`flex-1 resize-none rounded-xl border
+                         px-4 py-3 text-sm text-white/90 placeholder:text-white/60
+                         focus:outline-none focus:ring-2
+                         transition-all min-h-[44px] max-h-[200px] ${modeTheme.input}`}
+              style={{ height: 'auto', overflow: 'hidden' }}
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = 'auto';
+                el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+              }}
+            />
 
-          {/* Synthesize — contextual, appears when responses exist */}
-          {latestRound && latestResponses.length > 0 && (
+            {/* Send button */}
             <button
-              onClick={handleSynthesize}
-              disabled={state.isSynthesizing}
-              className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                         hover:bg-white/[0.08] text-white/70 hover:text-white/85
-                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-              aria-label="Synthesize responses"
-              title="Synthesize responses"
+              onClick={() => {
+                if (composerIntent === 'chat') handleSend();
+                else if (composerIntent === 'broadcast') handleBroadcast();
+                else if (composerIntent === 'execute') handleExecute();
+                else if (composerIntent === 'build') handleBuild();
+              }}
+              disabled={!input.trim() || state.isConciergeSending || state.isBroadcasting}
+              className={`flex items-center justify-center w-10 h-10 rounded-xl ${intentCfg.bg}
+                         ${intentCfg.buttonText} disabled:opacity-30 disabled:cursor-not-allowed
+                         transition-all flex-shrink-0 hover:brightness-110 ${focusRingClass}`}
+              aria-label={`${intentCfg.label} (Enter)`}
+              title={`${intentCfg.label} (Enter)`}
             >
-              <RefreshCw size={13} className={state.isSynthesizing ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">Synth</span>
+              <SubmitIcon size={15} />
             </button>
-          )}
-        </div>
 
-        <div className="text-center mt-1.5">
-          <span className={`text-[10px] ${modeTheme.helper}`}>
-            {surfaceState.kind === 'execute'
-              ? 'Execute opens a run thread · approvals gate risky commands · Shift+Enter for newline'
-              : surfaceState.kind === 'build'
-                ? 'Build plans first, writes after approval · active repo required · Shift+Enter for newline'
-                : `Enter to ${intentCfg.label.toLowerCase()} · Shift+Enter for newline · Esc closes menus`}
-          </span>
+            {/* Synthesize — contextual, appears when responses exist */}
+            {latestRound && latestResponses.length > 0 && (
+              <button
+                onClick={handleSynthesize}
+                disabled={state.isSynthesizing}
+                className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08]
+                           hover:bg-white/[0.08] text-white/70 hover:text-white/85
+                           disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                aria-label="Synthesize responses"
+                title="Synthesize responses"
+              >
+                <RefreshCw size={13} className={state.isSynthesizing ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline">Synth</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1494,6 +1440,38 @@ export default function ClawMode() {
 }
 
 // ─── Message Bubble Component ──────────────────────────────
+
+// Detect system message category from emoji prefix
+type SystemCategory = 'build' | 'execute' | 'approval' | 'pr' | 'error' | 'info';
+
+function detectSystemCategory(content: string): SystemCategory {
+  if (content.startsWith('🏗️')) return 'build';
+  if (content.startsWith('⚡') || content.startsWith('🔧')) return 'execute';
+  if (content.startsWith('✅') || content.startsWith('☑️')) return 'approval';
+  if (content.startsWith('🔀') || content.startsWith('📬')) return 'pr';
+  if (content.startsWith('❌') || content.startsWith('⚠️') || content.startsWith('🚫')) return 'error';
+  return 'info';
+}
+
+const SYSTEM_CATEGORY_STYLES: Record<SystemCategory, {
+  bg: string; border: string; icon: string; iconBg: string; text: string;
+}> = {
+  build:    { bg: 'bg-signal-ok/5',    border: 'border-signal-ok/20',   icon: 'text-signal-ok/80',   iconBg: 'bg-signal-ok/15',   text: 'text-signal-ok/80'   },
+  execute:  { bg: 'bg-gold/5',         border: 'border-gold/20',         icon: 'text-gold/80',         iconBg: 'bg-gold/15',         text: 'text-gold/80'         },
+  approval: { bg: 'bg-signal-ok/5',    border: 'border-signal-ok/20',   icon: 'text-signal-ok/80',   iconBg: 'bg-signal-ok/15',   text: 'text-white/75'        },
+  pr:       { bg: 'bg-purple-500/5',   border: 'border-purple-500/20',  icon: 'text-purple-400/80',  iconBg: 'bg-purple-500/15',  text: 'text-white/75'        },
+  error:    { bg: 'bg-signal-risk/5',  border: 'border-signal-risk/20', icon: 'text-signal-risk/80', iconBg: 'bg-signal-risk/15', text: 'text-signal-risk/80' },
+  info:     { bg: 'bg-white/[0.03]',   border: 'border-white/[0.08]',   icon: 'text-white/50',        iconBg: 'bg-white/[0.06]',   text: 'text-white/65'        },
+};
+
+const SYSTEM_CATEGORY_ICONS: Record<SystemCategory, LucideIcon> = {
+  build:    Hammer,
+  execute:  Zap,
+  approval: Check,
+  pr:       GitBranch,
+  error:    AlertCircle,
+  info:     Radio,
+};
 
 function MessageBubble({ message, modelLabel, agentColor }: {
   message: ThreadMessage;
@@ -1506,12 +1484,19 @@ function MessageBubble({ message, modelLabel, agentColor }: {
   const remarkPlugins = useMemo(() => [remarkGfm], []);
 
   if (isSystem) {
+    const category = detectSystemCategory(message.content);
+    const styles = SYSTEM_CATEGORY_STYLES[category];
+    const CategoryIcon = SYSTEM_CATEGORY_ICONS[category];
+
     return (
-      <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-full bg-signal-risk/15 flex items-center justify-center flex-shrink-0 mt-0.5">
-          <AlertCircle size={14} className="text-signal-risk/90" />
+      <div className={`flex items-start gap-3 mx-1 my-0.5 px-3 py-2.5 rounded-xl border ${styles.bg} ${styles.border}`}>
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${styles.iconBg}`}>
+          <CategoryIcon size={12} className={styles.icon} />
         </div>
-        <div className="py-2 px-3 rounded-lg bg-signal-risk/10 border border-signal-risk/20 text-sm text-signal-risk/90 max-w-[80%]">
+        <div
+          className={`text-sm leading-relaxed ${styles.text} whitespace-pre-wrap flex-1 min-w-0`}
+          style={{ whiteSpace: 'pre-wrap' }}
+        >
           {message.content}
         </div>
       </div>

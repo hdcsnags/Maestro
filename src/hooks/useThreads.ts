@@ -1120,16 +1120,23 @@ export function useThreads() {
   ): Promise<void> => {
     if (!user || !state.activeSession) return;
 
-    // Guard: if build is already running, expand the drawer and redirect.
-    // Without this, every Concierge message in Build mode re-triggers the full flow.
+    // Guard: if build is already running, redirect appropriately.
     if (state.activeSession.current_phase === 'build' || state.activeSession.current_phase === 'bouncer') {
       await addMessage(threadId, 'user', userMessage);
-      dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
-      await addMessage(
-        threadId,
-        'system',
-        '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Build (File by File)** to dispatch tasks to your locked builders.',
-      );
+      if (state.clawBuildSession) {
+        await addMessage(
+          threadId,
+          'system',
+          '🏗️ Build session is already running.\n\nCheck the build session card in this thread to monitor progress.',
+        );
+      } else {
+        dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
+        await addMessage(
+          threadId,
+          'system',
+          '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Build (File by File)** to dispatch tasks to your locked builders.',
+        );
+      }
       return;
     }
 
@@ -1163,46 +1170,46 @@ export function useThreads() {
 
       await updateSessionBuildState('build', nextBuildSpec);
       dispatch({ type: 'CLOSE_TRANSIENT' });
-      dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
-      dispatch({ type: 'SHOW_TOAST', payload: 'Build routed to Build Workspace' });
 
-      const backendLabel = buildSetup.executionBackend === 'local'
-        ? 'Local executors (MaestroClaw / CLI builders)'
-        : buildSetup.executionBackend === 'auto'
-          ? 'Auto backend selection'
-          : 'Edge/cloud builders';
-      const builderLabel = buildSetup.builderNames.length > 0
-        ? buildSetup.builderNames.join(', ')
-        : `${buildSetup.lockedBuilderIds.length} locked builders`;
-
-      await addMessage(
-        threadId,
-        'system',
-        `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Build (File by File)** or **Broadcast (Legacy)**.`,
-      );
-
-      // Phase 5: Scope intelligence — advisory only, local backend only
       if (buildSetup.executionBackend === 'local') {
+        // Local backend: show in-thread build session card instead of drawer
         const scopes = suggestSessionScope(state.activeSession?.architect_md);
+        const builderNames = buildSetup.builderNames.length > 0 ? buildSetup.builderNames : [];
+        const builderLabel = builderNames.length > 0
+          ? builderNames.join(', ')
+          : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
         const builderCount = buildSetup.lockedBuilderIds.length;
 
-        let scopeMsg = `🎯 **Suggested Session Build scope** (from ARCHITECT.md):\n\n`;
-        scopeMsg += `• Primary: \`${scopes.primary}\``;
-        if (scopes.secondary) {
-          scopeMsg += `\n• Backend: \`${scopes.secondary}\``;
-        }
-        scopeMsg += `\n\n`;
+        dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
+          threadId,
+          builderNames,
+          suggestedScope: scopes.primary,
+          executionBackend: 'local',
+          activeJobId: null,
+        }});
 
-        if (builderCount > 1) {
-          scopeMsg += `You have **${builderCount} builders** locked. Use **Session Build** in the Build workspace once per builder — assign each a scope manually from the list above. `;
-          scopeMsg += `Session Build runs one builder at a time; click it again after the first job completes.`;
-        } else {
-          scopeMsg += `In **Build workspace → Session Build**, paste \`${scopes.primary}\` as the scope.`;
-        }
+        await addMessage(
+          threadId,
+          'system',
+          `🏗️ Build session ready.\n\nBuilders: ${builderLabel}\nSuggested scope: \`${scopes.primary}\`\n\n${builderCount > 1 ? `You have **${builderCount} builders** locked — start one session per builder.` : 'Use the card below to start the session.'}`,
+        );
+      } else {
+        // Auto or edge backend: use existing Build Workspace drawer
+        dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
+        dispatch({ type: 'SHOW_TOAST', payload: 'Build routed to Build Workspace' });
 
-        scopeMsg += `\n\n_⚠️ Scope suggestion only — Claude can still write outside this path. Enforcement is a future improvement._`;
+        const backendLabel = buildSetup.executionBackend === 'auto'
+          ? 'Auto backend selection'
+          : 'Edge/cloud builders';
+        const builderLabel = buildSetup.builderNames.length > 0
+          ? buildSetup.builderNames.join(', ')
+          : `${buildSetup.lockedBuilderIds.length} locked builders`;
 
-        await addMessage(threadId, 'system', scopeMsg);
+        await addMessage(
+          threadId,
+          'system',
+          `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Build (File by File)** or **Broadcast (Legacy)**.`,
+        );
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -1210,7 +1217,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch]);
+  }, [user, state.activeSession, state.clawBuildSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch]);
 
   // Approve and execute a pending build plan
   const approveBuildPlan = useCallback(async (

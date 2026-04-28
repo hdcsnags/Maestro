@@ -341,7 +341,7 @@ export default function BuildWorkspace() {
 
   // Start drawer expanded when a build begins in Claw mode — user just triggered it from Concierge
   useEffect(() => {
-    if (isVisible && isClawMode) setDrawerCollapsed(false);
+    if (isVisible && isClawMode && !state.clawBuildSession) setDrawerCollapsed(false);
   }, [session?.id, isVisible, isClawMode]);
 
   // Sync local drawerCollapsed → context (guarded against no-op dispatches)
