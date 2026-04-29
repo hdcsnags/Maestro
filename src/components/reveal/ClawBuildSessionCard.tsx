@@ -3,10 +3,10 @@ import {
   Loader2, CheckCircle, XCircle, Play, X, ChevronDown,
   Server, Files, Clock, GitBranch, AlertCircle,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
-import { invokeEdgeFunction } from '../../lib/functions';
+import { selectOnlineExecutor } from '../../lib/sessionBuild';
 import { useMaestro } from '../../context/MaestroContext';
-import type { ClawBuildSessionState, ExecutorJob } from '../../types';
+import { useBuildExecution } from '../../hooks/useBuildExecution';
+import type { ClawBuildSessionState } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────
 type SessionPhase = 'idle' | 'running' | 'succeeded' | 'failed';
@@ -17,22 +17,12 @@ interface ManifestEntry {
   operation: string;
 }
 
-interface JobRow {
-  status: string;
-  error_text: string | null;
-  artifact_manifest: ManifestEntry[] | null;
-}
-
 // ─── Constants ────────────────────────────────────────────────
 const ADAPTERS = [
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex_cli', label: 'OpenAI Codex' },
   { value: 'copilot_cli', label: 'GitHub Copilot' },
 ];
-
-const STALE_MS = 60_000;
-const POLL_MS = 5_000;
-const TIMEOUT_MS = 40 * 60 * 1_000;
 
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -43,89 +33,57 @@ function formatElapsed(seconds: number): string {
 // ─── Component ────────────────────────────────────────────────
 export default function ClawBuildSessionCard({ session }: { session: ClawBuildSessionState }) {
   const { state, dispatch } = useMaestro();
+  const buildExec = useBuildExecution();
 
-  const [adapter, setAdapter] = useState('claude_code');
+  const [adapter, setAdapter] = useState(session.defaultAdapter ?? 'claude_code');
   const [scope, setScope] = useState(session.suggestedScope || 'src/**');
-  const [phase, setPhase] = useState<SessionPhase>('idle');
-  const [filesWritten, setFilesWritten] = useState(0);
-  const [manifest, setManifest] = useState<ManifestEntry[]>([]);
-  const [errorText, setErrorText] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [pushState, setPushState] = useState<'idle' | 'pushing' | 'done' | 'failed'>('idle');
+  const [pushError, setPushError] = useState<string | null>(null);
+  const [pushPrUrls, setPushPrUrls] = useState<string[]>([]);
+  const [pushWrittenFiles, setPushWrittenFiles] = useState<string[]>([]);
+  const [pushSkippedFiles, setPushSkippedFiles] = useState<Array<{ path: string; reason: string }>>([]);
+  const [pushBackupBranch, setPushBackupBranch] = useState('');
 
-  const abortRef = useRef(false);
   const startTimeRef = useRef<number | null>(null);
+  const phase = buildExec.sessionProgress.status as SessionPhase;
+  const filesWritten = buildExec.sessionProgress.filesWritten;
+  const manifest = buildExec.sessionProgress.manifest as ManifestEntry[];
+  const errorText = buildExec.sessionProgress.errorText;
+  const sessionRuns = buildExec.sessionRuns;
 
   // Check if an online executor supports the selected adapter
   const findOnlineExecutor = useCallback(() => {
-    return state.executors.find(ex => {
-      if (ex.status !== 'online') return false;
-      if (!ex.last_seen_at) return false;
-      if (Date.now() - new Date(ex.last_seen_at).getTime() >= STALE_MS) return false;
-      const adapters = (ex.capabilities as Record<string, unknown>).adapters;
-      if (!Array.isArray(adapters)) return false;
-      return (adapters as string[]).includes(adapter);
-    }) ?? null;
-  }, [state.executors, adapter]);
+      return selectOnlineExecutor(state.executors, adapter);
+    }, [state.executors, adapter]);
 
   const executorOnline = useMemo(() => findOnlineExecutor() !== null, [findOnlineExecutor]);
 
-  // Poll a job until it reaches a terminal status
-  const pollJob = useCallback(async (jobId: string) => {
-    const start = Date.now();
-
-    while (Date.now() - start < TIMEOUT_MS && !abortRef.current) {
-      await new Promise<void>(r => setTimeout(r, POLL_MS));
-      if (abortRef.current) break;
-
-      const { data: jobRaw } = await supabase
-        .from('executor_jobs')
-        .select('status, error_text, artifact_manifest')
-        .eq('id', jobId)
-        .maybeSingle();
-
-      const job = jobRaw as JobRow | null;
-      if (!job) {
-        setPhase('failed');
-        setErrorText('Job not found in database');
-        return;
-      }
-
-      if (Array.isArray(job.artifact_manifest)) {
-        setFilesWritten(job.artifact_manifest.length);
-        setManifest(job.artifact_manifest as ManifestEntry[]);
-      }
-
-      if (job.status === 'succeeded') {
-        setPhase('succeeded');
-        return;
-      }
-      if (['failed', 'cancelled', 'expired'].includes(job.status)) {
-        setPhase('failed');
-        setErrorText(job.error_text ?? 'Session job failed');
-        return;
-      }
-    }
-
-    if (!abortRef.current) {
-      setPhase('failed');
-      setErrorText('Session timed out after 40 minutes');
-    }
-  }, []); // only uses refs + stable setState — no reactive deps needed
-
-  // Re-attach to an already-running job if this card remounts mid-session
   useEffect(() => {
-    if (session.activeJobId && phase === 'idle') {
-      setPhase('running');
-      startTimeRef.current = Date.now();
-      abortRef.current = false;
-      void pollJob(session.activeJobId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // only on mount
+    setAdapter(session.defaultAdapter ?? 'claude_code');
+    setScope(session.suggestedScope || 'src/**');
+    setPushState('idle');
+    setPushError(null);
+    setPushPrUrls([]);
+    setPushWrittenFiles([]);
+    setPushSkippedFiles([]);
+    setPushBackupBranch('');
+  }, [session.defaultAdapter, session.suggestedScope, session.threadId]);
+
+  useEffect(() => {
+    if (!buildExec.sessionProgress.jobId || session.activeJobId === buildExec.sessionProgress.jobId) return;
+    dispatch({
+      type: 'SET_CLAW_BUILD_SESSION',
+      payload: { ...session, activeJobId: buildExec.sessionProgress.jobId },
+    });
+  }, [buildExec.sessionProgress.jobId, dispatch, session]);
 
   // Elapsed-time counter while running
   useEffect(() => {
     if (phase !== 'running') return;
+    if (startTimeRef.current === null) {
+      startTimeRef.current = Date.now();
+    }
     const interval = setInterval(() => {
       if (startTimeRef.current !== null) {
         setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
@@ -134,97 +92,62 @@ export default function ClawBuildSessionCard({ session }: { session: ClawBuildSe
     return () => clearInterval(interval);
   }, [phase]);
 
+  useEffect(() => {
+    if (phase === 'idle') {
+      startTimeRef.current = null;
+      setElapsedSeconds(0);
+    }
+  }, [phase]);
+
   // Submit a new build_session job to the executor API
   const handleStart = useCallback(async () => {
     const executor = findOnlineExecutor();
     if (!executor) {
-      setErrorText(`No online executor with adapter "${adapter}" found. Check the Vault.`);
       return;
     }
 
-    setPhase('running');
     setElapsedSeconds(0);
     startTimeRef.current = Date.now();
-    abortRef.current = false;
-    setErrorText(null);
-    setFilesWritten(0);
-    setManifest([]);
-
-    const repoConn = state.activeRepoConnection;
-    const cloneUrl = repoConn
-      ? `https://github.com/${repoConn.owner}/${repoConn.repo}.git`
-      : null;
-    const buildSpec = state.activeSession?.build_spec as Record<string, string> | undefined;
-    const prompt =
-      state.buildPlan?.build_prompt ??
-      buildSpec?.requested_build_prompt ??
-      state.activeSession?.title ??
-      'Build this project';
-
-    try {
-      const result = await invokeEdgeFunction<{ job: ExecutorJob }>('executor-api?action=submit', {
-        session_id: state.activeSession?.id,
-        job_type: 'build_session',
-        adapter,
-        prompt,
-        repo_url: cloneUrl,
-        repo_name: repoConn?.repo ?? null,
-        branch: repoConn?.default_branch ?? null,
-        allowed_paths: [scope],
-        timeout_seconds: 1800,
-        context_bundle: {
-          scope,
-          ...(state.activeSession?.architect_md
-            ? { architect_content: state.activeSession.architect_md }
-            : {}),
-        },
-      });
-
-      const jobId = result.job?.id;
-      if (!jobId) throw new Error('No job ID returned from executor API');
-
-      // Persist jobId in context so we can re-attach if this card remounts
-      dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: { ...session, activeJobId: jobId } });
-
-      await pollJob(jobId);
-    } catch (err) {
-      setPhase('failed');
-      setErrorText(err instanceof Error ? err.message : 'Failed to submit session job');
-    }
-  }, [
-    adapter, scope, findOnlineExecutor, session,
-    state.activeSession, state.activeRepoConnection, state.buildPlan,
-    dispatch, pollJob,
-  ]);
+    setPushState('idle');
+    setPushError(null);
+    setPushPrUrls([]);
+    setPushWrittenFiles([]);
+    setPushSkippedFiles([]);
+    setPushBackupBranch('');
+    await buildExec.executeSession(adapter, scope);
+  }, [adapter, scope, findOnlineExecutor, buildExec]);
 
   const handleAbort = useCallback(async () => {
-    abortRef.current = true;
-
-    // Cancel the remote job if we have an ID
-    if (session.activeJobId) {
-      try {
-        await supabase
-          .from('executor_jobs')
-          .update({ status: 'cancelled' } as never)
-          .eq('id', session.activeJobId)
-          .eq('status', 'running');
-      } catch {
-        // best-effort — local abort still fires
-      }
-    }
-
-    setPhase('failed');
-    setErrorText('Aborted by user');
-  }, [session.activeJobId]);
+    await buildExec.abortSessionBuild();
+  }, [buildExec]);
 
   const handleDismiss = useCallback(() => {
-    abortRef.current = true;
+    if (!buildExec.isSessionRunning) {
+      buildExec.resetSessionBuildState();
+    }
     dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: null });
-  }, [dispatch]);
+  }, [buildExec, dispatch]);
 
   const handleOpenBuildWorkspace = useCallback(() => {
     dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
   }, [dispatch]);
+
+  const handlePushToGithub = useCallback(async () => {
+    setPushState('pushing');
+    setPushError(null);
+
+    try {
+      const result = await buildExec.pushSessionBuildToGithub(adapter);
+      setPushPrUrls(result.prUrls);
+      setPushWrittenFiles(result.writtenFiles);
+      setPushSkippedFiles(result.skippedFiles);
+      setPushBackupBranch(result.backupBranch);
+      setPushState('done');
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : String(error));
+      setPushState('failed');
+    }
+  }, [adapter, buildExec]);
 
   // ─── Render ───────────────────────────────────────────────────
   return (
@@ -249,7 +172,7 @@ export default function ClawBuildSessionCard({ session }: { session: ClawBuildSe
             </div>
             <div className="text-[10px] text-white/50">
               {phase === 'idle' && 'Ready to start'}
-              {phase === 'running' && `Running · ${formatElapsed(elapsedSeconds)}`}
+              {phase === 'running' && `Running · ${formatElapsed(elapsedSeconds)}${sessionRuns.length > 1 ? ` · ${sessionRuns.length} builders` : ''}`}
               {phase === 'succeeded' && `Complete · ${filesWritten} file${filesWritten !== 1 ? 's' : ''}`}
               {phase === 'failed' && 'Failed'}
             </div>
@@ -363,6 +286,24 @@ export default function ClawBuildSessionCard({ session }: { session: ClawBuildSe
             Scope: <code className="text-white/60 font-mono">{scope}</code>
           </div>
 
+          {sessionRuns.length > 0 && (
+            <div className="space-y-1.5">
+              {sessionRuns.map((run) => (
+                <div key={run.key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider">
+                    <span className="text-white/60">{run.builderName}</span>
+                    <span className={run.status === 'succeeded' ? 'text-signal-ok/80' : run.status === 'failed' ? 'text-signal-risk/80' : 'text-white/40'}>
+                      {run.status}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[10px] text-white/45 font-mono">
+                    {run.adapter} · {run.scopePaths.join(' · ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <button
             onClick={handleAbort}
             className="flex items-center gap-1.5 text-[11px] text-signal-risk/60 hover:text-signal-risk/90 transition-colors"
@@ -400,14 +341,104 @@ export default function ClawBuildSessionCard({ session }: { session: ClawBuildSe
             </div>
           )}
 
+          {sessionRuns.length > 1 && (
+            <div className="space-y-1.5">
+              {sessionRuns.map((run) => (
+                <div key={run.key} className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[10px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-white/65">{run.builderName}</span>
+                    <span className={run.status === 'succeeded' ? 'text-signal-ok/80' : 'text-signal-risk/80'}>
+                      {run.filesWritten} file{run.filesWritten === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(pushState !== 'idle' || pushError || pushPrUrls.length > 0) && (
+            <div className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+              <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider">
+                <span className="text-white/55">GitHub Push</span>
+                <span className={
+                  pushState === 'done'
+                    ? 'text-signal-ok/80'
+                    : pushState === 'failed'
+                      ? 'text-signal-risk/80'
+                      : pushState === 'pushing'
+                        ? 'text-gold/80'
+                        : 'text-white/35'
+                }>
+                  {pushState === 'done' && 'Complete'}
+                  {pushState === 'failed' && 'Failed'}
+                  {pushState === 'pushing' && 'Pushing'}
+                  {pushState === 'idle' && 'Ready'}
+                </span>
+              </div>
+
+              {pushState === 'pushing' && (
+                <div className="flex items-center gap-2 text-[11px] text-gold/80">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>Creating branch and PR from the session manifest…</span>
+                </div>
+              )}
+
+              {pushError && (
+                <div className="flex items-start gap-2 text-[11px] text-signal-risk/80">
+                  <AlertCircle size={12} className="mt-0.5 flex-shrink-0" />
+                  <span>{pushError}</span>
+                </div>
+              )}
+
+              {pushState === 'done' && (
+                <div className="space-y-2 text-[11px] text-white/60">
+                  <div>
+                    {pushWrittenFiles.length} committed file{pushWrittenFiles.length === 1 ? '' : 's'}
+                    {pushSkippedFiles.length > 0 ? ` · ${pushSkippedFiles.length} skipped` : ''}
+                  </div>
+                  {pushBackupBranch && (
+                    <div className="text-white/45">
+                      Backup branch: <code className="font-mono text-white/60">{pushBackupBranch}</code>
+                    </div>
+                  )}
+                  {pushPrUrls.length > 0 && (
+                    <div className="space-y-1">
+                      {pushPrUrls.map((url, index) => (
+                        <a
+                          key={`${url}-${index}`}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-signal-ok/80 hover:text-signal-ok text-[11px] underline underline-offset-2 break-all"
+                        >
+                          Open PR {pushPrUrls.length > 1 ? index + 1 : ''}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <button
-              onClick={handleOpenBuildWorkspace}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10]
-                         text-white/70 text-xs font-medium transition-all"
+              onClick={handlePushToGithub}
+              disabled={pushState === 'pushing' || !state.activeRepoConnection?.id}
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-signal-ok/80 hover:bg-signal-ok
+                         text-white text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <GitBranch size={12} />
-              Push via Build Workspace
+              {pushState === 'pushing'
+                ? <Loader2 size={12} className="animate-spin" />
+                : <GitBranch size={12} />}
+              {state.activeRepoConnection?.id ? (pushState === 'done' ? 'Push Again' : 'Push to GitHub') : 'Connect GitHub Repo'}
+            </button>
+            <button
+              onClick={handleOpenBuildWorkspace}
+              className="px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.10]
+                         text-white/65 text-xs font-medium transition-all"
+            >
+              Workspace
             </button>
             <button
               onClick={handleDismiss}

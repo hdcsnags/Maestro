@@ -359,6 +359,53 @@ export interface ClawBuildSessionState {
   suggestedScope: string;
   executionBackend: 'local' | 'auto' | 'edge';
   activeJobId: string | null;
+  defaultAdapter?: string | null;
+}
+
+export interface SessionBuildManifestEntry {
+  path: string;
+  content: string;
+  operation: string;
+}
+
+export interface SessionBuildProgress {
+  status: 'idle' | 'running' | 'succeeded' | 'failed';
+  filesWritten: number;
+  jobId: string | null;
+  manifest: SessionBuildManifestEntry[];
+  errorText: string | null;
+}
+
+export interface SessionRunProgress {
+  key: string;
+  builderName: string;
+  adapter: string;
+  scopePaths: string[];
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  filesWritten: number;
+  jobId: string | null;
+  manifest: SessionBuildManifestEntry[];
+  errorText: string | null;
+}
+
+export interface SessionBuildState {
+  progress: SessionBuildProgress;
+  runs: SessionRunProgress[];
+  isRunning: boolean;
+}
+
+export function createEmptySessionBuildState(): SessionBuildState {
+  return {
+    progress: {
+      status: 'idle',
+      filesWritten: 0,
+      jobId: null,
+      manifest: [],
+      errorText: null,
+    },
+    runs: [],
+    isRunning: false,
+  };
 }
 
 export interface ExecutionRun {
@@ -624,44 +671,3 @@ Analyze their message and return a JSON object with:
 
 Return ONLY valid JSON. No markdown fences, no explanation.`;
 
-// ─── Build from Chat (Phase 3) ──────────────────────────────
-
-export interface ChatBuildPlan {
-  description: string;
-  files: ChatBuildFile[];
-  commit_message: string;
-  branch_name?: string;
-}
-
-export interface ChatBuildFile {
-  path: string;
-  action: 'create' | 'update' | 'delete';
-  description: string;
-}
-
-export type ChatBuildPhase = 'idle' | 'planning' | 'reviewing' | 'building' | 'committing' | 'done' | 'failed';
-
-export const BUILD_PLAN_PROMPT = `You are Maestro's build planner. The user wants to build or modify code in their repository.
-Analyze their request and return a JSON build plan:
-
-{
-  "description": "Brief description of what will be built/changed",
-  "files": [
-    { "path": "src/example.tsx", "action": "create", "description": "New component for X" },
-    { "path": "src/utils.ts", "action": "update", "description": "Add helper function Y" }
-  ],
-  "commit_message": "feat: descriptive commit message"
-}
-
-Rules:
-- "path" must be repo-relative (e.g., src/components/Button.tsx)
-- "action" is one of: "create", "update", "delete"
-- Never ask follow-up questions or request more context
-- If repo context is missing or thin, make reasonable assumptions and state them briefly in "description"
-- If the request is broad, return the first executable build slice (1-8 files) rather than the entire product
-- Prefer existing repo conventions when codebase context is provided; otherwise choose conventional, reviewable paths
-- Keep file count reasonable (1-10 files per plan)
-- commit_message should follow conventional commits (feat:, fix:, refactor:, etc.)
-- Focus on what the user asked for — do not add unnecessary files
-
-Return ONLY valid JSON. No markdown fences, no explanation.`;

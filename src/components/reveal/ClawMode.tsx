@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { type LucideIcon, Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid, FilePlus2, FilePenLine, Trash2 } from 'lucide-react';
+import { type LucideIcon, Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useWorkspace } from '../../hooks/useWorkspace';
-import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread, type ChatBuildPhase } from '../../types';
+import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import FolioCarousel from './FolioCarousel';
 import ClawBuildSessionCard from './ClawBuildSessionCard';
 
@@ -86,34 +86,9 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
-function getBuildFileIcon(action: 'create' | 'update' | 'delete'): LucideIcon {
-  if (action === 'create') return FilePlus2;
-  if (action === 'update') return FilePenLine;
-  return Trash2;
-}
-
-function getBuildPhaseLabel(phase: ChatBuildPhase): string {
-  switch (phase) {
-    case 'planning':
-      return 'Build Planning';
-    case 'reviewing':
-      return 'Build Review';
-    case 'building':
-      return 'Building Files';
-    case 'committing':
-      return 'Committing Build';
-    case 'done':
-      return 'Build Complete';
-    case 'failed':
-      return 'Build Failed';
-    default:
-      return 'Build';
-  }
-}
-
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreads, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat, approveBuildPlan, cancelBuildPlan } = useThreads();
+  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreads, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat } = useThreads();
   const { broadcast, synthesize } = useOrchestration();
   const { createSession } = useWorkspace();
   const [input, setInput] = useState('');
@@ -134,7 +109,6 @@ export default function ClawMode() {
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const routingBarRef = useRef<Array<HTMLButtonElement | null>>([]);
   const executionApprovalRef = useRef<HTMLDivElement>(null);
-  const buildApprovalRef = useRef<HTMLDivElement>(null);
 
   const clawView = state.clawView as ClawView;
   const focusedAgent = useMemo(
@@ -240,9 +214,13 @@ export default function ClawMode() {
     () => (activeRepo as { repo_full_name?: string } | undefined)?.repo_full_name?.split('/')[1] || null,
     [activeRepo],
   );
+  const activeClawBuildSession = useMemo(
+    () => state.clawBuildSession?.threadId === state.activeThread?.id ? state.clawBuildSession : null,
+    [state.clawBuildSession, state.activeThread?.id],
+  );
   const isExecutionThread = state.activeThread?.type === 'execution';
   const isExecutionPending = !!state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id;
-  const isBuildFlowActive = state.chatBuildPhase !== 'idle';
+  const isBuildSessionActive = !!activeClawBuildSession;
 
   // Determine thread type label for context header
   const threadTypeLabel = useMemo(() => {
@@ -279,25 +257,17 @@ export default function ClawMode() {
       };
     }
 
-    if (isBuildFlowActive) {
-      const buildPhaseLabel = getBuildPhaseLabel(state.chatBuildPhase);
-      const buildDescriptions: Record<ChatBuildPhase, string> = {
-        idle: 'Build workflow is idle.',
-        planning: 'Claw is turning your request into a repo-scoped build plan before any files are written.',
-        reviewing: 'Review the proposed files and commit message before approving any repo changes.',
-        building: 'Approved files are being generated now from the build plan.',
-        committing: 'Generated files are being written to GitHub and assembled into a PR-ready change set.',
-        done: 'Build finished. Review the summary in-thread and inspect the resulting PR or written files.',
-        failed: 'Build hit an error. Review the latest system message in this thread and retry from chat when ready.',
-      };
-
+    if (isBuildSessionActive) {
+      const backendLabel = activeClawBuildSession.executionBackend === 'auto'
+        ? 'Auto resolved to local executor'
+        : 'Local executor';
       return {
         kind: 'build' as const,
         Icon: Hammer,
-        badgeLabel: buildPhaseLabel,
-        bannerTitle: buildPhaseLabel,
-        description: buildDescriptions[state.chatBuildPhase],
-        status: activeRepoName || 'Active repo required',
+        badgeLabel: 'Build Session',
+        bannerTitle: 'Build session active',
+        description: 'This thread owns the local build handoff now. Use the in-thread session card to start, monitor, or dismiss the scoped run.',
+        status: backendLabel,
       };
     }
 
@@ -318,8 +288,8 @@ export default function ClawMode() {
         Icon: Hammer,
         badgeLabel: 'Build Mode',
         bannerTitle: 'Build mode armed',
-        description: 'Build first creates a plan, then asks for approval before writing files to the connected GitHub repo.',
-        status: activeRepoName || 'Repo connected',
+        description: 'Build checks Pre-Build, then routes to a local session card or the Build Workspace based on your locked builders and backend.',
+        status: activeRepoName || 'Local-first handoff',
       };
     }
 
@@ -333,13 +303,13 @@ export default function ClawMode() {
     };
   }, [
     activeRepoName,
+    activeClawBuildSession,
     clawView,
     composerIntent,
-    isBuildFlowActive,
+    isBuildSessionActive,
     isExecutionPending,
     isExecutionThread,
     state.activeThread?.type,
-    state.chatBuildPhase,
     threadTypeLabel,
   ]);
 
@@ -375,7 +345,7 @@ export default function ClawMode() {
           helper: 'text-white/60',
           busyIcon: 'bg-gold/10 text-gold/60',
         };
-  const shouldPulseHeader = state.isBroadcasting || state.isConciergeSending || isExecutionPending || state.chatBuildPhase === 'building' || state.chatBuildPhase === 'committing';
+  const shouldPulseHeader = state.isBroadcasting || state.isConciergeSending || isExecutionPending;
 
   // Initialize: load persisted threads + ensure concierge thread
   useEffect(() => {
@@ -420,13 +390,6 @@ export default function ClawMode() {
       executionApprovalRef.current?.focus();
     });
   }, [state.pendingExecution, state.activeThread?.id]);
-
-  useEffect(() => {
-    if (state.chatBuildPhase !== 'reviewing' || !state.chatBuildPlan) return;
-    requestAnimationFrame(() => {
-      buildApprovalRef.current?.focus();
-    });
-  }, [state.chatBuildPhase, state.chatBuildPlan]);
 
   // Auto-switch to carousel when broadcast finishes
   const wasBroadcasting = useRef(false);
@@ -752,21 +715,7 @@ export default function ClawMode() {
     await loadThreadMessages(threadId);
     // Reset intent to chat so subsequent messages don't re-trigger build flow
     setComposerIntent('chat');
-  }, [input, state.isConciergeSending, state.activeThread, buildFromChat, loadThreadMessages]);
-
-  const handleApproveBuild = useCallback(async () => {
-    const threadId = state.activeThread?.id;
-    if (!threadId) return;
-    await approveBuildPlan(threadId);
-    await loadThreadMessages(threadId);
-  }, [state.activeThread, approveBuildPlan, loadThreadMessages]);
-
-  const handleCancelBuild = useCallback(async () => {
-    const threadId = state.activeThread?.id;
-    if (!threadId) return;
-    await cancelBuildPlan(threadId);
-    await loadThreadMessages(threadId);
-  }, [state.activeThread, cancelBuildPlan, loadThreadMessages]);
+  }, [input, state.isConciergeSending, state.activeThread, buildFromChat, loadThreadMessages, dispatch]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -888,12 +837,6 @@ export default function ClawMode() {
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/70">
                 <Radio size={10} />
                 {latestResponses.length} responses
-              </span>
-            )}
-            {state.chatBuildPhase !== 'idle' && surfaceState.kind !== 'build' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-signal-ok/15 text-[11px] text-signal-ok/90">
-                <Hammer size={10} />
-                {state.chatBuildPhase}
               </span>
             )}
             {hasRepo && (
@@ -1189,75 +1132,9 @@ export default function ClawMode() {
                 </div>
               )}
 
-              {/* Pending build plan approval card */}
-              {state.chatBuildPhase === 'reviewing' && state.chatBuildPlan && (
-                <div
-                  ref={buildApprovalRef}
-                  tabIndex={-1}
-                  role="alertdialog"
-                  aria-modal="false"
-                  aria-labelledby="claw-build-approval-title"
-                  aria-describedby="claw-build-approval-body"
-                  className="mx-auto max-w-md rounded-xl border border-signal-ok/30 bg-signal-ok/10 p-4 my-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                >
-                  <div id="claw-build-approval-title" className="flex items-center gap-2 text-signal-ok text-sm font-medium mb-2">
-                    <Hammer size={14} />
-                    Build Plan Ready
-                  </div>
-                  <div id="claw-build-approval-body" className="text-white/70 text-sm mb-2">
-                    {state.chatBuildPlan.description}
-                  </div>
-                  <div className="space-y-1 mb-3">
-                    {state.chatBuildPlan.files.map((f, i) => {
-                      const FileActionIcon = getBuildFileIcon(f.action);
-                      return (
-                        <div key={i} className="text-xs text-white/70 font-mono flex items-center gap-1.5">
-                          <FileActionIcon size={12} className="flex-shrink-0" />
-                          <span className="truncate">
-                            {f.path} — <span className="text-white/60">{f.description}</span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <code className="block overflow-x-auto text-xs text-white/70 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
-                    {state.chatBuildPlan.commit_message}
-                  </code>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleApproveBuild}
-                      disabled={state.isConciergeSending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-ok/80 hover:bg-signal-ok 
-                                 text-white text-xs transition-all disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                    >
-                      <Check size={12} /> Approve Build
-                    </button>
-                    <button
-                      onClick={handleCancelBuild}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-risk/20 hover:bg-signal-risk/30 
-                                 text-signal-risk text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                      aria-label="Cancel build plan"
-                    >
-                      <XCircle size={12} /> Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Build progress indicator */}
-              {(state.chatBuildPhase === 'building' || state.chatBuildPhase === 'committing') && (
-                <div className="mx-auto max-w-md rounded-xl border border-signal-ok/20 bg-signal-ok/10 p-3 my-3">
-                  <div className="flex items-center gap-2 text-signal-ok/90 text-sm">
-                    <Loader2 size={14} className="animate-spin" />
-                    {state.chatBuildPhase === 'building' ? 'Building files...' : 'Committing to GitHub...'}
-                  </div>
-                </div>
-              )}
-
               {/* In-thread build session card (local executor) */}
-              {state.clawBuildSession &&
-               state.clawBuildSession.threadId === state.activeThread?.id && (
-                <ClawBuildSessionCard session={state.clawBuildSession} />
+              {activeClawBuildSession && (
+                <ClawBuildSessionCard session={activeClawBuildSession} />
               )}
 
               <div ref={messagesEndRef} />

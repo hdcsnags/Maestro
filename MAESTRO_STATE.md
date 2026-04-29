@@ -53,7 +53,10 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Design UI | `src/components/reveal/DesignPhase.tsx` |
 | Design role metadata | `src/lib/designRoles.ts` |
 | Agent picker | `src/components/reveal/OrchestraDrawer.tsx` |
-| Prompt input | `src/components/reveal/RevealComposer.tsx` |`r`n| Frontend edge invoke helper | `src/lib/functions.ts` |`r`n| Shared edge auth helper | `supabase/functions/_shared/auth.ts` |`r`n| Edge function config | `supabase/config.toml` |
+| Prompt input | `src/components/reveal/RevealComposer.tsx` |
+| Frontend edge invoke helper | `src/lib/functions.ts` |
+| Shared edge auth helper | `supabase/functions/_shared/auth.ts` |
+| Edge function config | `supabase/config.toml` |
 | Edge functions | `supabase/functions/*/index.ts` |
 | Migrations | `supabase/migrations/` |
 | Claw Mode chat | `src/components/reveal/ClawMode.tsx` |
@@ -197,6 +200,13 @@ Legacy (unused): agent_skills, flags
 | Build v3 execution backend selector: Pre-Build "Lock" screen shows Edge/Local/Auto toggle, persists to `sessions.execution_backend`, shows executor online status | 2026-04-18 (`npm run typecheck`) |
 | Build v3 auto-routing: local only when an online executor advertises the required adapter; stale claimed/running jobs re-queue after 90s lease expiry | 2026-04-21 (`npm --prefix packages\maestroclaw run build`, `npm run build`) |
 | Claw local builds no longer send `branch` when no GitHub repo is connected — `branch: 'main'` hardcoded fallback removed so `executor-api` validation no longer rejects every task with "branch requires repo_url" | 2026-04-21 (`npm run typecheck`, commit `bdd9546`) |
+| BuildWorkspace local/auto Start Build now launches scoped `build_session` jobs per Claw builder instead of defaulting to per-file `build_task` decomposition; local session builds no longer require a connected GitHub repo until push time | 2026-04-29 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
+| Claw chat `auto` backend now stays thread-native when a locked MaestroClaw builder has a matching online executor; the in-thread build card also defaults to that builder's adapter instead of always starting at `claude_code` | 2026-04-29 (`npm run typecheck`, `npm run build`) |
+| Claw no longer carries the dead chat-build review/progress state: the unused `ChatBuildPlan` / `chatBuildPhase` path and stale approval card were removed, so Build mode now routes only to the live local session card or Build Workspace handoff | 2026-04-29 (`npx eslint src\hooks\useThreads.ts src\components\reveal\ClawMode.tsx src\context\MaestroContext.tsx src\types\index.ts`, `npm run typecheck`, `npm run build`) |
+| Local session submit/poll/cancel logic is now shared in `src/lib/sessionBuild.ts`; both `useBuildExecution` and `ClawBuildSessionCard` use the same executor capability check, `build_session` submit path, poller, manifest merge, and cancellation helper | 2026-04-29 (`npx eslint src\lib\sessionBuild.ts src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\hooks\useThreads.ts src\components\reveal\ClawMode.tsx src\context\MaestroContext.tsx src\types\index.ts`, `npm run typecheck`, `npm run build`) |
+| Claw and BuildWorkspace now share one context-backed local session progress model via `sessionBuildState`, so thread-native cards and the classic drawer read the same runs/progress/isRunning state instead of maintaining separate live session controllers | 2026-04-29 (`npx eslint src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\components\reveal\BuildWorkspace.tsx`, `npm run typecheck`, `npm run build`) |
+| Completed in-thread local Claw runs can now push directly to GitHub using the same shared helper as BuildWorkspace; successful session builds no longer require a mandatory "Push via Build Workspace" handoff before branch/PR creation | 2026-04-29 (`npx eslint src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\components\reveal\BuildWorkspace.tsx`, `npm run typecheck`, `npm run build`) |
+| Direct shell-style Claw execute requests now have a local fast path in `useThreads.ts`, so commands like `npm run build`, `git status`, `list files in src`, and `show file src/main.tsx` can skip the cloud intent parser and submit immediately when an executor is online | 2026-04-29 (`npx eslint src\hooks\useThreads.ts src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\components\reveal\BuildWorkspace.tsx`, `npm run typecheck`, `npm run build`) |
 | TypeScript strict-mode clean (0 errors): `BuildTask.id` made required; `executor_jobs` query explicitly typed (missing from `database.types.ts`); `synthesizeRef` widened to `Promise<unknown>`; `ClawMode.tsx directThread` annotated `Thread\|null\|undefined` | 2026-04-21 (`npm run typecheck`, commit `3e7f150`) |
 | Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
@@ -213,9 +223,10 @@ Legacy (unused): agent_skills, flags
 | **Claw Mode Phase 0** — thread foundation + concierge chat: migration for `threads`/`thread_messages` tables + `agent_role` column on agents, `useThreads` hook, `ClawMode` full-screen chat component with model picker, Claw button in composer, Escape to close | 2026-04-20 (`npm run typecheck`, `npm run build`, migration applied, commits `ba41ed1`→`ff25942`) |
 | **Claw Mode Phase 1** — broadcast from chat + carousel + direct agent chat: three-view system (Concierge/Carousel/Focus), Broadcast button dispatches to council agents, FolioCarousel embedded in Claw Mode, agent quick-focus bar for direct chat, Synthesize merges threads back to concierge, `sendToAgent()` for direct thread conversations, `ClawView` type + state management | 2026-04-20 (`npm run typecheck`, `npm run build`) |
 | **Claw Mode Phase 2** — execution in chat: `executeFromChat()` + `submitExecutionJob()` + `approveExecutionJob()` + `pollJobStatus()` in `useThreads`, Execute ⚡ button in ClawMode concierge view, approval card with Approve/Reject UI, `TRUSTED_COMMANDS` allowlist (14 patterns), `classifyCommandTrust()`, `EXECUTION_INTENT_PROMPT`, `callExecutorApi()` helper for query-param edge functions, `ApprovedShellAdapter` for real command execution in MaestroClaw, `ADD_EXECUTOR_JOB`/`UPDATE_EXECUTOR_JOB`/`SET_PENDING_EXECUTION` context actions, agent role enforcement (council excluded from execution, executor excluded from broadcast) | 2026-04-20 (`npm run typecheck`, `npm run build`) |
-| **Claw Mode Phase 3** — build from chat: `buildFromChat()` flow (plan → review → build → commit), `BUILD_PLAN_PROMPT` for structured plan generation, `ChatBuildPlan`/`ChatBuildFile`/`ChatBuildPhase` types, `generateBuildPlan()` + `executeBuildPlan()` + `approveBuildPlan()` + `cancelBuildPlan()` in `useThreads`, Build 🏗️ button in concierge view (only visible when repo connected), build plan approval card with file list + commit message preview, per-file progress messages in thread, GitHub PR creation via `github-execute` edge function, `SET_CHAT_BUILD_PLAN`/`SET_CHAT_BUILD_PHASE` context actions | 2026-04-20 (`npm run typecheck`, `npm run build`) |
+| **Claw Mode Phase 3** — build handoff from chat: `buildFromChat()` records the requested build prompt, validates Pre-Build, and routes to either the in-thread `ClawBuildSessionCard` for local-capable builders or the classic Build Workspace for edge/cloud flows. Build 🏗️ remains in the concierge routing bar, but the old chat-native plan/review/commit state has since been removed in favor of the live handoff paths. | 2026-04-29 (`npx eslint src\hooks\useThreads.ts src\components\reveal\ClawMode.tsx src\context\MaestroContext.tsx src\types\index.ts`, `npm run typecheck`, `npm run build`) |
 | CLAW_MODE_SPEC.md: council-approved architecture spec for Maestro v2 — thread-first model, Council/Claw hard split, 3 views (Orb/Carousel/Focus), 4-phase build plan, all 7 open questions resolved | 2026-04-20 (council-approved, commits `2d8cbd9`→`9380300`) |
 | **Claw Mode Phase 4** — Claw promoted to primary workspace shell (no longer z-50 overlay). Thread sidebar with grouped threads (Concierge/Broadcast/Direct/Execution). Context header showing thread type, active model, repo, build phase. Intent-first composer replacing 5 peer buttons with mode selector (Chat/Broadcast/Execute/Build) + single Send. Markdown rendering in chat via ReactMarkdown+remarkGfm with `.claw-prose` class. Fixed `SET_THREAD_MESSAGES` data loss (per-thread merge). Fixed stale synthesis closure (return value pattern). Contrast bumped from white/15-20 to white/30-40. View transition animations (180ms fade+translateY). Model picker anchored relative instead of fixed. | 2026-04-20 (`npm run typecheck`, `npm run build`) |
+| ClawBuildSessionCard uses real executor adapter IDs (`claude_code`, `codex_cli`, `copilot_cli`) and abort now cancels the remote `executor_jobs` row instead of stopping at UI state only | 2026-04-29 (code verified, `npm run typecheck`) |
 
 ## What's Broken or Incomplete
 
@@ -225,8 +236,12 @@ Legacy (unused): agent_skills, flags
 | **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
-| **⚠️ ARCHITECTURE DEBT — Claw build model is wrong for CLI agents**: Current model sends N isolated single-file prompts to Claude Code. Claude never sees the full project. Output is incoherent across files. Must migrate to session-granular `build_session` job type per CLAW_BUILD_V2_SPEC.md. This is the #1 blocker to production-quality Claw builds. | 2026-04-27 | **Partially addressed — Phases 1–4 shipped (commit `36ab1c7`); Phase 5 (Concierge scope intelligence) pending** |
-| **Claw Build v2 UX is split across chat and classic Build drawer**: Claw chat `buildFromChat()` routes users into Pre-Build/BuildWorkspace; session build controls appear inside the `task_building` stage instead of as a first-class Claw thread/workspace flow. This hides the session-granular model from users even though `build_session` dispatch exists in code. | 2026-04-27 (code verified) | ✅ **Fixed — commit `ef41036`** (in-thread ClawBuildSessionCard, routing bar, category message styling) |
+| ~~**Claw thread-first local build path still does not share one UI state model with BuildWorkspace**~~: ✅ Fixed in code — `sessionBuildState` in `MaestroContext` is now the shared source of truth for local session progress/runs/isRunning across both surfaces. | 2026-04-29 (`npx eslint src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\components\reveal\BuildWorkspace.tsx`, `npm run typecheck`, `npm run build`) | Done |
+| **Claw Build v2 UX is still partly split across chat and classic Build drawer**: the in-thread card now executes and pushes directly, but rich manifest review, PR follow-up, and premium event-card presentation are still thinner in Claw than in the broader Build workspace. | 2026-04-29 (code verified, `npm run typecheck`, `npm run build`) | Partially fixed — keep refining Claw thread-first build UX |
+| ~~**`auto` backend still escapes Claw mode into the Build drawer**~~: ✅ Fixed in code — `buildFromChat()` now routes `auto` to the in-thread session card when a locked MaestroClaw builder has a matching online executor. | 2026-04-29 (`npm run typecheck`, `npm run build`) | Done |
+| ~~**Chat build approval is a dead stub and the fallback build path still uses per-file cloud orchestrate calls**~~: ✅ Removed — dead `ChatBuildPlan` / `chatBuildPhase` state, stale approval UI, and unused per-file chat build fallback were deleted so Claw no longer advertises a non-working review path. | 2026-04-29 (`npx eslint src\hooks\useThreads.ts src\components\reveal\ClawMode.tsx src\context\MaestroContext.tsx src\types\index.ts`, `npm run typecheck`, `npm run build`) | Done |
+| **Claw local execution is still partly cloud-coupled for planning/routing**: direct shell-style execute requests now parse locally first, but concierge chat, direct agent chat, ambiguous execution requests, and build planning still route through `orchestrate`, adding avoidable latency and API cost on local-first flows. | 2026-04-29 (code verified, `npm run typecheck`, `npm run build`) | Unassigned |
+| **Repo-wide lint is polluted by generated MaestroClaw outputs**: `npm run lint` traverses `packages\maestroclaw\builds\*` and transient job workspaces, so generated project files and preserved workdirs currently produce unrelated ESLint parse errors during repo validation. | 2026-04-29 (`npm run lint`) | Unassigned |
 | ~~**Claw Mode thread/view labeling is misleading**~~: ✅ Fixed in Phase 4 — context header now shows thread type, active model, repo, build phase | 2026-04-20 (fixed) | Done |
 | ~~**Claw Mode responsive layout is not ready**~~: ✅ Fixed in Phase 4 — intent composer wraps on mobile, model picker uses relative positioning, sidebar is collapsible | 2026-04-20 (fixed) | Done |
 | **Claw poll loop is single-threaded**: `index.ts` does `await executeJob()` blocking one job at a time. 40-file builds run sequentially. Fix: concurrent job pool (MAX_CONCURRENT_JOBS, Phase 1 of CLAW_BUILD_V2_SPEC.md) | 2026-04-27 | ✅ **Fixed in Phase 1 (commit `2dd4752`)** |
@@ -261,18 +276,173 @@ These areas change often and should be re-verified after any significant work se
 7. ~~**🔴 Claw Build v2 — Phase 3: Session executor**~~ ✅ Done (commit `36ab1c7`)
 8. ~~**🔴 Claw Build v2 — Phase 4: Web UI session dispatch**~~ ✅ Done (commit `36ab1c7`)
 9. ~~**🔴 Claw Build v2 — Phase 5: Concierge scope intelligence**~~ ✅ Done (this session)
-10. **Smoke test `build_session` job end-to-end**: First real session build to verify `--dangerously-skip-permissions` works headlessly on Windows + `context_bundle` JSONB in `executor_jobs` is confirmed forwarded by `executor-api` (fix now deployed).
+10. **Smoke test the new default local build flow end-to-end**: First real BuildWorkspace local/auto run to verify multi-builder `build_session` dispatch, Claude headless session mode on Windows, and artifact aggregation across parallel builder scopes.
 11. ~~**🔴 UX: Claw build-session cards in-thread**~~ ✅ Done (commit `ef41036`): `ClawBuildSessionCard` in-thread for local backend; auto/edge still use drawer.
 12. ~~**UX: Premium event cards**~~ ✅ Done (commit `ef41036`): category-based system message styling with `detectSystemCategory()`.
 13. ~~**UX: Segmented routing bar**~~ ✅ Done (commit `ef41036`): full-width routing bar above composer; `role="radiogroup"` + arrow-key nav; consequence label per intent.
-14. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
-15. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
+14. **Unify the in-thread Claw card with the BuildWorkspace session controller** so chat-first local builds use the same multi-builder session pipeline and progress model.
+15. **Artifact → GitHub bridge for Claw session builds**: Wire session artifact_manifest through `github-execute` edge function (greenfield build push).
+16. **Retire legacy broadcast path** once v2 is battle-tested across multiple projects
 
 ---
 
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Added a local fast path for direct Claw execute commands
+
+**What was done**:
+1. Added a local execution-intent parser in `useThreads.ts` for obvious shell-style requests instead of always paying an `orchestrate` round-trip.
+2. Wired `executeFromChat()` to use the local parser first for direct commands and simple file-browsing asks like `list files in src` / `show file src/main.tsx`, only falling back to the cloud intent parser when the request is ambiguous.
+3. Adjusted the no-provider system message so local direct commands remain usable without requiring an AI key, while still guiding the user toward Vault for complex execute requests.
+4. Re-ran focused ESLint plus app `typecheck` and `build`.
+
+**Files touched**: `src/hooks/useThreads.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Limited the local parser to obvious `approved_shell` requests rather than trying to fully replace AI parsing for every execute intent in one pass.
+- Kept the cloud parser as the fallback for ambiguous asks, repo operations beyond simple shell commands, and broader concierge behavior.
+
+**What didn't work**:
+- This does not yet remove Supabase polling or `orchestrate` from the rest of the local Claw stack; it only cuts one high-frequency execution-intent round-trip.
+- Repo-wide `npm run lint` remains polluted by generated MaestroClaw outputs, so validation still used targeted lint on touched files.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Unified live session state and added direct in-thread GitHub push for Claw builds
+
+**What was done**:
+1. Finished the controller unification by moving live local session progress/runs/isRunning into shared `sessionBuildState` context state, with `useBuildExecution.ts` as the common updater and `ClawBuildSessionCard.tsx` reading the same shared data model as `BuildWorkspace.tsx`.
+2. Added a shared `pushSessionBuildToGithub()` path in `useBuildExecution.ts` so session-manifest GitHub execution lives in one place instead of being duplicated inside `BuildWorkspace.tsx`.
+3. Rewired `ClawBuildSessionCard.tsx` success handling to push directly to GitHub in-thread, surfacing push progress, PR links, backup branch, and skipped-file counts without forcing a "Push via Build Workspace" handoff.
+4. Rewired `BuildWorkspace.tsx` to call the same shared push helper, keeping local session GitHub execution behavior aligned between the thread-native Claw card and the classic drawer.
+5. Verified the slice with focused ESLint on touched files plus app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/hooks/useBuildExecution.ts`, `src/hooks/useThreads.ts`, `src/components/reveal/ClawBuildSessionCard.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept `clawBuildSession` as thread-card routing metadata and treated `sessionBuildState` as the single source of truth for live local session execution state.
+- Lifted the GitHub push behavior into the shared build hook instead of creating separate Claw-only push code, so future review/PR UX can evolve on one execution path.
+
+**What didn't work**:
+- No live browser smoke test was run for the new in-thread push flow; validation in this pass was compile-level plus targeted lint only.
+- Repo-wide `npm run lint` remains polluted by generated MaestroClaw outputs, so slice validation still used targeted lint on touched files.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Shared the local session transport between Claw and BuildWorkspace
+
+**What was done**:
+1. Added `src/lib/sessionBuild.ts` as the shared local session transport module for executor capability checks, `build_session` submission, polling with progress callbacks, manifest dedupe, and remote cancellation.
+2. Rewired `useBuildExecution.ts` to use the shared session helpers instead of its own duplicate submit/poll/merge logic.
+3. Rewired `ClawBuildSessionCard.tsx` to use the same shared submit/poll/cancel helpers, removing another copy of the local executor flow.
+4. Verified the refactor with focused ESLint on all touched files plus app `typecheck` and `build`.
+
+**Files touched**: `src/lib/sessionBuild.ts`, `src/hooks/useBuildExecution.ts`, `src/components/reveal/ClawBuildSessionCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Extracted the shared behavior at the transport/helper layer first rather than forcing both surfaces onto one shared React state model in the same pass.
+- Kept the higher-level session progress state split for now so this refactor stayed behavior-safe while still removing the worst source of drift.
+
+**What didn't work**:
+- This does not yet give Claw and BuildWorkspace one presentation/state source of truth; only the executor transport and polling logic are unified so far.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Removed dead chat-build fallback state from Claw
+
+**What was done**:
+1. Deleted the stale `ChatBuildPlan` / `chatBuildPhase` state, old planner prompt/types, and unused `generateBuildPlan()` / `executeBuildPlan()` / `approveBuildPlan()` / `cancelBuildPlan()` path from `useThreads.ts`.
+2. Removed the dead Claw review/progress UI in `ClawMode.tsx` and rewired the header/build banner so Build mode now reflects the actual live path: in-thread local session card when available, otherwise Build Workspace handoff.
+3. Cleaned `MaestroContext.tsx` and `src/types/index.ts` so the shared state model no longer advertises a build-review path that nothing can trigger.
+4. Verified the slice with targeted ESLint on changed files plus app `typecheck` and `build`.
+
+**Files touched**: `src/hooks/useThreads.ts`, `src/components/reveal/ClawMode.tsx`, `src/context/MaestroContext.tsx`, `src/types/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Removed the dead path outright instead of trying to patch it, because the real Claw build flow now lives in thread-native session handoff + Build Workspace fallback.
+- Kept the generic JSON parsing helper in `useThreads.ts` because execution-intent parsing still uses it even after the old chat-build planner was removed.
+
+**What didn't work**:
+- `npm run lint` still fails at the repo level because generated MaestroClaw build/workspace outputs are included in ESLint traversal; validation for this slice used targeted lint on changed files plus `npm run typecheck` and `npm run build`.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Auto backend now stays thread-native for local Claw builds
+
+**What was done**:
+1. Updated `useThreads.ts:buildFromChat()` so `execution_backend === 'auto'` now opens the in-thread Claw build session card when a locked MaestroClaw builder has a matching online executor instead of always ejecting to the Build drawer.
+2. Added local-routing resolution in `useThreads.ts` based on locked builder roster + executor capability match, so thread-native routing now reflects actual local availability rather than only the backend toggle value.
+3. Extended `ClawBuildSessionState` with `defaultAdapter` and wired `ClawBuildSessionCard` to initialize from it, preventing the card from always defaulting to `claude_code` when the locked builder is Copilot or Codex.
+
+**Files touched**: `src/hooks/useThreads.ts`, `src/components/reveal/ClawBuildSessionCard.tsx`, `src/types/index.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the fallback drawer path for `auto` when no matching local executor is available.
+- Limited this slice to routing/default-adapter correctness; the deeper controller unification between the card and `useBuildExecution` remains unfinished.
+
+**What didn't work**:
+- No live Claw smoke test was run yet; this fix was validated with `npm run typecheck` and `npm run build`.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Fresh-eyes audit of Claw UX and API-era constraints
+
+**What was done**:
+1. Audited Claw mode, BuildWorkspace, `useThreads`, `useBuildExecution`, MaestroClaw executor/adapters, and the Claw specs for places where the UX and architecture still reflect the old stateless edge/API model instead of a local-first CLI model.
+2. Verified the biggest UX gaps are routing and control-surface issues, not just styling: `auto` still exits chat into the Build drawer, the in-thread build approval path is a stub, and the in-thread build card remains a separate controller from the newer session-build pipeline.
+3. Verified the biggest architectural holdovers are cloud coupling and old one-shot primitives: command/build planning still routes through `orchestrate`, `executeBuildPlan()` still uses one cloud call per file, and local progress still relies entirely on Supabase polling instead of a direct local channel.
+4. Added concrete operational-state rows for the newly verified Claw-local gaps so future sessions do not over-assume the local path is already fully thread-native.
+
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Framed the root problem as “local Claw was bolted onto the cloud pipeline” rather than treating each symptom as an isolated bug.
+- Kept the findings at the architecture/UX layer; no code changes were made in this audit session.
+
+**What didn't work**:
+- No live browser smoke test or live Claw build run was performed in this audit-only pass; findings were code-verified and cross-checked against the current specs/state files.
+
+### 2026-04-29 — GitHub Copilot (GPT-5.4) — Default local builds now route to session jobs
+
+**What was done**:
+1. Rewired `BuildWorkspace` so local/auto Start Build defaults to plan-based `build_session` execution for MaestroClaw builders instead of immediately decomposing into per-file `build_task` jobs.
+2. Added multi-builder session-run aggregation in `useBuildExecution.ts` so one local build can launch multiple scoped session jobs, track each builder run, and merge manifests for later GitHub push.
+3. Relaxed `useThreads.ts:getBuildSetupStatus()` so local session builds can start without a connected GitHub repo; repo binding is still required only when pushing to GitHub.
+4. Tightened the session prompt contract by passing explicit `scope_paths`, builder labels, and builder instructions into `build_session` jobs.
+5. Updated the Claude session adapter to run without `--print` in session mode so Claude can operate agentically in the workspace instead of being forced into one-shot print behavior.
+
+**Files touched**: `src/hooks/useBuildExecution.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/hooks/useThreads.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/adapters/claude-code.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept edge/cloud builds on the existing per-file task queue; only local/auto Claw-first flows now default to session jobs.
+- Left `ClawBuildSessionCard` on its current standalone controller for now; the remaining gap is unifying that in-thread card with the new multi-builder session pipeline rather than keeping the whole workspace on per-file jobs.
+
+**What didn't work**:
+- No live end-to-end session-build smoke test was run yet; validation in this session was limited to `npm run typecheck`, `npm run build`, and `npm --prefix packages\maestroclaw run build`.
+
+### 2026-04-28 — OpenAI Codex (PowerShell) — Claw build cockpit HTML mockup
+
+**What was done**:
+1. Added `CLAW_UX_COCKPIT_MOCKUP.html`, a standalone shallow-route HTML mockup for the intended premium Claw build flow.
+2. Mockup routes: `#brief`, `#configure`, `#running`, `#review`, `#push`.
+3. Mockup illustrates the target UX: thread-native build session contract, real adapter IDs (`claude_code`, `codex_cli`, `copilot_cli`), visible scope/guardrails, real cancellation semantics, live run state, artifact review, and in-thread PR push.
+
+**Files touched**: `CLAW_UX_COCKPIT_MOCKUP.html`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the mockup outside production React code so Claude Code can inspect/open it directly without a build step.
+- Used hash routes and inline CSS/JS only; no dependencies.
+
+**What didn't work**: No browser smoke test was run from this session.
+
+### 2026-04-28 — OpenAI Codex (PowerShell) — Audit UX Phases 1–3
+
+**What was done**:
+1. Audited commits `ef41036` and `fd2622e` against `HANDOFF_CLAW_UX.md` and the Claw thread-first build-session UX goal.
+2. Verified `npm run typecheck` passes after the UX changes.
+3. Corrected stale/overclaimed `MAESTRO_STATE.md` rows: Phase 5 is no longer pending; Claw Build v2 UX is only partially fixed because auto/edge and push still route through Build Workspace.
+4. Fixed malformed Key Files table row containing literal `` `r`n`` fragments.
+5. Added open issues for `ClawBuildSessionCard` adapter mismatch (`codex`/`copilot` vs `codex_cli`/`copilot_cli`) and UI-only abort behavior.
+
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Left source code unchanged; this session was an audit/documentation correction only.
+- Treat `ef41036` as a strong UX direction, not complete Claw build UX closure.
+
+**What didn't work**: No browser smoke test or real `build_session` run was performed in this session.
 
 ### 2026-04-28 — GitHub Copilot (Claude Sonnet 4.6) — UX Phases 1–3: In-thread build card + category messages + routing bar
 

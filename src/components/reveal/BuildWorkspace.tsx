@@ -182,86 +182,20 @@ export default function BuildWorkspace() {
     setError('');
 
     try {
-      if (!state.activeRepoConnection?.id) {
-        throw new Error('No active GitHub repo is connected.');
-      }
-
-      const manifest = buildExec.collectSessionManifest();
-      if (manifest.length === 0) {
-        throw new Error('Session produced no files. Cannot push to GitHub.');
-      }
-
-      const { data: runData, error: runErr } = await supabase
-        .from('execution_runs')
-        .insert({
-          session_id: session.id,
-          user_id: user.id,
-          strategy: 'synthesized' as const,
-          status: 'running',
-        } as never)
-        .select()
-        .maybeSingle();
-
-      if (runErr || !runData) throw new Error(runErr?.message ?? 'Failed to create execution run');
-
-      const patches = [{
-        agent_name: `Session Build (${selectedSessionAdapter})`,
-        agent_id: 'build-session',
-        content: `${manifest.length} files from session build`,
-        scoped_paths: [] as string[],
-        commit_message: `Session build: ${manifest.length} files for ${session.title ?? 'session'}`,
-        conductor_approved: true,
-        file_manifest: manifest.map(f => ({
-          path: f.path,
-          content: f.content,
-          operation: f.operation === 'delete' ? 'delete' as const : 'upsert' as const,
-          content_hash: null,
-        })),
-      }];
-
-      const execResult = await invokeEdgeFunction<{
-        status?: string;
-        written_files?: string[];
-        prs?: string[];
-        errors?: string[];
-        branches?: Array<{ branch?: string; pr_url?: string }>;
-        backup_branch?: string;
-        skipped_files?: Array<{ path: string; reason: string }>;
-        collisions?: unknown[];
-        handoffs_requested?: Array<{ from_agent: string; path: string }>;
-      }>('github-execute', {
-        session_id: session.id,
-        execution_run_id: (runData as { id: string }).id,
-        repo_connection_id: state.activeRepoConnection.id,
-        patches,
-        mode: 'synthesized',
-        conductor_approved: true,
-      });
-
-      const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
-      await supabase
-        .from('execution_runs')
-        .update({ status, result: execResult as never } as never)
-        .eq('id', (runData as { id: string }).id);
-
-      setWrittenFiles(execResult.written_files ?? []);
-      setSkippedFiles(execResult.skipped_files ?? []);
-      setPrUrls(execResult.prs ?? []);
-      setCollisionCount((execResult.collisions ?? []).length);
-      setHandoffs((execResult.handoffs_requested ?? []) as { from_agent: string; path: string }[]);
-      setBackupBranch(execResult.backup_branch ?? '');
-
-      dispatch({
-        type: 'ADD_EXECUTION_RUN',
-        payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
-      });
+      const result = await buildExec.pushSessionBuildToGithub(selectedSessionAdapter);
+      setWrittenFiles(result.writtenFiles);
+      setSkippedFiles(result.skippedFiles);
+      setPrUrls(result.prUrls);
+      setCollisionCount(result.collisionCount);
+      setHandoffs(result.handoffs);
+      setBackupBranch(result.backupBranch);
 
       setStage(session.current_phase === 'bouncer' ? 'bouncer' : 'complete');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStage('session_building');
     }
-  }, [session, user, state.activeRepoConnection, buildExec, selectedSessionAdapter, dispatch]);
+  }, [session, user, buildExec, selectedSessionAdapter]);
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
   const isClawMode = state.clawModeActive;
@@ -380,6 +314,58 @@ export default function BuildWorkspace() {
     () => safeStringArray(session?.build_spec?.primary_builder_agent_ids),
     [session?.build_spec],
   );
+
+  const resolvePlannedBuilderAgent = useCallback((builder: NormalizedBuilderAgent) => {
+    const lockedIds = new Set(lockedBuilderAgentIds);
+    const candidates = agents.filter(agent => lockedIds.size === 0 || lockedIds.has(agent.id));
+
+    if (builder.agent_id) {
+      const exact = candidates.find(agent => agent.id === builder.agent_id);
+      if (exact) return exact;
+    }
+
+    const label = norm(builder.agent_name);
+    if (!label) return null;
+
+    return candidates.find(agent => {
+      const name = norm(agent.name);
+      const display = norm(agent.display_name);
+      const role = norm(agent.role);
+      return name === label
+        || display === label
+        || display.includes(label)
+        || label.includes(display)
+        || name.includes(label)
+        || label.includes(name)
+        || role.includes(label)
+        || label.includes(role);
+    }) ?? null;
+  }, [agents, lockedBuilderAgentIds]);
+
+  const localSessionSpecs = useMemo(() => {
+    if (!normalizedBuildPlan) return [];
+    return normalizedBuildPlan.builder_agents.reduce<Array<{
+      builderName: string;
+      adapter: string;
+      scopePaths: string[];
+      instruction?: string;
+    }>>((acc, builder) => {
+      const resolved = resolvePlannedBuilderAgent(builder);
+      if (!resolved || resolved.provider_group !== 'maestroclaw') return acc;
+      acc.push({
+          builderName: resolved.display_name || resolved.name || builder.agent_name,
+          adapter: resolved.model,
+          scopePaths: builder.scoped_paths.length > 0 ? builder.scoped_paths : ['**'],
+          instruction: builder.instruction,
+        });
+      return acc;
+    }, []);
+  }, [normalizedBuildPlan, resolvePlannedBuilderAgent]);
+
+  const prefersSessionBuild = useMemo(() => (
+    (session?.execution_backend === 'local' || session?.execution_backend === 'auto')
+    && localSessionSpecs.length > 0
+  ), [session?.execution_backend, localSessionSpecs]);
 
   const resolveBuilderAgentIds = useCallback((plan: NormalizedBuildPlan | null) => {
     const lockedIds = new Set(lockedBuilderAgentIds);
@@ -715,6 +701,13 @@ export default function BuildWorkspace() {
   const handleTaskBuild = useCallback(async () => {
     if (!session) return;
     setError('');
+
+    if (prefersSessionBuild) {
+      setStage('session_building');
+      await buildExec.executeSessionPlan(localSessionSpecs);
+      return;
+    }
+
     setStage('task_decomposing');
 
     try {
@@ -728,7 +721,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : 'Task decomposition failed.');
       setStage('plan_review');
     }
-  }, [session, buildExec]);
+  }, [session, buildExec, prefersSessionBuild, localSessionSpecs]);
 
   const handleTaskExecuteToGithub = useCallback(async () => {
     if (!session || !user) return;
@@ -1324,8 +1317,8 @@ export default function BuildWorkspace() {
                   }}
                   onClick={handleTaskBuild}
                 >
-                  <FileCode size={14} />
-                  Start Build
+                  {prefersSessionBuild ? <Zap size={14} /> : <FileCode size={14} />}
+                  {prefersSessionBuild ? 'Start Claw Build' : 'Start Build'}
                 </button>
                 <button
                   className="reveal-pill"
@@ -1448,7 +1441,7 @@ export default function BuildWorkspace() {
                     Resume Build
                   </button>
                 )}
-                {!buildExec.isRunning && (
+                {!buildExec.isRunning && !prefersSessionBuild && (
                   <button
                     className="reveal-pill"
                     style={{
@@ -1459,7 +1452,7 @@ export default function BuildWorkspace() {
                     onClick={() => setShowSessionConfig(v => !v)}
                   >
                     <Zap size={13} />
-                    Session Build
+                    Manual Session Build
                   </button>
                 )}
               </div>
@@ -2133,12 +2126,63 @@ export default function BuildWorkspace() {
                   )}
                   <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: 500 }}>
                     {buildExec.sessionProgress.status === 'running'
-                      ? `Session build running… (${selectedSessionAdapter})`
+                      ? buildExec.sessionRuns.length > 1
+                        ? `Session build running… (${buildExec.sessionRuns.length} builders)`
+                        : `Session build running… (${buildExec.sessionRuns[0]?.adapter ?? selectedSessionAdapter})`
                       : buildExec.sessionProgress.status === 'succeeded'
                       ? `Session complete — ${buildExec.sessionProgress.filesWritten} file${buildExec.sessionProgress.filesWritten === 1 ? '' : 's'} written`
                       : `Session failed`}
                   </span>
                 </div>
+
+                {buildExec.sessionRuns.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+                    {buildExec.sessionRuns.map(run => (
+                      <div
+                        key={run.key}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '10px',
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-3" style={{ marginBottom: '6px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-primary)' }}>
+                            {run.builderName}
+                          </div>
+                          <div
+                            className="font-mono-dm"
+                            style={{
+                              fontSize: '10px',
+                              letterSpacing: '0.08em',
+                              textTransform: 'uppercase',
+                              color: run.status === 'succeeded'
+                                ? '#5ab88e'
+                                : run.status === 'failed'
+                                  ? 'var(--risk)'
+                                  : '#a78bfa',
+                            }}
+                          >
+                            {run.status}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          {run.adapter} · {run.filesWritten} file{run.filesWritten === 1 ? '' : 's'}
+                          {run.jobId ? ` · ${run.jobId.slice(0, 8)}` : ''}
+                        </div>
+                        <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                          {run.scopePaths.join(' · ')}
+                        </div>
+                        {run.errorText && (
+                          <div style={{ fontSize: '11px', color: 'var(--risk)', marginTop: '6px' }}>
+                            {run.errorText}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {buildExec.sessionProgress.errorText && (
                   <div style={{
@@ -2172,7 +2216,7 @@ export default function BuildWorkspace() {
                   </div>
                 )}
 
-                {buildExec.sessionProgress.jobId && (
+                {buildExec.sessionProgress.jobId && buildExec.sessionRuns.length <= 1 && (
                   <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontFamily: 'monospace', display: 'block' }}>
                     Job: {buildExec.sessionProgress.jobId.slice(0, 8)}
                   </span>

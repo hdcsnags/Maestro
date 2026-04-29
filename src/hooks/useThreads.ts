@@ -3,8 +3,8 @@ import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, ChatBuildPlan, ChatBuildFile, FileManifestEntry, ExecutionRun, ProviderConnection } from '../types';
-import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, BUILD_PLAN_PROMPT, CONCIERGE_MODELS } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection } from '../types';
+import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, CONCIERGE_MODELS } from '../types';
 
 interface OrchestrateResult {
   content?: string;
@@ -19,49 +19,6 @@ interface ConciergeRuntimeChoice {
   model: string;
   provider: string;
 }
-
-const BUILD_PLAN_REPAIR_PROMPT = `You are Maestro's build-plan recovery assistant.
-Your job is to turn a broad or under-specified build request into a conservative FIRST executable build slice.
-
-Return JSON only:
-{
-  "description": "Brief description of what will be built now, including any key assumptions",
-  "files": [
-    { "path": "src/example.tsx", "action": "create", "description": "What this file accomplishes in the first slice" }
-  ],
-  "commit_message": "feat: descriptive commit message"
-}
-
-Rules:
-- Never ask follow-up questions
-- Choose a first slice that is reviewable and executable now
-- Prefer 3-8 files, maximum 10
-- If codebase context is available, fit the existing stack and paths
-- If codebase context is missing, assume a conventional modern web-app structure
-- Focus on app shell, primary interaction, and clearly requested backend entrypoints
-- Return ONLY valid JSON`;
-
-const BUILD_PLAN_CONTEXT_FILES = [
-  'package.json',
-  'src/main.tsx',
-  'src/App.tsx',
-  'README.md',
-  'tsconfig.json',
-  'vite.config.ts',
-  'server/index.ts',
-];
-
-const BUILD_PLAN_CLARIFICATION_PATTERNS = [
-  /don't have a target yet/i,
-  /need specifics/i,
-  /need to know/i,
-  /what are we building/i,
-  /what's the repository context/i,
-  /what tech stack/i,
-  /what's the desired outcome/i,
-  /give me even a one-sentence description/i,
-  /before i can produce/i,
-];
 
 const THREAD_OUTPUT_REDACTION_RULES: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, replacement: '[REDACTED_GITHUB_TOKEN]' },
@@ -123,135 +80,113 @@ function parseStructuredJson<T>(raw: string, label: string): T {
   }
 }
 
-function looksLikeClarificationResponse(raw: string): boolean {
-  const text = raw.trim();
-  if (!text) return false;
-  return BUILD_PLAN_CLARIFICATION_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function maybeExtractPlannerMessage(candidate: unknown): string | null {
-  if (!candidate || typeof candidate !== 'object') return null;
-  const parsed = candidate as Record<string, unknown>;
-  return typeof parsed.content === 'string' && !Array.isArray(parsed.files)
-    ? parsed.content.trim()
-    : null;
-}
-
 function summarizeBuildRequest(userMessage: string): string {
   const normalized = userMessage.replace(/\s+/g, ' ').trim();
   if (!normalized) return 'the requested build';
   return normalized.length > 96 ? `${normalized.slice(0, 93).trimEnd()}...` : normalized;
 }
 
-function pushUniqueBuildFile(files: ChatBuildFile[], next: ChatBuildFile) {
-  if (files.some((file) => file.path === next.path)) return;
-  files.push(next);
+const LOCAL_EXECUTION_COMMAND_PREFIXES = [
+  'npm', 'npx', 'pnpm', 'yarn', 'git', 'gh', 'node', 'python', 'python3', 'pip', 'pip3',
+  'ls', 'dir', 'cat', 'type', 'pwd', 'echo',
+];
+
+function looksLikeDirectCommand(candidate: string): boolean {
+  const trimmed = candidate.trim();
+  if (!trimmed) return false;
+  const firstToken = trimmed.split(/\s+/, 1)[0]?.toLowerCase() ?? '';
+  return LOCAL_EXECUTION_COMMAND_PREFIXES.includes(firstToken);
 }
 
-function buildConservativeFallbackPlan(userMessage: string): ChatBuildPlan {
-  const lower = userMessage.toLowerCase();
-  const files: ChatBuildFile[] = [];
-  const wantsBackend = /\b(api|backend|server|auth|database|sql|service|admin|dashboard)\b/.test(lower);
-  const wantsLanding = /\b(site|website|homepage|landing|portal|public|school|district)\b/.test(lower);
-  const wantsDashboard = /\b(dashboard|admin|portal|console)\b/.test(lower);
-  const wantsModeToggle = /\b(toggle|tutorial mode|live mode|mode switch|mode toggle|side by side)\b/.test(lower);
-
-  pushUniqueBuildFile(files, {
-    path: 'src/App.tsx',
-    action: 'update',
-    description: 'Refocus the app shell around the requested experience and wire the first reviewable slice into the main entry surface.',
-  });
-
-  if (wantsLanding || files.length === 1) {
-    pushUniqueBuildFile(files, {
-      path: 'src/features/build/LandingExperience.tsx',
-      action: 'create',
-      description: 'Create the primary landing experience for the first build slice, including the public-facing narrative and core entry points.',
-    });
+function describeLocalCommand(command: string): string {
+  const trimmed = command.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('npm install') || lower.startsWith('pnpm install') || lower.startsWith('yarn install')) {
+    return 'Install project dependencies';
   }
-
-  if (wantsModeToggle) {
-    pushUniqueBuildFile(files, {
-      path: 'src/components/ExperienceModeToggle.tsx',
-      action: 'create',
-      description: 'Add the top-level mode switch that lets users move between the two requested learning or usage modes.',
-    });
+  if (lower.startsWith('npm run ') || lower.startsWith('pnpm ') || lower.startsWith('yarn ')) {
+    return 'Run a project script';
   }
-
-  if (wantsDashboard) {
-    pushUniqueBuildFile(files, {
-      path: 'src/features/build/DashboardSurface.tsx',
-      action: 'create',
-      description: 'Add the first dashboard surface that demonstrates the requested internal or administrative experience.',
-    });
-  }
-
-  if (wantsBackend) {
-    pushUniqueBuildFile(files, {
-      path: 'server/index.ts',
-      action: 'create',
-      description: 'Stand up the backend entrypoint for the first slice so the requested server-side behaviors have a concrete integration surface.',
-    });
-    pushUniqueBuildFile(files, {
-      path: 'server/routes/experience.ts',
-      action: 'create',
-      description: 'Define the initial backend route layer that supports the first slice of the requested experience.',
-    });
-  }
-
-  pushUniqueBuildFile(files, {
-    path: 'README.md',
-    action: 'update',
-    description: 'Document the first-slice assumptions, scope, and how to run or review the generated build.',
-  });
-
-  return {
-    description: `Assumption-based starter build plan for ${summarizeBuildRequest(userMessage)}. This first pass focuses on a reviewable foundation slice because the planner returned clarification prose instead of structured JSON.`,
-    files: files.slice(0, 8),
-    commit_message: 'feat: scaffold first build slice',
-  };
+  if (lower.startsWith('git status')) return 'Check repo status';
+  if (lower.startsWith('git diff')) return 'View changes';
+  if (lower.startsWith('git log')) return 'View commit history';
+  if (lower.startsWith('gh pr list')) return 'List pull requests';
+  if (lower.startsWith('gh issue list')) return 'List issues';
+  if (lower.startsWith('ls') || lower.startsWith('dir')) return 'List directory contents';
+  if (lower.startsWith('cat') || lower.startsWith('type')) return 'View file contents';
+  return `Run \`${trimmed.split(/\s+/, 2).join(' ')}\``;
 }
 
-function normalizeChatBuildPlan(candidate: unknown): ChatBuildPlan {
-  if (!candidate || typeof candidate !== 'object') {
-    throw new Error('Build planner returned an invalid plan.');
+function tryParseLocalExecutionIntent(userMessage: string): ExecutionIntent | null {
+  const trimmed = userMessage.trim();
+  if (!trimmed) return null;
+
+  const fencedMatch = trimmed.match(/`([^`]+)`/);
+  const quotedCommand = fencedMatch?.[1]?.trim();
+  if (quotedCommand && looksLikeDirectCommand(quotedCommand)) {
+    return {
+      action: 'shell_command',
+      command: quotedCommand,
+      params: {},
+      adapter: 'approved_shell',
+      trust: classifyCommandTrust(quotedCommand),
+      description: describeLocalCommand(quotedCommand),
+    };
   }
 
-  const plan = candidate as Partial<ChatBuildPlan> & { files?: unknown[] };
-  const files = Array.isArray(plan.files)
-    ? plan.files.flatMap((file): ChatBuildFile[] => {
-        if (!file || typeof file !== 'object') return [];
-        const candidateFile = file as Partial<ChatBuildFile>;
-        const path = typeof candidateFile.path === 'string' ? candidateFile.path.trim() : '';
-        const description = typeof candidateFile.description === 'string' ? candidateFile.description.trim() : '';
-        const action = candidateFile.action;
-        if (!path || !description || (action !== 'create' && action !== 'update' && action !== 'delete')) {
-          return [];
-        }
-        return [{ path, description, action }];
-      })
-    : [];
-
-  if (files.length === 0) {
-    throw new Error('Build planner returned no actionable files.');
+  if (looksLikeDirectCommand(trimmed)) {
+    return {
+      action: 'shell_command',
+      command: trimmed,
+      params: {},
+      adapter: 'approved_shell',
+      trust: classifyCommandTrust(trimmed),
+      description: describeLocalCommand(trimmed),
+    };
   }
 
-  const description = typeof plan.description === 'string' && plan.description.trim().length > 0
-    ? plan.description.trim()
-    : `Build plan covering ${files.length} file${files.length === 1 ? '' : 's'}.`;
-  const commit_message = typeof plan.commit_message === 'string' && plan.commit_message.trim().length > 0
-    ? plan.commit_message.trim()
-    : 'feat: apply claw build plan';
-  const branch_name = typeof plan.branch_name === 'string' && plan.branch_name.trim().length > 0
-    ? plan.branch_name.trim()
-    : undefined;
+  const runMatch = trimmed.match(/^(?:please\s+)?(?:run|execute|try)\s+(.+)$/i);
+  const runCommand = runMatch?.[1]?.trim();
+  if (runCommand && looksLikeDirectCommand(runCommand)) {
+    return {
+      action: 'shell_command',
+      command: runCommand,
+      params: {},
+      adapter: 'approved_shell',
+      trust: classifyCommandTrust(runCommand),
+      description: describeLocalCommand(runCommand),
+    };
+  }
 
-  return {
-    description,
-    files,
-    commit_message,
-    ...(branch_name ? { branch_name } : {}),
-  };
+  const listFilesMatch = trimmed.match(/^(?:please\s+)?list\s+files(?:\s+in)?\s+(.+)$/i);
+  if (listFilesMatch?.[1]) {
+    const path = listFilesMatch[1].trim().replace(/^["'`](.*)["'`]$/, '$1');
+    const command = `ls ${path}`;
+    return {
+      action: 'shell_command',
+      command,
+      params: { path },
+      adapter: 'approved_shell',
+      trust: classifyCommandTrust(command),
+      description: `List files in ${path}`,
+    };
+  }
+
+  const showFileMatch = trimmed.match(/^(?:please\s+)?(?:show|open|read)\s+file\s+(.+)$/i);
+  if (showFileMatch?.[1]) {
+    const path = showFileMatch[1].trim().replace(/^["'`](.*)["'`]$/, '$1');
+    const command = `cat ${path}`;
+    return {
+      action: 'shell_command',
+      command,
+      params: { path },
+      adapter: 'approved_shell',
+      trust: classifyCommandTrust(command),
+      description: `View ${path}`,
+    };
+  }
+
+  return null;
 }
 
 // ── Phase 5: Scope intelligence helpers ────────────────────────────────────
@@ -319,9 +254,10 @@ export function useThreads() {
       const agent = state.agents.find((candidate) => candidate.id === id);
       return agent?.display_name || agent?.name || id;
     });
+    const executionBackend = state.activeSession?.execution_backend ?? 'edge';
 
     const missing: string[] = [];
-    if (!activeRepo) missing.push('an active GitHub repo connection');
+    if (!activeRepo && executionBackend === 'edge') missing.push('an active GitHub repo connection');
     if (!state.activeSession?.architect_md?.trim()) missing.push('an ARCHITECT.md scaffold');
     if (state.activeSession?.build_spec_locked !== true) missing.push('a locked Pre-Build builder roster');
     if (lockedBuilderIds.length === 0) missing.push('at least one selected builder');
@@ -331,11 +267,57 @@ export function useThreads() {
       buildSpec,
       lockedBuilderIds,
       builderNames,
-      executionBackend: state.activeSession?.execution_backend ?? 'edge',
+      executionBackend,
       ready: missing.length === 0,
       missing,
     };
   }, [state.activeRepoConnection, state.repoConnections, state.activeSession, state.agents]);
+
+  const executorSupportsAdapter = useCallback((adapter: string) => {
+    return state.executors.some((ex) => {
+      if (ex.status !== 'online') return false;
+      if (!ex.last_seen_at) return false;
+      if (Date.now() - new Date(ex.last_seen_at).getTime() >= 60_000) return false;
+      const adapters = (ex.capabilities as Record<string, unknown>).adapters;
+      return Array.isArray(adapters) && (adapters as string[]).includes(adapter);
+    });
+  }, [state.executors]);
+
+  const resolveLocalBuildRouting = useCallback((
+    lockedBuilderIds: string[],
+    executionBackend: 'local' | 'auto' | 'edge',
+  ) => {
+    const lockedBuilders = lockedBuilderIds
+      .map((id) => state.agents.find((candidate) => candidate.id === id))
+      .filter((agent): agent is NonNullable<typeof agent> => Boolean(agent));
+
+    const clawBuilders = lockedBuilders.filter((agent) => agent.provider_group === 'maestroclaw');
+    const onlineClawBuilders = clawBuilders.filter((agent) => executorSupportsAdapter(agent.model));
+
+    if (executionBackend === 'local') {
+      return {
+        threadNative: true,
+        builderNames: clawBuilders.length > 0
+          ? clawBuilders.map((agent) => agent.display_name || agent.name)
+          : lockedBuilders.map((agent) => agent.display_name || agent.name),
+        defaultAdapter: clawBuilders[0]?.model ?? onlineClawBuilders[0]?.model ?? 'claude_code',
+      };
+    }
+
+    if (executionBackend === 'auto' && onlineClawBuilders.length > 0) {
+      return {
+        threadNative: true,
+        builderNames: onlineClawBuilders.map((agent) => agent.display_name || agent.name),
+        defaultAdapter: onlineClawBuilders[0]?.model ?? 'claude_code',
+      };
+    }
+
+    return {
+      threadNative: false,
+      builderNames: lockedBuilders.map((agent) => agent.display_name || agent.name),
+      defaultAdapter: null,
+    };
+  }, [state.agents, executorSupportsAdapter]);
 
   const updateSessionBuildState = useCallback(async (
     phase: 'pre_build' | 'build',
@@ -829,24 +811,29 @@ export function useThreads() {
       return;
     }
 
-    // Pre-flight: check that at least one AI provider is connected to parse the intent
-    const hasConciergeProvider = state.providerConnections.some(c => c.is_connected);
-    if (!hasConciergeProvider) {
-      await addMessage(threadId, 'system',
-        '⚠️ No AI provider is connected.\n\nAdd an API key in Vault to allow Maestro to parse your execution intent.'
-      );
-      return;
-    }
-
     dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
 
     try {
       // Save user's execution request
       await addMessage(threadId, 'user', `⚡ ${userMessage}`);
 
-      // Parse intent
-      await addMessage(threadId, 'system', '🔍 Parsing execution intent...');
-      const intent = await parseExecutionIntent(userMessage);
+      const localIntent = tryParseLocalExecutionIntent(userMessage);
+      const hasConciergeProvider = state.providerConnections.some(c => c.is_connected);
+
+      let intent: ExecutionIntent | null = localIntent;
+      if (localIntent) {
+        await addMessage(threadId, 'system', '⚡ Parsed locally — skipping the cloud intent parser for this command.');
+      } else {
+        if (!hasConciergeProvider) {
+          await addMessage(threadId, 'system',
+            '⚠️ No AI provider is connected.\n\nAdd an API key in Vault to allow Maestro to parse complex execution requests, or enter a direct command like `npm run build`.'
+          );
+          return;
+        }
+
+        await addMessage(threadId, 'system', '🔍 Parsing execution intent...');
+        intent = await parseExecutionIntent(userMessage);
+      }
 
       if (!intent) {
         await addMessage(threadId, 'system',
@@ -897,247 +884,6 @@ export function useThreads() {
     }
   }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
-  // ─── Build from Chat (Phase 3) ──────────────────────────────
-
-  // Generate a build plan from user's description
-  const generateBuildPlan = useCallback(async (
-    threadId: string,
-    userMessage: string,
-  ): Promise<ChatBuildPlan | null> => {
-    let lastError: Error | null = null;
-
-    try {
-      await ensureAuth();
-      const conversationHistory = buildConversationContext(threadId);
-      const planningPrompt = conversationHistory
-        ? `${conversationHistory}\n\nCurrent build request: ${userMessage}`
-        : userMessage;
-      const activeRepoConnection = state.activeRepoConnection
-        ?? state.repoConnections?.find((repo) => repo.is_active)
-        ?? null;
-      const plannerContextFiles = activeRepoConnection
-        ? BUILD_PLAN_CONTEXT_FILES.map((path) => ({ path }))
-        : undefined;
-
-      const invokeBuildPlanner = async (
-        candidate: ConciergeRuntimeChoice,
-        prompt: string,
-        agentRole: string,
-        agentName: string,
-      ): Promise<string> => {
-        const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-          prompt,
-          provider: candidate.provider,
-          model: candidate.model,
-          agentName,
-          agentRole,
-          mode: 'analysis',
-          session_id: state.activeSession?.id,
-          repo_connection_id: activeRepoConnection?.id,
-          context_files: plannerContextFiles,
-        });
-
-        return result.content ?? result.text ?? '';
-      };
-
-      for (const candidate of getConciergeCandidates()) {
-        try {
-          const raw = await invokeBuildPlanner(candidate, planningPrompt, BUILD_PLAN_PROMPT, 'BuildPlanner');
-
-          try {
-            const parsed = parseStructuredJson<unknown>(raw, 'Build planner');
-            return normalizeChatBuildPlan(parsed);
-          } catch (parseOrNormalizeError) {
-            const plannerMessage = raw;
-            const shouldRepair = looksLikeClarificationResponse(plannerMessage);
-            const parsedCandidate = (() => {
-              try {
-                return parseStructuredJson<unknown>(raw, 'Build planner');
-              } catch {
-                return null;
-              }
-            })();
-            const extractedMessage = maybeExtractPlannerMessage(parsedCandidate);
-            const shouldFallback = shouldRepair || (extractedMessage ? looksLikeClarificationResponse(extractedMessage) : false);
-
-            if (!shouldFallback) {
-              throw parseOrNormalizeError;
-            }
-
-            try {
-              const repairPrompt = `Original build request:\n${planningPrompt}\n\nThe previous planner response was not usable JSON:\n${raw}\n\nReturn the conservative first executable build slice as valid JSON now.`;
-              const repairedRaw = await invokeBuildPlanner(candidate, repairPrompt, BUILD_PLAN_REPAIR_PROMPT, 'BuildPlannerRepair');
-              const repaired = parseStructuredJson<unknown>(repairedRaw, 'Build planner recovery');
-              return normalizeChatBuildPlan(repaired);
-            } catch {
-              await addMessage(
-                threadId,
-                'system',
-                '⚠️ Build planner asked for clarification instead of returning JSON, so Maestro generated a conservative first-pass plan. Review the file list before approving.',
-              );
-              return buildConservativeFallbackPlan(userMessage);
-            }
-          }
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-        }
-      }
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-    }
-
-    console.error('Failed to generate build plan:', lastError);
-    await addMessage(
-      threadId,
-      'system',
-      `❌ Could not generate build plan.${lastError?.message ? ` ${lastError.message}` : ''}`,
-    );
-    return null;
-  }, [state.activeSession, state.activeRepoConnection, state.repoConnections, ensureAuth, addMessage, buildConversationContext, getConciergeCandidates]);
-
-  // Execute the build: call orchestrate in build mode for each file, then commit via github-execute
-  const executeBuildPlan = useCallback(async (
-    threadId: string,
-    plan: ChatBuildPlan,
-  ): Promise<void> => {
-    if (!user || !state.activeSession) return;
-
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'building' });
-
-    const activeRepo = state.repoConnections?.find((r: { is_active: boolean }) => r.is_active);
-    if (!activeRepo) {
-      await addMessage(threadId, 'system', '❌ No active repo connection. Connect a repo in the Vault first.');
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
-      return;
-    }
-
-    const buildRuntime = resolveConciergeRuntime(state.conciergeModel || 'claude-sonnet-4-6');
-
-    const allManifestEntries: FileManifestEntry[] = [];
-    const buildFiles = plan.files.filter((f: ChatBuildFile) => f.action !== 'delete');
-    const deleteFiles = plan.files.filter((f: ChatBuildFile) => f.action === 'delete');
-
-    // Build each file via orchestrate in build mode
-    for (const file of buildFiles) {
-      await addMessage(threadId, 'system', `🔨 Building \`${file.path}\` — ${file.description}...`);
-
-      try {
-        await ensureAuth();
-        const buildPrompt = `Build the file "${file.path}": ${file.description}\n\nContext from the overall plan: ${plan.description}`;
-
-        const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-          prompt: buildPrompt,
-          provider: buildRuntime.provider,
-          model: buildRuntime.model,
-          agentName: 'Builder',
-          agentRole: 'You are a code builder. Write complete, production-ready files.',
-          mode: 'build',
-          session_id: state.activeSession.id,
-          scopedPaths: [file.path],
-        });
-
-        if (result.file_manifest && result.file_manifest.length > 0) {
-          allManifestEntries.push(...result.file_manifest);
-          const lineCount = result.file_manifest.reduce((sum, e) =>
-            sum + (e.content ? e.content.split('\n').length : 0), 0);
-          await addMessage(threadId, 'system', `✅ \`${file.path}\` — ${lineCount} lines`);
-        } else {
-          await addMessage(threadId, 'system', `⚠️ \`${file.path}\` — no file manifest returned, skipping`);
-        }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        await addMessage(threadId, 'system', `❌ \`${file.path}\` failed: ${errorMessage}`);
-      }
-    }
-
-    // Add delete entries
-    for (const file of deleteFiles) {
-      allManifestEntries.push({ path: file.path, content: null, operation: 'delete' });
-      await addMessage(threadId, 'system', `🗑️ Marked for deletion: \`${file.path}\``);
-    }
-
-    if (allManifestEntries.length === 0) {
-      await addMessage(threadId, 'system', '❌ No files were built successfully. Aborting.');
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
-      return;
-    }
-
-    // Commit via github-execute
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'committing' });
-    await addMessage(threadId, 'system', `📦 Committing ${allManifestEntries.length} file(s) to GitHub...`);
-
-    try {
-      // Create execution run
-      const { data: run, error: runErr } = await supabase
-        .from('execution_runs')
-        .insert({
-          session_id: state.activeSession.id,
-          user_id: user.id,
-          repo_connection_id: activeRepo.id,
-          execution_mode: 'build',
-          status: 'approved',
-          strategy: 'synthesized',
-          branch_name: plan.branch_name || `maestro/build/${Date.now()}`,
-          requires_approval: false,
-        } as never)
-        .select()
-        .maybeSingle();
-
-      if (runErr || !run) {
-        throw new Error(runErr?.message || 'Failed to create execution run');
-      }
-
-      const execRun = run as unknown as ExecutionRun;
-
-      // Call github-execute
-      const result = await invokeEdgeFunction<{
-        result?: { prs?: Array<{ html_url: string }>; written_files?: string[]; errors?: string[] };
-        error?: string;
-      }>('github-execute', {
-        mode: 'synthesized',
-        repo_connection_id: activeRepo.id,
-        execution_run_id: execRun.id,
-        session_id: state.activeSession.id,
-        patches: [{
-          agent_name: 'ChatBuilder',
-          agent_id: 'chat-build',
-          content: plan.description,
-          scoped_paths: plan.files.map((f: ChatBuildFile) => f.path),
-          commit_message: plan.commit_message,
-          conductor_approved: true,
-          file_manifest: allManifestEntries,
-        }],
-        conductor_approved: true,
-        commit_message: plan.commit_message,
-      });
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      const prUrls = result.result?.prs?.map(p => p.html_url) ?? [];
-      const writtenCount = result.result?.written_files?.length ?? allManifestEntries.length;
-      const errors = result.result?.errors ?? [];
-
-      let summary = `✅ **Build complete!** ${writtenCount} file(s) written.`;
-      if (prUrls.length > 0) {
-        summary += `\n\n🔗 PR: ${prUrls.join('\n')}`;
-      }
-      if (errors.length > 0) {
-        summary += `\n\n⚠️ Warnings: ${errors.join(', ')}`;
-      }
-
-      await addMessage(threadId, 'system', summary);
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'done' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Commit failed: ${errorMessage}`);
-      dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'failed' });
-    }
-  }, [user, state.activeSession, state.conciergeModel, state.repoConnections, ensureAuth, addMessage, dispatch, resolveConciergeRuntime]);
-
-  // Full build-from-chat flow: plan → review → build → commit
-
   const buildFromChat = useCallback(async (
     threadId: string,
     userMessage: string,
@@ -1165,8 +911,6 @@ export function useThreads() {
     }
 
     dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
-    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
 
     try {
       await addMessage(threadId, 'user', `🏗️ ${userMessage}`);
@@ -1195,27 +939,39 @@ export function useThreads() {
       await updateSessionBuildState('build', nextBuildSpec);
       dispatch({ type: 'CLOSE_TRANSIENT' });
 
-      if (buildSetup.executionBackend === 'local') {
-        // Local backend: show in-thread build session card instead of drawer
+      const localRouting = resolveLocalBuildRouting(
+        buildSetup.lockedBuilderIds,
+        buildSetup.executionBackend,
+      );
+
+      if (localRouting.threadNative) {
+        // Local-capable backend: show in-thread build session card instead of drawer
         const scopes = suggestSessionScope(state.activeSession?.architect_md);
-        const builderNames = buildSetup.builderNames.length > 0 ? buildSetup.builderNames : [];
+        const builderNames = localRouting.builderNames.length > 0
+          ? localRouting.builderNames
+          : buildSetup.builderNames;
         const builderLabel = builderNames.length > 0
           ? builderNames.join(', ')
           : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
-        const builderCount = buildSetup.lockedBuilderIds.length;
+        const builderCount = builderNames.length > 0 ? builderNames.length : buildSetup.lockedBuilderIds.length;
+        const backendLabel = buildSetup.executionBackend === 'auto'
+          ? 'Auto selected a local executor'
+          : 'Local executor';
 
+        dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
         dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
           threadId,
           builderNames,
           suggestedScope: scopes.primary,
-          executionBackend: 'local',
+          executionBackend: buildSetup.executionBackend === 'auto' ? 'auto' : 'local',
           activeJobId: null,
+          defaultAdapter: localRouting.defaultAdapter,
         }});
 
         await addMessage(
           threadId,
           'system',
-          `🏗️ Build session ready.\n\nBuilders: ${builderLabel}\nSuggested scope: \`${scopes.primary}\`\n\n${builderCount > 1 ? `You have **${builderCount} builders** locked — start one session per builder.` : 'Use the card below to start the session.'}`,
+          `🏗️ Build session ready.\n\nBuilders: ${builderLabel}\nBackend: ${backendLabel}\nSuggested scope: \`${scopes.primary}\`\n\n${builderCount > 1 ? `You have **${builderCount} builders** available for local session builds — start one session per builder.` : 'Use the card below to start the session.'}`,
         );
       } else {
         // Auto or edge backend: use existing Build Workspace drawer
@@ -1241,25 +997,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.clawBuildSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch]);
-
-  // Approve and execute a pending build plan
-  const approveBuildPlan = useCallback(async (
-    threadId: string,
-  ): Promise<void> => {
-    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
-    await addMessage(threadId, 'system', '🏗️ Build approvals now happen in Build Workspace. Use the Build screen to continue.');
-  }, [addMessage, dispatch]);
-
-  // Cancel a pending build plan
-  const cancelBuildPlan = useCallback(async (
-    threadId: string,
-  ): Promise<void> => {
-    dispatch({ type: 'SET_CHAT_BUILD_PLAN', payload: null });
-    dispatch({ type: 'SET_CHAT_BUILD_PHASE', payload: 'idle' });
-    await addMessage(threadId, 'system', '🚫 Build cancelled.');
-  }, [addMessage, dispatch]);
+  }, [user, state.activeSession, state.clawBuildSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch, resolveLocalBuildRouting]);
 
   return {
     loadThreads,
@@ -1270,15 +1008,11 @@ export function useThreads() {
     sendToConcierge,
     sendToAgent,
     buildConversationContext,
-    generateBuildPlan,
     parseExecutionIntent,
     submitExecutionJob,
     approveExecutionJob,
     pollJobStatus,
-    executeBuildPlan,
     executeFromChat,
     buildFromChat,
-    approveBuildPlan,
-    cancelBuildPlan,
   };
 }

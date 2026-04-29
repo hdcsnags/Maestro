@@ -1,9 +1,24 @@
 import { useCallback, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
+import {
+  cancelBuildSessionJob,
+  mergeSessionManifest,
+  pollBuildSessionJob,
+  selectOnlineExecutor,
+  submitBuildSessionJob,
+} from '../lib/sessionBuild';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { BuildTask, BuildTaskStatus, Agent, Executor, ExecutorJob } from '../types';
+import {
+  BuildTask,
+  BuildTaskStatus,
+  Agent,
+  Executor,
+  ExecutorJob,
+  SessionBuildProgress,
+  SessionRunProgress,
+} from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -32,12 +47,23 @@ export interface BuildProgress {
   queued: number;
 }
 
-export interface SessionBuildProgress {
-  status: 'idle' | 'running' | 'succeeded' | 'failed';
-  filesWritten: number;
-  jobId: string | null;
-  manifest: Array<{ path: string; content: string; operation: string }>;
-  errorText: string | null;
+interface SessionGithubExecuteResult {
+  status?: string;
+  written_files?: string[];
+  prs?: string[];
+  errors?: string[];
+  branches?: Array<{ branch?: string; pr_url?: string }>;
+  backup_branch?: string;
+  skipped_files?: Array<{ path: string; reason: string }>;
+  collisions?: unknown[];
+  handoffs_requested?: Array<{ from_agent: string; path: string }>;
+}
+
+interface SessionBuildSpec {
+  builderName: string;
+  adapter: string;
+  scopePaths: string[];
+  instruction?: string;
 }
 
 interface DecomposeResult {
@@ -65,7 +91,7 @@ interface DecomposeResult {
 
 export function useBuildExecution() {
   const { state, dispatch } = useMaestro();
-  const { session } = useAuth();
+  const { session, user } = useAuth();
 
   const [tasks, setTasks] = useState<BuildTask[]>([]);
   const tasksRef = useRef<BuildTask[]>([]); // synchronous truth — avoids stale-closure bugs
@@ -78,15 +104,21 @@ export function useBuildExecution() {
   const abortRef = useRef(false);
   const [adapterOverride, setAdapterOverride] = useState<string | null>(null);
   const adapterOverrideRef = useRef<string | null>(null); // ref for sync access in closures
+  const sessionProgress = state.sessionBuildState.progress;
+  const isSessionRunning = state.sessionBuildState.isRunning;
+  const sessionRuns = state.sessionBuildState.runs;
 
-  const [sessionProgress, setSessionProgress] = useState<SessionBuildProgress>({
-    status: 'idle',
-    filesWritten: 0,
-    jobId: null,
-    manifest: [],
-    errorText: null,
-  });
-  const [isSessionRunning, setIsSessionRunning] = useState(false);
+  const setSessionProgress = useCallback((payload: SessionBuildProgress) => {
+    dispatch({ type: 'SET_SESSION_BUILD_PROGRESS', payload });
+  }, [dispatch]);
+
+  const setSessionRuns = useCallback((payload: SessionRunProgress[]) => {
+    dispatch({ type: 'SET_SESSION_BUILD_RUNS', payload });
+  }, [dispatch]);
+
+  const setIsSessionRunning = useCallback((payload: boolean) => {
+    dispatch({ type: 'SET_IS_SESSION_BUILD_RUNNING', payload });
+  }, [dispatch]);
 
   const ensureSession = useCallback(async () => {
     if (session?.access_token) return session;
@@ -166,23 +198,6 @@ export function useBuildExecution() {
 
   // ── Local execution helpers (V3 routing) ───────────────────────────
 
-  const executorSupportsAdapter = useCallback((executor: Executor, adapter: string): boolean => {
-    const rawAdapters = executor.capabilities?.adapters;
-    if (!Array.isArray(rawAdapters)) return false;
-    return rawAdapters.some((value): value is string => typeof value === 'string' && value === adapter);
-  }, []);
-
-  const selectOnlineExecutor = useCallback((executors: Executor[], adapter?: string): Executor | null => {
-    const STALE_MS = 60_000; // 60s — if heartbeat older than this, treat as offline
-    return executors.find(executor => {
-      if (executor.status !== 'online') return false;
-      if (!executor.last_seen_at) return false;
-      if (Date.now() - new Date(executor.last_seen_at).getTime() >= STALE_MS) return false;
-      if (adapter && !executorSupportsAdapter(executor, adapter)) return false;
-      return true;
-    }) ?? null;
-  }, [executorSupportsAdapter]);
-
   const resolveLocalAdapter = useCallback((task: BuildTask): string => {
     // adapterOverrideRef is synchronous (no stale-closure lag vs useState)
     if (adapterOverrideRef.current) return adapterOverrideRef.current;
@@ -206,7 +221,7 @@ export function useBuildExecution() {
 
   const findOnlineExecutor = useCallback((adapter?: string): Executor | null => {
     return selectOnlineExecutor(state.executors, adapter);
-  }, [state.executors, selectOnlineExecutor]);
+  }, [state.executors]);
 
   const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
     const adapter = resolveLocalAdapter(task);
@@ -361,152 +376,273 @@ export function useBuildExecution() {
 
     // Poll for job completion
     return await pollExecutorJob(job.id, task);
-  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor, refreshExecutors, selectOnlineExecutor]);
+  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor, refreshExecutors]);
 
   // ── Session Build (Phase 4) ─────────────────────────────────────────────
 
-  /**
-   * Submits a single build_session executor job covering the entire project scope.
-   * Returns the job ID on success, null if no executor is available or submission fails.
-   */
-  const dispatchSessionLocal = useCallback(async (
-    adapter: string,
-    prompt: string,
-    scope = '**',
-    architectMd?: string,
-  ): Promise<string | null> => {
-    const repoConn = state.activeRepoConnection;
-    const sessionId = state.activeSession?.id;
-    const cloneUrl = repoConn
-      ? `https://github.com/${repoConn.owner}/${repoConn.repo}.git`
-      : null;
+  const updateSessionRun = useCallback((key: string, updates: Partial<SessionRunProgress>) => {
+    dispatch({ type: 'UPDATE_SESSION_BUILD_RUN', payload: { key, updates } });
+  }, [dispatch]);
 
-    let matchingExecutor = findOnlineExecutor(adapter);
-    if (!matchingExecutor) {
-      const refreshed = await refreshExecutors();
-      matchingExecutor = selectOnlineExecutor(refreshed, adapter);
-    }
-    if (!matchingExecutor) return null;
-
-    try {
-      const result = await invokeEdgeFunction<{ job: ExecutorJob }>('executor-api?action=submit', {
-        session_id: sessionId,
-        job_type: 'build_session',
-        adapter,
-        prompt,
-        repo_url: cloneUrl,
-        repo_name: repoConn?.repo ?? null,
-        branch: repoConn?.default_branch ?? null,
-        allowed_paths: ['**'],
-        timeout_seconds: 1800,
-        context_bundle: {
-          scope,
-          ...(architectMd ? { architect_content: architectMd } : {}),
-        },
-      });
-      return result.job?.id ?? null;
-    } catch {
-      return null;
-    }
-  }, [state.activeRepoConnection, state.activeSession?.id, findOnlineExecutor, refreshExecutors, selectOnlineExecutor]);
-
-  /** Polls a build_session executor job until terminal status. Returns manifest on success. */
-  const pollSessionJob = useCallback(async (jobId: string): Promise<{
-    success: boolean;
-    manifest: Array<{ path: string; content: string; operation: string }>;
-    errorText: string | null;
-  }> => {
-    const POLL_MS = 5_000;
-    const TIMEOUT_MS = 40 * 60 * 1_000; // 40 minutes
-    const start = Date.now();
-
-    while (Date.now() - start < TIMEOUT_MS) {
-      if (abortRef.current) return { success: false, manifest: [], errorText: 'Aborted' };
-
-      const { data: jobRaw } = await supabase
-        .from('executor_jobs')
-        .select('status, artifact_manifest, error_text, result_summary')
-        .eq('id', jobId)
-        .single();
-
-      const job = jobRaw as {
-        status: string;
-        artifact_manifest: Array<{ path: string; content: string; operation?: string }> | null;
-        error_text: string | null;
-        result_summary: string | null;
-      } | null;
-
-      if (!job) return { success: false, manifest: [], errorText: 'Job not found' };
-
-      if (job.status === 'succeeded') {
-        const manifest = (job.artifact_manifest ?? []).map(f => ({
-          path: f.path,
-          content: f.content,
-          operation: f.operation ?? 'create',
-        }));
-        return { success: true, manifest, errorText: null };
-      }
-
-      if (job.status === 'failed' || job.status === 'cancelled' || job.status === 'expired') {
-        return { success: false, manifest: [], errorText: job.error_text ?? 'Session job failed' };
-      }
-
-      await new Promise(r => setTimeout(r, POLL_MS));
-    }
-
-    return { success: false, manifest: [], errorText: 'Session job timed out after 40 minutes' };
-  }, []);
-
-  /**
-   * Launches a build_session job for the given adapter and scope.
-   * Polls until complete and stores results in sessionProgress state.
-   */
-  const executeSession = useCallback(async (adapter: string, scope = '**') => {
-    if (isRunningRef.current) return;
-    isRunningRef.current = true;
+  const executeSessionPlan = useCallback(async (specs: SessionBuildSpec[]) => {
+    if (state.sessionBuildState.isRunning) return;
     setIsSessionRunning(true);
-    abortRef.current = false;
 
+    const normalizedSpecs = specs
+      .map((spec, index) => ({
+        ...spec,
+        key: `${spec.adapter}-${index}-${spec.builderName}`,
+        scopePaths: spec.scopePaths.length > 0 ? spec.scopePaths : ['**'],
+      }));
+
+    setSessionRuns(normalizedSpecs.map(spec => ({
+      key: spec.key,
+      builderName: spec.builderName,
+      adapter: spec.adapter,
+      scopePaths: spec.scopePaths,
+      status: 'queued',
+      filesWritten: 0,
+      jobId: null,
+      manifest: [],
+      errorText: null,
+    })));
     setSessionProgress({ status: 'running', filesWritten: 0, jobId: null, manifest: [], errorText: null });
 
     try {
-      const prompt = state.buildPlan?.build_prompt ?? state.activeSession?.title ?? 'Build this project';
-      const architectMd = state.activeSession?.architect_md;
-
-      const jobId = await dispatchSessionLocal(adapter, prompt, scope, architectMd);
-      if (!jobId) {
+      if (normalizedSpecs.length === 0) {
         setSessionProgress({
-          status: 'failed', filesWritten: 0, jobId: null, manifest: [],
-          errorText: `No online executor advertises adapter "${adapter}"`,
+          status: 'failed',
+          filesWritten: 0,
+          jobId: null,
+          manifest: [],
+          errorText: 'No local session builders were resolved from the build plan.',
         });
         return;
       }
 
-      setSessionProgress(prev => ({ ...prev, jobId }));
+      const basePrompt = state.buildPlan?.build_prompt ?? state.activeSession?.title ?? 'Build this project';
+      const architectMd = state.activeSession?.architect_md;
+      const results = await Promise.all(normalizedSpecs.map(async (spec) => {
+        const scopeLabel = spec.scopePaths.length === 1
+          ? spec.scopePaths[0]
+          : `${spec.scopePaths[0]} +${spec.scopePaths.length - 1} more`;
+        const prompt = [
+          basePrompt,
+          '',
+          `ASSIGNED BUILDER: ${spec.builderName}`,
+          spec.instruction?.trim() ? `BUILDER INSTRUCTION: ${spec.instruction.trim()}` : '',
+          'ASSIGNED SCOPE PATHS:',
+          ...spec.scopePaths.map(path => `- ${path}`),
+          '',
+          'Build the full implementation for your assigned scope. Respect ARCHITECT.md and do not modify files outside your assigned paths.',
+        ].filter(Boolean).join('\n');
 
-      const result = await pollSessionJob(jobId);
+        updateSessionRun(spec.key, { status: 'running', errorText: null });
+
+        const jobId = await submitBuildSessionJob({
+          executors: state.executors,
+          sessionId: state.activeSession?.id,
+          repoConnection: state.activeRepoConnection,
+          refreshExecutors,
+          adapter: spec.adapter,
+          prompt,
+          scope: scopeLabel,
+          allowedPaths: spec.scopePaths,
+          architectMd,
+          contextBundle: {
+            scope_paths: spec.scopePaths,
+            builder_name: spec.builderName,
+            builder_instruction: spec.instruction ?? null,
+          },
+        });
+
+        if (!jobId) {
+          const errorText = `No online executor advertises adapter "${spec.adapter}"`;
+          updateSessionRun(spec.key, { status: 'failed', errorText });
+          return {
+            success: false,
+            jobId: null,
+            builderName: spec.builderName,
+            manifest: [] as Array<{ path: string; content: string; operation: string }>,
+            errorText,
+          };
+        }
+
+        updateSessionRun(spec.key, { jobId });
+        const result = await pollBuildSessionJob(jobId);
+        updateSessionRun(spec.key, {
+          status: result.success ? 'succeeded' : 'failed',
+          filesWritten: result.manifest.length,
+          jobId,
+          manifest: result.manifest,
+          errorText: result.errorText,
+        });
+
+        return {
+          success: result.success,
+          jobId,
+          builderName: spec.builderName,
+          manifest: result.manifest,
+          errorText: result.errorText,
+        };
+      }));
+
+      const mergedManifest = mergeSessionManifest(results.flatMap(result => result.manifest));
+      const failures = results.filter(result => !result.success);
       setSessionProgress({
-        status: result.success ? 'succeeded' : 'failed',
-        filesWritten: result.manifest.length,
-        jobId,
-        manifest: result.manifest,
-        errorText: result.errorText,
+        status: failures.length === 0 ? 'succeeded' : 'failed',
+        filesWritten: mergedManifest.length,
+        jobId: results.length === 1 ? results[0]?.jobId ?? null : null,
+        manifest: mergedManifest,
+        errorText: failures.length > 0
+          ? failures.map(result => `${result.builderName}: ${result.errorText ?? 'session failed'}`).join(' | ')
+          : null,
       });
     } finally {
-      isRunningRef.current = false;
       setIsSessionRunning(false);
     }
-  }, [state.buildPlan, state.activeSession, dispatchSessionLocal, pollSessionJob]);
+  }, [
+    state.buildPlan,
+    state.activeSession,
+    state.activeRepoConnection,
+    state.executors,
+    state.sessionBuildState.isRunning,
+    refreshExecutors,
+    setIsSessionRunning,
+    setSessionProgress,
+    setSessionRuns,
+    updateSessionRun,
+  ]);
+
+  /**
+   * Launches a single build_session job for the given adapter and scope.
+   * Kept for manual fallback/session config flows.
+   */
+  const executeSession = useCallback(async (adapter: string, scope = '**') => {
+    await executeSessionPlan([{
+      builderName: adapter,
+      adapter,
+      scopePaths: [scope],
+    }]);
+  }, [executeSessionPlan]);
+
+  const abortSessionBuild = useCallback(async () => {
+    const jobIds = Array.from(new Set(
+      state.sessionBuildState.runs
+        .map((run) => run.jobId)
+        .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0),
+    ));
+
+    await Promise.all(jobIds.map((jobId) => cancelBuildSessionJob(jobId)));
+
+    setSessionRuns(state.sessionBuildState.runs.map((run) => (
+      run.status === 'running' || run.status === 'queued'
+        ? { ...run, status: 'failed', errorText: 'Aborted by user' }
+        : run
+    )));
+    setSessionProgress({
+      ...state.sessionBuildState.progress,
+      status: 'failed',
+      errorText: 'Aborted by user',
+    });
+    setIsSessionRunning(false);
+  }, [state.sessionBuildState, setIsSessionRunning, setSessionProgress, setSessionRuns]);
+
+  const resetSessionBuildState = useCallback(() => {
+    dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
+  }, [dispatch]);
 
   /** Returns the manifest from the last succeeded session build (for GitHub push). */
   const collectSessionManifest = useCallback(() => {
-    return sessionProgress.manifest.map(f => ({
+    const sourceManifest = sessionRuns.length > 0
+      ? mergeSessionManifest(sessionRuns.flatMap(run => run.manifest))
+      : sessionProgress.manifest;
+
+    return sourceManifest.map(f => ({
       path: f.path,
       content: f.content,
       operation: (f.operation ?? 'create') as 'upsert' | 'create' | 'delete',
       content_hash: null,
     }));
-  }, [sessionProgress.manifest]);
+  }, [sessionProgress.manifest, sessionRuns]);
+
+  const pushSessionBuildToGithub = useCallback(async (fallbackAdapter?: string) => {
+    if (!state.activeSession || !user) {
+      throw new Error('No active session is available for GitHub push.');
+    }
+    if (!state.activeRepoConnection?.id) {
+      throw new Error('No active GitHub repo is connected.');
+    }
+
+    const manifest = collectSessionManifest();
+    if (manifest.length === 0) {
+      throw new Error('Session produced no files. Cannot push to GitHub.');
+    }
+
+    const { data: runData, error: runErr } = await supabase
+      .from('execution_runs')
+      .insert({
+        session_id: state.activeSession.id,
+        user_id: user.id,
+        strategy: 'synthesized' as const,
+        status: 'running',
+      } as never)
+      .select()
+      .maybeSingle();
+
+    if (runErr || !runData) {
+      throw new Error(runErr?.message ?? 'Failed to create execution run');
+    }
+
+    const adapterLabel = sessionRuns.length > 0
+      ? Array.from(new Set(sessionRuns.map((run) => run.adapter))).join(', ')
+      : (fallbackAdapter ?? 'session');
+    const commitMessage = `Session build: ${manifest.length} files for ${state.activeSession.title ?? 'session'}`;
+    const patches = [{
+      agent_name: `Session Build (${adapterLabel})`,
+      agent_id: 'build-session',
+      content: `${manifest.length} files from session build`,
+      scoped_paths: [] as string[],
+      commit_message: commitMessage,
+      conductor_approved: true,
+      file_manifest: manifest.map((entry) => ({
+        path: entry.path,
+        content: entry.content,
+        operation: entry.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+        content_hash: null,
+      })),
+    }];
+
+    const execResult = await invokeEdgeFunction<SessionGithubExecuteResult>('github-execute', {
+      session_id: state.activeSession.id,
+      execution_run_id: (runData as { id: string }).id,
+      repo_connection_id: state.activeRepoConnection.id,
+      patches,
+      mode: 'synthesized',
+      conductor_approved: true,
+    });
+
+    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+    await supabase
+      .from('execution_runs')
+      .update({ status, result: execResult as never } as never)
+      .eq('id', (runData as { id: string }).id);
+
+    dispatch({
+      type: 'ADD_EXECUTION_RUN',
+      payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+    });
+
+    return {
+      status,
+      writtenFiles: execResult.written_files ?? [],
+      skippedFiles: execResult.skipped_files ?? [],
+      prUrls: execResult.prs ?? [],
+      collisionCount: (execResult.collisions ?? []).length,
+      handoffs: (execResult.handoffs_requested ?? []) as Array<{ from_agent: string; path: string }>,
+      backupBranch: execResult.backup_branch ?? '',
+    };
+  }, [state.activeSession, state.activeRepoConnection, user, collectSessionManifest, sessionRuns, dispatch]);
 
   const parseTaskResult = (raw: OrchestrateTaskResult, taskFilePath: string): TaskResult | null => {
     // Strategy 1: Direct path/content fields (build_task mode with server-side fix)
@@ -872,11 +1008,16 @@ export function useBuildExecution() {
     isDecomposing,
     adapterOverride,
     sessionProgress,
+    sessionRuns,
     isSessionRunning,
     decompose,
     execute,
     executeSession,
+    executeSessionPlan,
+    abortSessionBuild,
+    resetSessionBuildState,
     collectSessionManifest,
+    pushSessionBuildToGithub,
     abort,
     skipTask,
     retryTask,
