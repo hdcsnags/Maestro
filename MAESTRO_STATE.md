@@ -170,6 +170,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 1 composer: `RevealComposer` is now the shared composer for both the workspace shell and thread shell, with one routing bar (Direct/Council/Execute/Build), one send action, and the concierge model picker moved into composer chrome | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 2 shell cutover: `WorkspacePage.tsx` now always renders the thread-first `ClawMode` shell, and `ClawMode` rehydrates the concierge thread per session instead of falling back to the legacy stage tree | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 3 concierge cards: quick-answer triage and concierge synthesis now persist as inline thread event cards, reusing the existing proceed/round-2/override/report/build actions without reopening a modal | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 4 build runway: build chat now always opens an in-thread runway card, and the runway can execute task builds or local session builds and push to GitHub without ejecting to the drawer | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -293,6 +294,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 4 build runway
+
+**What was done**:
+1. Replaced the old local-only `ClawBuildSessionCard.tsx` with a new `BuildRunwayCard.tsx` that owns the thread-native Plan → Scope → Execute → Review → Push flow.
+2. Changed `useThreads.buildFromChat()` so build requests now always open the in-thread runway instead of branching between a thread card for local and the drawer for edge.
+3. Added shared build helpers in `useBuildExecution.ts` for hydrating persisted task rows and pushing task-queue builds to GitHub, then wired `BuildWorkspace.tsx` to reuse that push path.
+4. Updated `ClawMode.tsx` shell language and rendering so the thread now presents the build surface as a runway rather than a one-off session widget.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/hooks/useBuildExecution.ts`, `src/hooks/useThreads.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/BuildRunwayCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Used the session build model only for explicit `execution_backend === 'local'`; edge and auto now stay on the task-queue path so the runway can represent mixed edge/local routing instead of hiding it behind a local-only shortcut.
+- Kept `BuildWorkspace.tsx` as the advanced inspection surface, but moved the primary thread-first push path into the new runway card and reused a shared GitHub push helper to keep behavior aligned.
+- Left `clawBuildSession` state naming in place for this checkpoint to avoid mixing a behavioral UX cutover with a larger state-schema rename in the same phase.
+
+**What didn't work**:
+- Task-build progress still lives inside `useBuildExecution` hook state, so the advanced drawer is not yet a fully shared live mirror of an in-flight runway task build; the runway self-hydrates from `build_tasks`, but this is not the final shared-progress architecture.
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test across edge/local/auto backend paths.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 3 concierge event cards
 

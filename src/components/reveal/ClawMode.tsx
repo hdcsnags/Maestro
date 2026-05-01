@@ -7,7 +7,7 @@ import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import FolioCarousel from './FolioCarousel';
-import ClawBuildSessionCard from './ClawBuildSessionCard';
+import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
 import RevealComposer from './RevealComposer';
 
@@ -174,9 +174,9 @@ export default function ClawMode() {
       return {
         kind: 'build' as const,
         Icon: Hammer,
-        badgeLabel: 'Build Session',
-        bannerTitle: 'Build session active',
-        description: 'This thread owns the local build handoff now. Use the in-thread session card to start, monitor, or dismiss the scoped run.',
+        badgeLabel: 'Build Runway',
+        bannerTitle: 'Build runway active',
+        description: 'This thread owns the build handoff now. Use the runway card below to review the plan, execute the build, and push the results.',
         status: backendLabel,
       };
     }
@@ -800,7 +800,7 @@ export default function ClawMode() {
 
               {/* In-thread build session card (local executor) */}
               {activeClawBuildSession && (
-                <ClawBuildSessionCard session={activeClawBuildSession} />
+                <BuildRunwayCard session={activeClawBuildSession} />
               )}
 
               <div ref={messagesEndRef} />

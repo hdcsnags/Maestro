@@ -724,90 +724,18 @@ export default function BuildWorkspace() {
   }, [session, buildExec, prefersSessionBuild, localSessionSpecs]);
 
   const handleTaskExecuteToGithub = useCallback(async () => {
-    if (!session || !user) return;
+    if (!session) return;
     setStage('executing');
     setError('');
 
     try {
-      if (!state.activeRepoConnection?.id) {
-        throw new Error('No active GitHub repo is connected.');
-      }
-
-      const manifest = buildExec.collectManifest();
-      if (manifest.length === 0) {
-        throw new Error('No completed tasks to execute. Build more files first.');
-      }
-
-      // Create execution run
-      const { data: runData, error: runErr } = await supabase
-        .from('execution_runs')
-        .insert({
-          session_id: session.id,
-          user_id: user.id,
-          strategy: 'synthesized' as const,
-          status: 'running',
-        } as never)
-        .select()
-        .maybeSingle();
-
-      if (runErr || !runData) {
-        throw new Error(runErr?.message ?? 'Failed to create execution run');
-      }
-
-      // Format as patches for github-execute (it expects AgentPatch[] with file_manifest)
-      const patches = [{
-        agent_name: 'Build v2 (task queue)',
-        agent_id: 'build-v2',
-        content: `${manifest.length} files from task-queued build`,
-        scoped_paths: [] as string[],
-        commit_message: `Build v2: ${manifest.length} files for ${session.title ?? 'session'}`,
-        conductor_approved: true,
-        file_manifest: manifest.map(f => ({
-          path: f.path,
-          content: f.content,
-          operation: f.operation === 'delete' ? 'delete' as const : 'upsert' as const,
-          content_hash: null,
-        })),
-      }];
-
-      const execResult = await invokeEdgeFunction<{
-        status?: string;
-        written_files?: string[];
-        prs?: string[];
-        errors?: string[];
-        branches?: Array<{ branch?: string; pr_url?: string }>;
-        backup_branch?: string;
-        skipped_files?: Array<{ path: string; reason: string }>;
-        collisions?: unknown[];
-        handoffs_requested?: Array<{ from_agent: string; path: string }>;
-      }>('github-execute', {
-        session_id: session.id,
-        execution_run_id: (runData as { id: string }).id,
-        repo_connection_id: state.activeRepoConnection.id,
-        patches,
-        mode: 'synthesized',
-        conductor_approved: true,
-      });
-
-      // Update execution run status
-      const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
-      await supabase
-        .from('execution_runs')
-        .update({ status, result: execResult as never } as never)
-        .eq('id', (runData as { id: string }).id);
-
-      // Update UI state
-      setWrittenFiles(execResult.written_files ?? []);
-      setSkippedFiles(execResult.skipped_files ?? []);
-      setPrUrls(execResult.prs ?? []);
-      setCollisionCount((execResult.collisions ?? []).length);
-      setHandoffs((execResult.handoffs_requested ?? []) as { from_agent: string; path: string }[]);
-      setBackupBranch(execResult.backup_branch ?? '');
-
-      dispatch({
-        type: 'ADD_EXECUTION_RUN',
-        payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
-      });
+      const result = await buildExec.pushTaskBuildToGithub();
+      setWrittenFiles(result.writtenFiles);
+      setSkippedFiles(result.skippedFiles);
+      setPrUrls(result.prUrls);
+      setCollisionCount(result.collisionCount);
+      setHandoffs(result.handoffs);
+      setBackupBranch(result.backupBranch);
 
       if (session.current_phase === 'bouncer') {
         setStage('bouncer');
@@ -818,7 +746,7 @@ export default function BuildWorkspace() {
       setError(err instanceof Error ? err.message : String(err));
       setStage('task_building');
     }
-  }, [session, user, state.activeRepoConnection, buildExec, dispatch]);
+  }, [session, buildExec]);
 
   // Greet the user when broadcasting starts so the screen isn't a dead void.
   useEffect(() => {

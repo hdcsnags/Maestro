@@ -897,20 +897,30 @@ export function useThreads() {
     // Guard: if build is already running, redirect appropriately.
     if (state.activeSession.current_phase === 'build' || state.activeSession.current_phase === 'bouncer') {
       await addMessage(threadId, 'user', userMessage);
-      if (state.clawBuildSession) {
-        await addMessage(
+      const buildSetup = getBuildSetupStatus();
+      const scopes = suggestSessionScope(state.activeSession?.architect_md);
+      const localRouting = resolveLocalBuildRouting(
+        buildSetup.lockedBuilderIds,
+        buildSetup.executionBackend,
+      );
+      const builderNames = buildSetup.builderNames.length > 0
+        ? buildSetup.builderNames
+        : localRouting.builderNames;
+      if (!state.clawBuildSession) {
+        dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
           threadId,
-          'system',
-          '🏗️ Build session is already running.\n\nCheck the build session card in this thread to monitor progress.',
-        );
-      } else {
-        dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
-        await addMessage(
-          threadId,
-          'system',
-          '🏗️ Build is already running.\n\nLook for the **Build drawer** at the bottom of your screen — click the bar to expand it. From there, use **Start Build** to dispatch tasks to your locked builders.',
-        );
+          builderNames,
+          suggestedScope: scopes.primary,
+          executionBackend: buildSetup.executionBackend,
+          activeJobId: null,
+          defaultAdapter: localRouting.defaultAdapter,
+        }});
       }
+      await addMessage(
+        threadId,
+        'system',
+        '🏗️ Build runway is already active.\n\nUse the in-thread runway card to monitor progress, review outputs, or open the advanced workspace view.',
+      );
       return;
     }
 
@@ -942,59 +952,40 @@ export function useThreads() {
 
       await updateSessionBuildState('build', nextBuildSpec);
       dispatch({ type: 'CLOSE_TRANSIENT' });
+      dispatch({ type: 'SET_BUILD_PLAN', payload: null });
 
+      const scopes = suggestSessionScope(state.activeSession?.architect_md);
       const localRouting = resolveLocalBuildRouting(
         buildSetup.lockedBuilderIds,
         buildSetup.executionBackend,
       );
+      const builderNames = buildSetup.builderNames.length > 0
+        ? buildSetup.builderNames
+        : localRouting.builderNames;
+      const builderLabel = builderNames.length > 0
+        ? builderNames.join(', ')
+        : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
+      const backendLabel = buildSetup.executionBackend === 'auto'
+        ? 'Auto / hybrid routing'
+        : buildSetup.executionBackend === 'local'
+          ? 'Local session build'
+          : 'Edge task build';
 
-      if (localRouting.threadNative) {
-        // Local-capable backend: show in-thread build session card instead of drawer
-        const scopes = suggestSessionScope(state.activeSession?.architect_md);
-        const builderNames = localRouting.builderNames.length > 0
-          ? localRouting.builderNames
-          : buildSetup.builderNames;
-        const builderLabel = builderNames.length > 0
-          ? builderNames.join(', ')
-          : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
-        const builderCount = builderNames.length > 0 ? builderNames.length : buildSetup.lockedBuilderIds.length;
-        const backendLabel = buildSetup.executionBackend === 'auto'
-          ? 'Auto selected a local executor'
-          : 'Local executor';
+      dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
+      dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
+        threadId,
+        builderNames,
+        suggestedScope: scopes.primary,
+        executionBackend: buildSetup.executionBackend,
+        activeJobId: null,
+        defaultAdapter: localRouting.defaultAdapter,
+      }});
 
-        dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
-        dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
-          threadId,
-          builderNames,
-          suggestedScope: scopes.primary,
-          executionBackend: buildSetup.executionBackend === 'auto' ? 'auto' : 'local',
-          activeJobId: null,
-          defaultAdapter: localRouting.defaultAdapter,
-        }});
-
-        await addMessage(
-          threadId,
-          'system',
-          `🏗️ Build session ready.\n\nBuilders: ${builderLabel}\nBackend: ${backendLabel}\nSuggested scope: \`${scopes.primary}\`\n\n${builderCount > 1 ? `You have **${builderCount} builders** available for local session builds — start one session per builder.` : 'Use the card below to start the session.'}`,
-        );
-      } else {
-        // Auto or edge backend: use existing Build Workspace drawer
-        dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: true });
-        dispatch({ type: 'SHOW_TOAST', payload: 'Build routed to Build Workspace' });
-
-        const backendLabel = buildSetup.executionBackend === 'auto'
-          ? 'Auto backend selection'
-          : 'Edge/cloud builders';
-        const builderLabel = buildSetup.builderNames.length > 0
-          ? buildSetup.builderNames.join(', ')
-          : `${buildSetup.lockedBuilderIds.length} locked builders`;
-
-        await addMessage(
-          threadId,
-          'system',
-          `🏗️ Build setup confirmed.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nMaestro is handing off to the Build workspace now so you can review the concierge plan and choose **Start Build** or **Broadcast (Legacy)**.`,
-        );
-      }
+      await addMessage(
+        threadId,
+        'system',
+        `🏗️ Build runway ready.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nReview the in-thread runway card to start the build, watch progress, and push to GitHub without leaving this thread.`,
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       await addMessage(threadId, 'system', `❌ Build handoff error: ${errorMessage}`);

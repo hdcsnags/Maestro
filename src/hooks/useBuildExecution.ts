@@ -129,6 +129,27 @@ export function useBuildExecution() {
     return data.session;
   }, [session]);
 
+  const loadTasks = useCallback(async (sessionId: string): Promise<BuildTask[]> => {
+    const { data: taskRows } = await supabase
+      .from('build_tasks')
+      .select('*')
+      .eq('session_id', sessionId)
+      .order('created_at', { ascending: true });
+
+    const loaded = (taskRows ?? []) as unknown as BuildTask[];
+    tasksRef.current = loaded;
+    setTasks(loaded);
+    setProgress({
+      total: loaded.length,
+      completed: loaded.filter(task => task.status === 'completed').length,
+      failed: loaded.filter(task => task.status === 'failed').length,
+      skipped: loaded.filter(task => task.status === 'skipped').length,
+      dispatched: loaded.filter(task => task.status === 'dispatched').length,
+      queued: loaded.filter(task => task.status === 'queued' || task.status === 'rerouted').length,
+    });
+    return loaded;
+  }, []);
+
   // ── Step 1: Decompose — call concierge to create build_tasks ─────────
 
   const decompose = useCallback(async (sessionId: string): Promise<DecomposeResult> => {
@@ -145,30 +166,12 @@ export function useBuildExecution() {
         throw new Error(result.message ?? result.error);
       }
 
-      // Load tasks from DB
-      const { data: taskRows } = await supabase
-        .from('build_tasks')
-        .select('*')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
-
-      const loaded = (taskRows ?? []) as unknown as BuildTask[];
-      tasksRef.current = loaded;
-      setTasks(loaded);
-      setProgress({
-        total: loaded.length,
-        completed: 0,
-        failed: 0,
-        skipped: 0,
-        dispatched: 0,
-        queued: loaded.length,
-      });
-
+      await loadTasks(sessionId);
       return result;
     } finally {
       setIsDecomposing(false);
     }
-  }, [ensureSession]);
+  }, [ensureSession, loadTasks]);
 
   // ── Step 2: Dispatch loop — one orchestrate call per task ─────────────
 
@@ -998,6 +1001,80 @@ export function useBuildExecution() {
       }));
   }, []);
 
+  const pushTaskBuildToGithub = useCallback(async () => {
+    if (!state.activeSession || !user) {
+      throw new Error('No active session is available for GitHub push.');
+    }
+    if (!state.activeRepoConnection?.id) {
+      throw new Error('No active GitHub repo is connected.');
+    }
+
+    const manifest = collectManifest();
+    if (manifest.length === 0) {
+      throw new Error('No completed tasks to execute. Build more files first.');
+    }
+
+    const { data: runData, error: runErr } = await supabase
+      .from('execution_runs')
+      .insert({
+        session_id: state.activeSession.id,
+        user_id: user.id,
+        strategy: 'synthesized' as const,
+        status: 'running',
+      } as never)
+      .select()
+      .maybeSingle();
+
+    if (runErr || !runData) {
+      throw new Error(runErr?.message ?? 'Failed to create execution run');
+    }
+
+    const patches = [{
+      agent_name: 'Build v2 (task queue)',
+      agent_id: 'build-v2',
+      content: `${manifest.length} files from task-queued build`,
+      scoped_paths: [] as string[],
+      commit_message: `Build v2: ${manifest.length} files for ${state.activeSession.title ?? 'session'}`,
+      conductor_approved: true,
+      file_manifest: manifest.map((entry) => ({
+        path: entry.path,
+        content: entry.content,
+        operation: entry.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+        content_hash: null,
+      })),
+    }];
+
+    const execResult = await invokeEdgeFunction<SessionGithubExecuteResult>('github-execute', {
+      session_id: state.activeSession.id,
+      execution_run_id: (runData as { id: string }).id,
+      repo_connection_id: state.activeRepoConnection.id,
+      patches,
+      mode: 'synthesized',
+      conductor_approved: true,
+    });
+
+    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+    await supabase
+      .from('execution_runs')
+      .update({ status, result: execResult as never } as never)
+      .eq('id', (runData as { id: string }).id);
+
+    dispatch({
+      type: 'ADD_EXECUTION_RUN',
+      payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+    });
+
+    return {
+      status,
+      writtenFiles: execResult.written_files ?? [],
+      skippedFiles: execResult.skipped_files ?? [],
+      prUrls: execResult.prs ?? [],
+      collisionCount: (execResult.collisions ?? []).length,
+      handoffs: (execResult.handoffs_requested ?? []) as Array<{ from_agent: string; path: string }>,
+      backupBranch: execResult.backup_branch ?? '',
+    };
+  }, [state.activeSession, state.activeRepoConnection, user, collectManifest, dispatch]);
+
   const _unusedDispatch = dispatch;
   void _unusedDispatch;
 
@@ -1010,6 +1087,7 @@ export function useBuildExecution() {
     sessionProgress,
     sessionRuns,
     isSessionRunning,
+    loadTasks,
     decompose,
     execute,
     executeSession,
@@ -1018,6 +1096,7 @@ export function useBuildExecution() {
     resetSessionBuildState,
     collectSessionManifest,
     pushSessionBuildToGithub,
+    pushTaskBuildToGithub,
     abort,
     skipTask,
     retryTask,
