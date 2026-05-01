@@ -1,10 +1,9 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import {
   cancelBuildSessionJob,
   mergeSessionManifest,
-  pollBuildSessionJob,
   selectOnlineExecutor,
   submitBuildSessionJob,
 } from '../lib/sessionBuild';
@@ -16,6 +15,7 @@ import {
   Agent,
   Executor,
   ExecutorJob,
+  SessionBuildManifestEntry,
   SessionBuildProgress,
   SessionRunProgress,
 } from '../types';
@@ -66,6 +66,25 @@ interface SessionBuildSpec {
   instruction?: string;
 }
 
+interface ExecutorJobSnapshot {
+  id: string;
+  status: string;
+  artifact_manifest: unknown;
+  error_text: string | null;
+  result_summary: string | null;
+}
+
+interface ExecutorJobEventRow {
+  job_id: string;
+  event_type: string;
+  payload: Record<string, unknown> | null;
+}
+
+interface JobOutputState {
+  stdout: string;
+  stderr: string;
+}
+
 interface DecomposeResult {
   phase?: string;
   total_tasks?: number;
@@ -85,6 +104,68 @@ interface DecomposeResult {
   locked_builder_ids?: string[];
   error?: string;
   message?: string;
+}
+
+function normalizeSessionManifest(raw: unknown): SessionBuildManifestEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is { path: string; content: string; operation?: string } =>
+      typeof entry === 'object'
+      && entry !== null
+      && typeof (entry as { path?: unknown }).path === 'string'
+      && typeof (entry as { content?: unknown }).content === 'string',
+    )
+    .map((entry) => ({
+      path: entry.path,
+      content: entry.content,
+      operation: entry.operation === 'delete' ? 'delete' : 'create',
+    }));
+}
+
+function mapJobStatusToRunStatus(status: string): SessionRunProgress['status'] {
+  if (status === 'running' || status === 'claimed') return 'running';
+  if (status === 'succeeded') return 'succeeded';
+  if (status === 'failed' || status === 'cancelled' || status === 'expired') return 'failed';
+  return 'queued';
+}
+
+function isTerminalJobStatus(status: string): boolean {
+  return status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'expired';
+}
+
+function appendJobOutput(existing: string, incoming: string): string {
+  const next = [existing, incoming.trim()].filter(Boolean).join('\n\n').trim();
+  if (next.length <= 6000) return next;
+  return next.slice(next.length - 6000);
+}
+
+function deriveSessionProgress(runs: SessionRunProgress[]): SessionBuildProgress {
+  if (runs.length === 0) {
+    return {
+      status: 'idle',
+      filesWritten: 0,
+      jobId: null,
+      manifest: [],
+      errorText: null,
+    };
+  }
+
+  const manifest = mergeSessionManifest(runs.flatMap((run) => run.manifest));
+  const anyRunning = runs.some((run) => run.status === 'queued' || run.status === 'running');
+  const anyFailed = runs.some((run) => run.status === 'failed');
+
+  return {
+    status: anyRunning ? 'running' : anyFailed ? 'failed' : 'succeeded',
+    filesWritten: manifest.length,
+    jobId: runs.length === 1 ? runs[0]?.jobId ?? null : null,
+    manifest,
+    errorText: anyFailed
+      ? runs
+          .filter((run) => run.status === 'failed' && run.errorText)
+          .map((run) => `${run.builderName}: ${run.errorText}`)
+          .join(' | ') || 'Session build failed.'
+      : null,
+  };
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────
@@ -107,12 +188,35 @@ export function useBuildExecution() {
   const sessionProgress = state.sessionBuildState.progress;
   const isSessionRunning = state.sessionBuildState.isRunning;
   const sessionRuns = state.sessionBuildState.runs;
+  const [jobOutputs, setJobOutputs] = useState<Record<string, JobOutputState>>({});
+  const sessionRunsRef = useRef(sessionRuns);
+  const sessionProgressRef = useRef(sessionProgress);
+  const jobOutputsRef = useRef<Record<string, JobOutputState>>({});
+  const jobWaitersRef = useRef(new Map<string, {
+    resolve: (snapshot: ExecutorJobSnapshot) => void;
+    reject: (error: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
+  }>());
+
+  useEffect(() => {
+    sessionRunsRef.current = sessionRuns;
+  }, [sessionRuns]);
+
+  useEffect(() => {
+    sessionProgressRef.current = sessionProgress;
+  }, [sessionProgress]);
+
+  useEffect(() => {
+    jobOutputsRef.current = jobOutputs;
+  }, [jobOutputs]);
 
   const setSessionProgress = useCallback((payload: SessionBuildProgress) => {
+    sessionProgressRef.current = payload;
     dispatch({ type: 'SET_SESSION_BUILD_PROGRESS', payload });
   }, [dispatch]);
 
   const setSessionRuns = useCallback((payload: SessionRunProgress[]) => {
+    sessionRunsRef.current = payload;
     dispatch({ type: 'SET_SESSION_BUILD_RUNS', payload });
   }, [dispatch]);
 
@@ -149,6 +253,185 @@ export function useBuildExecution() {
     });
     return loaded;
   }, []);
+
+  const fetchExecutorJobSnapshot = useCallback(async (jobId: string): Promise<ExecutorJobSnapshot | null> => {
+    const { data: jobRaw } = await supabase
+      .from('executor_jobs')
+      .select('id, status, artifact_manifest, error_text, result_summary')
+      .eq('id', jobId)
+      .maybeSingle();
+
+    if (!jobRaw) return null;
+    return jobRaw as ExecutorJobSnapshot;
+  }, []);
+
+  const upsertJobOutput = useCallback((jobId: string, stream: 'stdout' | 'stderr', text: string) => {
+    if (!text.trim()) return;
+
+    const current = jobOutputsRef.current[jobId] ?? { stdout: '', stderr: '' };
+    const next = {
+      ...current,
+      [stream]: appendJobOutput(current[stream], text),
+    };
+
+    jobOutputsRef.current = {
+      ...jobOutputsRef.current,
+      [jobId]: next,
+    };
+    setJobOutputs(jobOutputsRef.current);
+  }, []);
+
+  const resolveJobWaiter = useCallback((snapshot: ExecutorJobSnapshot) => {
+    const waiter = jobWaitersRef.current.get(snapshot.id);
+    if (!waiter) return;
+    clearTimeout(waiter.timeoutId);
+    jobWaitersRef.current.delete(snapshot.id);
+    waiter.resolve(snapshot);
+  }, []);
+
+  const waitForExecutorJob = useCallback(async (
+    jobId: string,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<ExecutorJobSnapshot> => {
+    const initial = await fetchExecutorJobSnapshot(jobId);
+    if (initial && isTerminalJobStatus(initial.status)) {
+      return initial;
+    }
+
+    return await new Promise<ExecutorJobSnapshot>((resolve, reject) => {
+      const timeoutId = setTimeout(async () => {
+        jobWaitersRef.current.delete(jobId);
+
+        try {
+          const latest = await fetchExecutorJobSnapshot(jobId);
+          if (latest && isTerminalJobStatus(latest.status)) {
+            resolve(latest);
+            return;
+          }
+          reject(new Error(timeoutMessage));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      }, timeoutMs);
+
+      jobWaitersRef.current.set(jobId, { resolve, reject, timeoutId });
+    });
+  }, [fetchExecutorJobSnapshot]);
+
+  const handleExecutorJobSnapshot = useCallback((snapshot: ExecutorJobSnapshot) => {
+    const manifest = normalizeSessionManifest(snapshot.artifact_manifest);
+    const trackedRuns = sessionRunsRef.current.filter((run) => run.jobId === snapshot.id);
+
+    if (trackedRuns.length > 0) {
+      const nextRuns = sessionRunsRef.current.map((run) => {
+        if (run.jobId !== snapshot.id) return run;
+        return {
+          ...run,
+          status: mapJobStatusToRunStatus(snapshot.status),
+          filesWritten: manifest.length,
+          manifest,
+          errorText: snapshot.status === 'failed' || snapshot.status === 'cancelled' || snapshot.status === 'expired'
+            ? snapshot.error_text ?? snapshot.result_summary ?? 'Session build failed.'
+            : null,
+        };
+      });
+
+      setSessionRuns(nextRuns);
+      setSessionProgress(deriveSessionProgress(nextRuns));
+    }
+
+    if (isTerminalJobStatus(snapshot.status)) {
+      resolveJobWaiter(snapshot);
+    }
+  }, [resolveJobWaiter, setSessionProgress, setSessionRuns]);
+
+  const handleExecutorJobEvent = useCallback((event: ExecutorJobEventRow) => {
+    const trackedJobIds = new Set<string>([
+      ...tasksRef.current
+        .map((task) => task.executor_job_id)
+        .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0),
+      ...sessionRunsRef.current
+        .map((run) => run.jobId)
+        .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0),
+    ]);
+
+    if (!trackedJobIds.has(event.job_id)) return;
+
+    const text = typeof event.payload?.text === 'string'
+      ? event.payload.text
+      : typeof event.payload?.message === 'string'
+        ? event.payload.message
+        : '';
+
+    if (event.event_type === 'stdout' && text) {
+      upsertJobOutput(event.job_id, 'stdout', text);
+    } else if (event.event_type === 'stderr' && text) {
+      upsertJobOutput(event.job_id, 'stderr', text);
+    }
+  }, [upsertJobOutput]);
+
+  useEffect(() => {
+    const sessionId = state.activeSession?.id;
+    if (!sessionId) {
+      tasksRef.current = [];
+      setTasks([]);
+      setProgress({ total: 0, completed: 0, failed: 0, skipped: 0, dispatched: 0, queued: 0 });
+      jobOutputsRef.current = {};
+      setJobOutputs({});
+      return;
+    }
+
+    jobOutputsRef.current = {};
+    setJobOutputs({});
+    void loadTasks(sessionId);
+
+    let channel = supabase
+      .channel(`build-progress-${sessionId}-${Math.random().toString(36).slice(2, 8)}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'build_tasks', filter: `session_id=eq.${sessionId}` },
+        () => { void loadTasks(sessionId); },
+      );
+
+    if (user?.id) {
+      channel = channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'executor_jobs', filter: `requested_by=eq.${user.id}` },
+        (payload) => {
+          const next = payload.new as Partial<ExecutorJobSnapshot> | null;
+          if (!next?.id || typeof next.status !== 'string') return;
+          handleExecutorJobSnapshot({
+            id: next.id,
+            status: next.status,
+            artifact_manifest: next.artifact_manifest ?? null,
+            error_text: typeof next.error_text === 'string' ? next.error_text : null,
+            result_summary: typeof next.result_summary === 'string' ? next.result_summary : null,
+          });
+        },
+      ).on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'executor_job_events' },
+        (payload) => {
+          const next = payload.new as Partial<ExecutorJobEventRow> | null;
+          if (!next?.job_id || typeof next.event_type !== 'string') return;
+          handleExecutorJobEvent({
+            job_id: next.job_id,
+            event_type: next.event_type,
+            payload: typeof next.payload === 'object' && next.payload !== null
+              ? next.payload as Record<string, unknown>
+              : null,
+          });
+        },
+      );
+    }
+
+    channel.subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [state.activeSession?.id, user?.id, loadTasks, handleExecutorJobSnapshot, handleExecutorJobEvent]);
 
   // ── Step 1: Decompose — call concierge to create build_tasks ─────────
 
@@ -244,70 +527,43 @@ export function useBuildExecution() {
     jobId: string,
     task: BuildTask,
   ): Promise<boolean> => {
-    const POLL_MS = 2_000;
     const TIMEOUT_MS = 600_000; // 10 minutes
-    const start = Date.now();
+    const job = await waitForExecutorJob(
+      jobId,
+      TIMEOUT_MS,
+      'Executor job timed out after 10 minutes',
+    );
 
-    while (Date.now() - start < TIMEOUT_MS) {
-      if (abortRef.current) return false;
+    if (abortRef.current) return false;
 
-      const { data: jobRaw } = await supabase
-        .from('executor_jobs')
-        .select('status, artifact_manifest, error_text, result_summary')
-        .eq('id', jobId)
-        .single();
-      // executor_jobs is not yet in database.types.ts — cast explicitly
-      const job = jobRaw as {
-        status: string;
-        artifact_manifest: unknown;
-        error_text: string | null;
-        result_summary: string | null;
-      } | null;
+    if (job.status === 'succeeded') {
+      const artifacts = normalizeSessionManifest(job.artifact_manifest);
 
-      if (!job) return false;
-
-      if (job.status === 'succeeded') {
-        const artifacts = (job.artifact_manifest ?? []) as Array<{
-          path: string; content: string; operation?: string;
-        }>;
-
-        if (artifacts.length === 0) {
-          await updateTaskStatus(task.id, 'failed', {
-            failure_reason: 'Executor produced no artifacts',
-          } as Partial<BuildTask>);
-          return false;
-        }
-
-        const entry = artifacts[0];
-        await updateTaskStatus(task.id, 'completed', {
-          result_content: entry.content,
-          result_operation: (entry.operation ?? 'create') as BuildTask['result_operation'],
-          result_builder: task.lane_owner,
-          executor_job_id: jobId,
-        } as Partial<BuildTask>);
-        return true;
-      }
-
-      if (job.status === 'failed') {
+      if (artifacts.length === 0) {
         await updateTaskStatus(task.id, 'failed', {
-          failure_reason: job.error_text || 'Executor job failed',
-          provider_error: job.result_summary,
+          failure_reason: 'Executor produced no artifacts',
           executor_job_id: jobId,
         } as Partial<BuildTask>);
         return false;
       }
 
-      // Still running — wait and poll again
-      await new Promise(r => setTimeout(r, POLL_MS));
+      const entry = artifacts[0];
+      await updateTaskStatus(task.id, 'completed', {
+        result_content: entry.content,
+        result_operation: (entry.operation ?? 'create') as BuildTask['result_operation'],
+        result_builder: task.lane_owner,
+        executor_job_id: jobId,
+      } as Partial<BuildTask>);
+      return true;
     }
 
-    // Timed out waiting for executor
     await updateTaskStatus(task.id, 'failed', {
-      failure_reason: 'Executor job timed out after 10 minutes',
+      failure_reason: job.error_text || 'Executor job failed',
+      provider_error: job.result_summary,
       executor_job_id: jobId,
     } as Partial<BuildTask>);
     return false;
-  }, [updateTaskStatus]);
+  }, [updateTaskStatus, waitForExecutorJob]);
 
   const dispatchTaskLocal = useCallback(async (
     task: BuildTask,
@@ -371,20 +627,21 @@ export function useBuildExecution() {
       return false;
     }
 
-    // Update task with executor_job_id
-    await supabase
-      .from('build_tasks')
-      .update({ executor_job_id: job.id } as never)
-      .eq('id', task.id);
+    await updateTaskStatus(task.id, 'dispatched', {
+      executor_job_id: job.id,
+    } as Partial<BuildTask>);
 
-    // Poll for job completion
     return await pollExecutorJob(job.id, task);
   }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor, refreshExecutors]);
 
   // ── Session Build (Phase 4) ─────────────────────────────────────────────
 
   const updateSessionRun = useCallback((key: string, updates: Partial<SessionRunProgress>) => {
-    dispatch({ type: 'UPDATE_SESSION_BUILD_RUN', payload: { key, updates } });
+    const nextRuns = sessionRunsRef.current.map((run) =>
+      run.key === key ? { ...run, ...updates } : run,
+    );
+    sessionRunsRef.current = nextRuns;
+    dispatch({ type: 'SET_SESSION_BUILD_RUNS', payload: nextRuns });
   }, [dispatch]);
 
   const executeSessionPlan = useCallback(async (specs: SessionBuildSpec[]) => {
@@ -472,22 +729,47 @@ export function useBuildExecution() {
         }
 
         updateSessionRun(spec.key, { jobId });
-        const result = await pollBuildSessionJob(jobId);
-        updateSessionRun(spec.key, {
-          status: result.success ? 'succeeded' : 'failed',
-          filesWritten: result.manifest.length,
-          jobId,
-          manifest: result.manifest,
-          errorText: result.errorText,
-        });
+        try {
+          const job = await waitForExecutorJob(
+            jobId,
+            40 * 60 * 1_000,
+            'Session job timed out after 40 minutes',
+          );
+          const manifest = normalizeSessionManifest(job.artifact_manifest);
+          const success = job.status === 'succeeded';
+          updateSessionRun(spec.key, {
+            status: success ? 'succeeded' : 'failed',
+            filesWritten: manifest.length,
+            jobId,
+            manifest,
+            errorText: success ? null : job.error_text ?? job.result_summary ?? 'Session job failed',
+          });
 
-        return {
-          success: result.success,
-          jobId,
-          builderName: spec.builderName,
-          manifest: result.manifest,
-          errorText: result.errorText,
-        };
+          return {
+            success,
+            jobId,
+            builderName: spec.builderName,
+            manifest,
+            errorText: success ? null : job.error_text ?? job.result_summary ?? 'Session job failed',
+          };
+        } catch (error) {
+          const errorText = error instanceof Error ? error.message : 'Session job failed';
+          updateSessionRun(spec.key, {
+            status: 'failed',
+            filesWritten: 0,
+            jobId,
+            manifest: [],
+            errorText,
+          });
+
+          return {
+            success: false,
+            jobId,
+            builderName: spec.builderName,
+            manifest: [] as SessionBuildManifestEntry[],
+            errorText,
+          };
+        }
       }));
 
       const mergedManifest = mergeSessionManifest(results.flatMap(result => result.manifest));
@@ -511,6 +793,7 @@ export function useBuildExecution() {
     state.executors,
     state.sessionBuildState.isRunning,
     refreshExecutors,
+    waitForExecutorJob,
     setIsSessionRunning,
     setSessionProgress,
     setSessionRuns,
@@ -531,27 +814,38 @@ export function useBuildExecution() {
 
   const abortSessionBuild = useCallback(async () => {
     const jobIds = Array.from(new Set(
-      state.sessionBuildState.runs
+      sessionRunsRef.current
         .map((run) => run.jobId)
         .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0),
     ));
 
     await Promise.all(jobIds.map((jobId) => cancelBuildSessionJob(jobId)));
 
-    setSessionRuns(state.sessionBuildState.runs.map((run) => (
+    const nextRuns: SessionRunProgress[] = sessionRunsRef.current.map((run) => (
       run.status === 'running' || run.status === 'queued'
-        ? { ...run, status: 'failed', errorText: 'Aborted by user' }
+        ? { ...run, status: 'failed' as const, errorText: 'Aborted by user' }
         : run
-    )));
+    ));
+    setSessionRuns(nextRuns);
     setSessionProgress({
-      ...state.sessionBuildState.progress,
+      ...deriveSessionProgress(nextRuns),
       status: 'failed',
       errorText: 'Aborted by user',
     });
     setIsSessionRunning(false);
-  }, [state.sessionBuildState, setIsSessionRunning, setSessionProgress, setSessionRuns]);
+  }, [setIsSessionRunning, setSessionProgress, setSessionRuns]);
 
   const resetSessionBuildState = useCallback(() => {
+    sessionRunsRef.current = [];
+    sessionProgressRef.current = {
+      status: 'idle',
+      filesWritten: 0,
+      jobId: null,
+      manifest: [],
+      errorText: null,
+    };
+    jobOutputsRef.current = {};
+    setJobOutputs({});
     dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
   }, [dispatch]);
 
@@ -568,6 +862,11 @@ export function useBuildExecution() {
       content_hash: null,
     }));
   }, [sessionProgress.manifest, sessionRuns]);
+
+  const getJobOutput = useCallback((jobId: string | null | undefined): JobOutputState | null => {
+    if (!jobId) return null;
+    return jobOutputs[jobId] ?? null;
+  }, [jobOutputs]);
 
   const pushSessionBuildToGithub = useCallback(async (fallbackAdapter?: string) => {
     if (!state.activeSession || !user) {
@@ -1095,6 +1394,7 @@ export function useBuildExecution() {
     abortSessionBuild,
     resetSessionBuildState,
     collectSessionManifest,
+    getJobOutput,
     pushSessionBuildToGithub,
     pushTaskBuildToGithub,
     abort,

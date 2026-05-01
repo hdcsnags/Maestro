@@ -553,6 +553,16 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
                       {run.errorText && (
                         <div className="mt-2 text-xs text-signal-risk/80">{run.errorText}</div>
                       )}
+                      {buildExec.getJobOutput(run.jobId)?.stdout && (
+                        <pre className="mt-2 overflow-x-auto rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-[11px] leading-5 text-white/65 whitespace-pre-wrap">
+                          {buildExec.getJobOutput(run.jobId)?.stdout}
+                        </pre>
+                      )}
+                      {buildExec.getJobOutput(run.jobId)?.stderr && (
+                        <pre className="mt-2 overflow-x-auto rounded-lg border border-signal-risk/20 bg-signal-risk/8 px-3 py-2 text-[11px] leading-5 text-signal-risk/80 whitespace-pre-wrap">
+                          {buildExec.getJobOutput(run.jobId)?.stderr}
+                        </pre>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -591,6 +601,16 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
                       </div>
                       {task.failure_reason && (
                         <div className="mt-2 text-xs text-signal-risk/80">{task.failure_reason}</div>
+                      )}
+                      {buildExec.getJobOutput(task.executor_job_id)?.stdout && backend === 'local' && (
+                        <pre className="mt-2 overflow-x-auto rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-[11px] leading-5 text-white/65 whitespace-pre-wrap">
+                          {buildExec.getJobOutput(task.executor_job_id)?.stdout}
+                        </pre>
+                      )}
+                      {buildExec.getJobOutput(task.executor_job_id)?.stderr && (
+                        <pre className="mt-2 overflow-x-auto rounded-lg border border-signal-risk/20 bg-signal-risk/8 px-3 py-2 text-[11px] leading-5 text-signal-risk/80 whitespace-pre-wrap">
+                          {buildExec.getJobOutput(task.executor_job_id)?.stderr}
+                        </pre>
                       )}
                     </div>
                   );

@@ -1756,57 +1756,93 @@ export default function BuildWorkspace() {
                       padding: '8px 14px', borderRadius: '8px',
                       background: task.status === 'dispatched' ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
                       border: `1px solid ${task.status === 'dispatched' ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.04)'}`,
-                      display: 'flex', alignItems: 'center', gap: '10px',
+                      display: 'flex', flexDirection: 'column', gap: '8px',
                     }}>
-                      <span style={{ fontSize: '13px', color: statusColor, width: '16px', textAlign: 'center' }}>
-                        {statusIcon}
-                      </span>
-                      <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-primary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {task.file_path}
-                      </span>
-                      {agent && (
-                        <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>
-                          {agent.display_name ?? agent.name}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
+                        <span style={{ fontSize: '13px', color: statusColor, width: '16px', textAlign: 'center' }}>
+                          {statusIcon}
                         </span>
-                      )}
-                      {retryCount > 0 && task.status === 'completed' && (
-                        <span style={{
-                          fontSize: '9px', color: 'var(--warn)', flexShrink: 0,
-                          background: 'rgba(230,168,60,0.1)', border: '1px solid rgba(230,168,60,0.25)',
-                          borderRadius: '4px', padding: '1px 5px',
-                        }} title={`Succeeded after ${retryCount + 1} attempts`}>
-                          ↩ {retryCount}
+                        <span className="font-mono-dm" style={{ fontSize: '11px', color: 'var(--text-primary)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {task.file_path}
                         </span>
+                        {agent && (
+                          <span style={{ fontSize: '10px', color: 'var(--text-dim)', flexShrink: 0 }}>
+                            {agent.display_name ?? agent.name}
+                          </span>
+                        )}
+                        {retryCount > 0 && task.status === 'completed' && (
+                          <span style={{
+                            fontSize: '9px', color: 'var(--warn)', flexShrink: 0,
+                            background: 'rgba(230,168,60,0.1)', border: '1px solid rgba(230,168,60,0.25)',
+                            borderRadius: '4px', padding: '1px 5px',
+                          }} title={`Succeeded after ${retryCount + 1} attempts`}>
+                            ↩ {retryCount}
+                          </span>
+                        )}
+                        {task.status === 'failed' && (
+                          <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+                            <button
+                              onClick={() => buildExec.retryTask(task.id)}
+                              title="Retry this file"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                padding: '2px', color: 'var(--gold)', display: 'flex',
+                              }}
+                            >
+                              <RotateCcw size={11} />
+                            </button>
+                            <button
+                              onClick={() => buildExec.skipTask(task.id, 'Manually skipped')}
+                              title="Skip this file"
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                padding: '2px', color: 'var(--text-dim)', display: 'flex',
+                              }}
+                            >
+                              <SkipForward size={11} />
+                            </button>
+                          </div>
+                        )}
+                        {task.failure_reason && task.status === 'failed' && (
+                          <span style={{ fontSize: '9px', color: 'var(--risk)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={task.failure_reason}>
+                            {task.failure_reason}
+                          </span>
+                        )}
+                      </div>
+                      {buildExec.getJobOutput(task.executor_job_id)?.stdout && (
+                        <pre style={{
+                          margin: 0,
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(0,0,0,0.2)',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          fontSize: '11px',
+                          lineHeight: 1.55,
+                          color: 'rgba(232,230,224,0.72)',
+                          whiteSpace: 'pre-wrap',
+                          overflowX: 'auto',
+                          width: '100%',
+                        }}>
+                          {buildExec.getJobOutput(task.executor_job_id)?.stdout}
+                        </pre>
                       )}
-                      {task.status === 'failed' && (
-                        <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
-                          <button
-                            onClick={() => buildExec.retryTask(task.id)}
-                            title="Retry this file"
-                            style={{
-                              background: 'none', border: 'none', cursor: 'pointer',
-                              padding: '2px', color: 'var(--gold)', display: 'flex',
-                            }}
-                          >
-                            <RotateCcw size={11} />
-                          </button>
-                          <button
-                            onClick={() => buildExec.skipTask(task.id, 'Manually skipped')}
-                            title="Skip this file"
-                            style={{
-                              background: 'none', border: 'none', cursor: 'pointer',
-                              padding: '2px', color: 'var(--text-dim)', display: 'flex',
-                            }}
-                          >
-                            <SkipForward size={11} />
-                          </button>
-                        </div>
-                      )}
-                      {task.failure_reason && task.status === 'failed' && (
-                        <span style={{ fontSize: '9px', color: 'var(--risk)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          title={task.failure_reason}>
-                          {task.failure_reason}
-                        </span>
+                      {buildExec.getJobOutput(task.executor_job_id)?.stderr && (
+                        <pre style={{
+                          margin: 0,
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(224,90,90,0.08)',
+                          border: '1px solid rgba(224,90,90,0.2)',
+                          fontSize: '11px',
+                          lineHeight: 1.55,
+                          color: 'var(--risk)',
+                          whiteSpace: 'pre-wrap',
+                          overflowX: 'auto',
+                          width: '100%',
+                        }}>
+                          {buildExec.getJobOutput(task.executor_job_id)?.stderr}
+                        </pre>
                       )}
                     </div>
                   );
@@ -2020,6 +2056,38 @@ export default function BuildWorkspace() {
                           <div style={{ fontSize: '11px', color: 'var(--risk)', marginTop: '6px' }}>
                             {run.errorText}
                           </div>
+                        )}
+                        {buildExec.getJobOutput(run.jobId)?.stdout && (
+                          <pre style={{
+                            marginTop: '8px',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: 'rgba(0,0,0,0.22)',
+                            border: '1px solid rgba(255,255,255,0.06)',
+                            fontSize: '11px',
+                            lineHeight: 1.55,
+                            color: 'rgba(232,230,224,0.72)',
+                            whiteSpace: 'pre-wrap',
+                            overflowX: 'auto',
+                          }}>
+                            {buildExec.getJobOutput(run.jobId)?.stdout}
+                          </pre>
+                        )}
+                        {buildExec.getJobOutput(run.jobId)?.stderr && (
+                          <pre style={{
+                            marginTop: '8px',
+                            padding: '10px 12px',
+                            borderRadius: '8px',
+                            background: 'rgba(224,90,90,0.08)',
+                            border: '1px solid rgba(224,90,90,0.2)',
+                            fontSize: '11px',
+                            lineHeight: 1.55,
+                            color: 'var(--risk)',
+                            whiteSpace: 'pre-wrap',
+                            overflowX: 'auto',
+                          }}>
+                            {buildExec.getJobOutput(run.jobId)?.stderr}
+                          </pre>
                         )}
                       </div>
                     ))}
