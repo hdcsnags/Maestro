@@ -1,8 +1,6 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useMaestro } from '../context/MaestroContext';
-import { useWorkspace } from '../hooks/useWorkspace';
-import { useOrchestration } from '../hooks/useOrchestration';
 import { useAuth } from '../context/AuthContext';
 import LoadingScreen from '../components/ui/LoadingScreen';
 import RevealTopbar from '../components/reveal/RevealTopbar';
@@ -25,13 +23,9 @@ import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
 import { deriveOrbState } from '../lib/orbState';
-import type { SessionMode } from '../types';
-
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
-  const { broadcast } = useOrchestration();
   const { signOut } = useAuth();
-  const { createSession } = useWorkspace();
 
   const drawerOpen = state.activeDrawer !== null;
   const overlayOpen = state.shortcutOverlayOpen;
@@ -69,19 +63,6 @@ export default function WorkspacePage() {
       wasBroadcasting.current = false;
     }
   }, [state.isBroadcasting, latestResponses.length, state.autoShowCarousel, dispatch]);
-
-  const handleBroadcast = useCallback(async (prompt: string, selectedAgentIds: string[], requestedMode?: SessionMode) => {
-    // Option A — lazy session creation. If the user lands fresh and broadcasts,
-    // create a new session on demand and pass it directly to broadcast
-    // (state.activeSession hasn't updated yet in this render cycle).
-    let sessionForBroadcast = state.activeSession;
-    if (!sessionForBroadcast && state.workspace) {
-      const created = await createSession(state.workspace.id, requestedMode ?? 'ask');
-      if (!created) return;
-      sessionForBroadcast = created;
-    }
-    await broadcast(prompt, selectedAgentIds, sessionForBroadcast);
-  }, [broadcast, createSession, state.activeSession, state.workspace]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -274,9 +255,9 @@ export default function WorkspacePage() {
             <EmptyStage orbState={orbState} />
           )}
 
-          {!state.focusMode && <RevealComposer onBroadcast={handleBroadcast} />}
-        </div>
-      )}
+            {!state.focusMode && <RevealComposer variant="workspace" />}
+          </div>
+        )}
 
       <OrchestraDrawer />
       <TrustDrawer />

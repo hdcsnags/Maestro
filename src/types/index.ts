@@ -11,6 +11,7 @@ export type ThreadStatus = 'active' | 'completed' | 'pinned' | 'archived';
 export type ThreadMessageRole = 'user' | 'agent' | 'concierge' | 'system';
 export type ContextWeight = 'primary' | 'supporting' | 'background';
 export type ClawView = 'concierge' | 'carousel' | 'focus';
+export type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
 
 export interface Workspace {
   id: string;

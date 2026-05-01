@@ -5,7 +5,7 @@ import {
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
-  ClawView, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
+  ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
 } from '../types';
 
@@ -55,6 +55,7 @@ export interface MaestroState {
   threadMessages: ThreadMessage[];
   activeThread: Thread | null;
   clawView: ClawView;
+  composerIntent: ComposerIntent;
   focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
@@ -131,6 +132,7 @@ type Action =
   | { type: 'ADD_THREAD_MESSAGE'; payload: ThreadMessage }
   | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
+  | { type: 'SET_COMPOSER_INTENT'; payload: ComposerIntent }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
@@ -186,6 +188,7 @@ const initial: MaestroState = {
   threadMessages: [],
   activeThread: null,
   clawView: 'concierge' as ClawView,
+  composerIntent: 'chat',
   focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
@@ -246,6 +249,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         threads: [],
         threadMessages: [],
         activeThread: null,
+        composerIntent: 'chat',
         clawBuildSession: null,
         sessionBuildState: createEmptySessionBuildState(),
       };
@@ -362,6 +366,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
     case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
+    case 'SET_COMPOSER_INTENT': return { ...state, composerIntent: action.payload };
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };

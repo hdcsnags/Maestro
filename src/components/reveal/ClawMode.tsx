@@ -1,70 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { type LucideIcon, Send, ChevronDown, X, Loader2, Bot, User, AlertCircle, Radio, RefreshCw, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
+import { type LucideIcon, X, Loader2, Bot, User, AlertCircle, Radio, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
-import { useOrchestration } from '../../hooks/useOrchestration';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import FolioCarousel from './FolioCarousel';
 import ClawBuildSessionCard from './ClawBuildSessionCard';
-
-type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
-
-interface IntentConfig {
-  label: string;
-  consequence: string;
-  Icon: LucideIcon;
-  actionIcon: LucideIcon;
-  color: string;
-  bg: string;
-  border: string;
-  buttonText: string;
-}
-
-const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
-  chat: {
-    label: 'Chat',
-    consequence: 'Answer appears in thread',
-    Icon: MessageSquare,
-    actionIcon: Send,
-    color: 'text-white/80',
-    bg: 'bg-gold/80',
-    border: 'border-gold/30',
-    buttonText: 'text-void',
-  },
-  broadcast: {
-    label: 'Broadcast',
-    consequence: 'Asks all active council agents',
-    Icon: Radio,
-    actionIcon: Radio,
-    color: 'text-white/70',
-    bg: 'bg-white/10',
-    border: 'border-white/15',
-    buttonText: 'text-white/80',
-  },
-  execute: {
-    label: 'Execute',
-    consequence: 'Runs command via local executor',
-    Icon: Zap,
-    actionIcon: Zap,
-    color: 'text-signal-warn/90',
-    bg: 'bg-signal-warn/15',
-    border: 'border-signal-warn/25',
-    buttonText: 'text-signal-warn/95',
-  },
-  build: {
-    label: 'Build',
-    consequence: 'Generates repo changes',
-    Icon: Hammer,
-    actionIcon: Hammer,
-    color: 'text-signal-ok/90',
-    bg: 'bg-signal-ok/15',
-    border: 'border-signal-ok/25',
-    buttonText: 'text-signal-ok/95',
-  },
-};
+import RevealComposer from './RevealComposer';
 
 const THREAD_GROUPS = [
   { type: 'concierge', Icon: Mic, label: 'Concierge' },
@@ -76,7 +20,6 @@ const THREAD_GROUPS = [
 const iconButtonClass = 'p-1.5 rounded-lg hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
 const headerButtonClass = 'flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
-const routingKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -88,26 +31,17 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, sendToConcierge, sendToAgent, createThread, loadThreads, loadThreadMessages, addMessage, executeFromChat, approveExecutionJob, pollJobStatus, buildFromChat } = useThreads();
-  const { broadcast, synthesize } = useOrchestration();
+  const { ensureConciergeThread, createThread, loadThreads, loadThreadMessages, addMessage, approveExecutionJob, pollJobStatus } = useThreads();
   const { createSession } = useWorkspace();
-  const [input, setInput] = useState('');
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches,
   );
-  const [composerIntent, setComposerIntent] = useState<ComposerIntent>('chat');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const initRef = useRef(false);
-  const modelButtonRef = useRef<HTMLButtonElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const routingBarRef = useRef<Array<HTMLButtonElement | null>>([]);
   const executionApprovalRef = useRef<HTMLDivElement>(null);
 
   const clawView = state.clawView as ClawView;
@@ -130,12 +64,6 @@ export default function ClawMode() {
     return found?.label ?? state.conciergeModel;
   }, [state.conciergeModel]);
 
-  // Council agents (exclude executors) for broadcast
-  const councilAgents = useMemo(
-    () => state.agents.filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
-    [state.agents],
-  );
-
   // Latest round info for carousel view
   const latestRound = useMemo(
     () => (state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null),
@@ -145,33 +73,14 @@ export default function ClawMode() {
     () => (latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : []),
     [latestRound, state.responses],
   );
+  const councilAgents = useMemo(
+    () => state.agents.filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
+    [state.agents],
+  );
   const hasRepo = useMemo(
     () => state.repoConnections?.some((connection: { is_active: boolean }) => connection.is_active) ?? false,
     [state.repoConnections],
   );
-
-  // Close model picker on click outside
-  useEffect(() => {
-    if (!modelPickerOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setModelPickerOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modelPickerOpen]);
-
-  useEffect(() => {
-    if (!modelPickerOpen) return;
-    const selectedIndex = Math.max(
-      CONCIERGE_MODELS.findIndex((model) => model.id === state.conciergeModel),
-      0,
-    );
-    requestAnimationFrame(() => {
-      modelOptionRefs.current[selectedIndex]?.focus();
-    });
-  }, [modelPickerOpen, state.conciergeModel]);
 
   // Below md, the thread sidebar behaves as an overlay instead of consuming the layout.
   useEffect(() => {
@@ -271,7 +180,7 @@ export default function ClawMode() {
       };
     }
 
-    if (composerIntent === 'execute') {
+    if (state.composerIntent === 'execute') {
       return {
         kind: 'execute' as const,
         Icon: Zap,
@@ -282,7 +191,7 @@ export default function ClawMode() {
       };
     }
 
-    if (composerIntent === 'build') {
+    if (state.composerIntent === 'build') {
       return {
         kind: 'build' as const,
         Icon: Hammer,
@@ -305,10 +214,10 @@ export default function ClawMode() {
     activeRepoName,
     activeClawBuildSession,
     clawView,
-    composerIntent,
     isBuildSessionActive,
     isExecutionPending,
     isExecutionThread,
+    state.composerIntent,
     state.activeThread?.type,
     threadTypeLabel,
   ]);
@@ -379,11 +288,6 @@ export default function ClawMode() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  // Focus input on mount and view change
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, [clawView]);
-
   useEffect(() => {
     if (!state.pendingExecution || state.pendingExecution.threadId !== state.activeThread?.id) return;
     requestAnimationFrame(() => {
@@ -411,13 +315,6 @@ export default function ClawMode() {
 
   const handleDialogKeyDownCapture = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
-      if (modelPickerOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setModelPickerOpen(false);
-        modelButtonRef.current?.focus();
-        return;
-      }
       if (isMobile && sidebarOpen) {
         e.preventDefault();
         e.stopPropagation();
@@ -444,136 +341,7 @@ export default function ClawMode() {
 
     e.preventDefault();
     focusable[nextIndex]?.focus();
-  }, [dispatch, isMobile, modelPickerOpen, sidebarOpen]);
-
-  const handleModelPickerButtonKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (!['ArrowDown', 'Enter', ' '].includes(e.key)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setModelPickerOpen(true);
-  }, []);
-
-  const handleModelOptionKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      e.stopPropagation();
-      modelOptionRefs.current[(index + 1) % CONCIERGE_MODELS.length]?.focus();
-      return;
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      e.stopPropagation();
-      modelOptionRefs.current[(index - 1 + CONCIERGE_MODELS.length) % CONCIERGE_MODELS.length]?.focus();
-      return;
-    }
-    if (e.key === 'Home') {
-      e.preventDefault();
-      e.stopPropagation();
-      modelOptionRefs.current[0]?.focus();
-      return;
-    }
-    if (e.key === 'End') {
-      e.preventDefault();
-      e.stopPropagation();
-      modelOptionRefs.current[CONCIERGE_MODELS.length - 1]?.focus();
-      return;
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      setModelPickerOpen(false);
-      modelButtonRef.current?.focus();
-    }
-  }, []);
-
-  const handleRoutingKeyDown = useCallback((e: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const enabledIndices = routingKeys
-      .map((intent, i) => ({ intent, i }))
-      .filter(({ intent }) => intent !== 'build' || hasRepo)
-      .map(({ i }) => i);
-    const enabledPos = Math.max(enabledIndices.indexOf(index), 0);
-
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      const nextIdx = enabledIndices[(enabledPos + 1) % enabledIndices.length];
-      routingBarRef.current[nextIdx]?.focus();
-      setComposerIntent(routingKeys[nextIdx]);
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const prevIdx = enabledIndices[(enabledPos - 1 + enabledIndices.length) % enabledIndices.length];
-      routingBarRef.current[prevIdx]?.focus();
-      setComposerIntent(routingKeys[prevIdx]);
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      routingBarRef.current[enabledIndices[0]]?.focus();
-      setComposerIntent(routingKeys[enabledIndices[0]]);
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      const last = enabledIndices[enabledIndices.length - 1];
-      routingBarRef.current[last]?.focus();
-      setComposerIntent(routingKeys[last]);
-    }
-  }, [hasRepo]);
-
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text || state.isConciergeSending) return;
-    setInput('');
-
-    if (clawView === 'focus' && focusedAgent && state.activeThread?.type === 'direct') {
-      // Direct chat with focused agent
-      await sendToAgent(state.activeThread.id, focusedAgent.id, text);
-    } else if (state.activeThread) {
-      // Send to concierge
-      await sendToConcierge(state.activeThread.id, text);
-    }
-  }, [input, state.isConciergeSending, state.activeThread, clawView, focusedAgent, sendToConcierge, sendToAgent]);
-
-  const handleBroadcast = useCallback(async () => {
-    const text = input.trim();
-    if (!text || state.isBroadcasting || councilAgents.length === 0) return;
-    setInput('');
-
-    // Ensure session exists — pass created session directly (not stale state)
-    let sessionForBroadcast = state.activeSession;
-    if (!sessionForBroadcast && state.workspace) {
-      const created = await createSession(state.workspace.id, 'ask');
-      if (!created) return;
-      sessionForBroadcast = created;
-    }
-    if (!sessionForBroadcast) return;
-
-    // Log the broadcast intent in the concierge thread
-    if (state.activeThread?.type === 'concierge') {
-      await addMessage(state.activeThread.id, 'user', `Broadcasting: ${text}`);
-    }
-
-    // Create a broadcast thread and write the prompt as its first message
-    const broadcastThread = await createThread(sessionForBroadcast.id, 'broadcast', { title: text.slice(0, 60) });
-    if (broadcastThread) {
-      await addMessage(broadcastThread.id, 'user', text);
-    }
-
-    // Dispatch to existing broadcast infrastructure
-    const agentIds = councilAgents.map(a => a.id);
-    await broadcast(text, agentIds, sessionForBroadcast, { skipTriage: true });
-  }, [input, state.isBroadcasting, state.activeSession, state.workspace, state.activeThread, councilAgents, broadcast, createSession, createThread, addMessage]);
-
-  const handleSynthesize = useCallback(async () => {
-    if (state.isSynthesizing || !latestRound) return;
-
-    const result = await synthesize(latestRound.id);
-
-    // Get synthesis from the returned result, not from stale closure state
-    const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
-    if (conciergeThread && result?.content) {
-      await addMessage(conciergeThread.id, 'concierge', `**Synthesis**\n\n${result.content}`);
-      dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
-    }
-
-    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-  }, [state.isSynthesizing, latestRound, state.threads, synthesize, addMessage, dispatch]);
+  }, [dispatch, isMobile, sidebarOpen]);
 
   const handleFocusAgent = useCallback(async (agentId: string) => {
     if (!state.activeSession) return;
@@ -637,42 +405,6 @@ export default function ClawMode() {
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
   }, [dispatch]);
 
-  const handleModelSelect = useCallback((modelId: string) => {
-    dispatch({ type: 'SET_CONCIERGE_MODEL', payload: modelId });
-    setModelPickerOpen(false);
-  }, [dispatch]);
-
-  const handleExecute = useCallback(async () => {
-    const text = input.trim();
-    if (!text) return;
-
-    if (state.isConciergeSending) {
-      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — a request is still in progress.' });
-      return;
-    }
-
-    setInput('');
-
-    // Ensure we have a concierge thread
-    const threadId = state.activeThread?.id;
-    if (!threadId) return;
-
-    // Create an execution thread if we're in concierge view
-    let execThreadId = threadId;
-    if (state.activeThread?.type === 'concierge' && state.activeSession) {
-      const execThread = await createThread(state.activeSession.id, 'execution', {
-        title: `Execute: ${text.slice(0, 50)}`,
-      });
-      if (execThread) {
-        execThreadId = execThread.id;
-        dispatch({ type: 'SET_ACTIVE_THREAD', payload: execThread });
-      }
-    }
-
-    await executeFromChat(execThreadId, text);
-    await loadThreadMessages(execThreadId);
-  }, [input, state.isConciergeSending, state.activeThread, state.activeSession, createThread, executeFromChat, loadThreadMessages, dispatch]);
-
   const handleApproveExecution = useCallback(async () => {
     const pending = state.pendingExecution;
     if (!pending) return;
@@ -701,36 +433,6 @@ export default function ClawMode() {
     await loadThreadMessages(pending.threadId);
   }, [state.pendingExecution, addMessage, loadThreadMessages, dispatch]);
 
-  const handleBuild = useCallback(async () => {
-    const text = input.trim();
-    if (!text) return;
-
-    if (state.isConciergeSending) {
-      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — a request is still in progress.' });
-      return;
-    }
-
-    setInput('');
-
-    const threadId = state.activeThread?.id;
-    if (!threadId) return;
-
-    await buildFromChat(threadId, text);
-    await loadThreadMessages(threadId);
-    // Reset intent to chat so subsequent messages don't re-trigger build flow
-    setComposerIntent('chat');
-  }, [input, state.isConciergeSending, state.activeThread, buildFromChat, loadThreadMessages, dispatch]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (composerIntent === 'chat') handleSend();
-      else if (composerIntent === 'broadcast') handleBroadcast();
-      else if (composerIntent === 'execute') handleExecute();
-      else if (composerIntent === 'build') handleBuild();
-    }
-  }, [composerIntent, handleSend, handleBroadcast, handleExecute, handleBuild]);
-
   // Handle thread click in sidebar
   const handleThreadClick = useCallback(async (thread: Thread) => {
     dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
@@ -749,16 +451,6 @@ export default function ClawMode() {
     }
   }, [dispatch, isMobile, loadThreadMessages]);
 
-  // ─── Placeholder text based on view + intent ──────────────
-  const placeholder = clawView === 'focus' && focusedAgent
-    ? `Chat with ${focusedAgent.display_name || focusedAgent.name}...`
-    : composerIntent === 'broadcast' ? 'Broadcast to the orchestra...'
-    : composerIntent === 'execute' ? 'Describe a command to execute...'
-    : composerIntent === 'build' ? 'Describe what to build...'
-    : 'Talk to Concierge...';
-
-  const intentCfg = INTENT_CONFIG[composerIntent];
-  const SubmitIcon = intentCfg.actionIcon;
   const SurfaceIcon = surfaceState.Icon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
   const showModeBanner = clawView === 'concierge' && surfaceState.kind !== 'default';
@@ -853,52 +545,6 @@ export default function ClawMode() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Model picker */}
-          <div ref={pickerRef} style={{ position: 'relative' }}>
-            <button
-              ref={modelButtonRef}
-              onClick={() => setModelPickerOpen(!modelPickerOpen)}
-              onKeyDown={handleModelPickerButtonKeyDown}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] 
-                         text-[11px] text-white/65 hover:text-white/80 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-              aria-expanded={modelPickerOpen}
-              aria-haspopup="listbox"
-              aria-label="Select concierge model"
-            >
-              <Bot size={11} />
-              {currentModelLabel}
-              <ChevronDown size={11} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {modelPickerOpen && (
-              <div
-                style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, width: 'min(224px, calc(100vw - 32px))', maxWidth: '90vw', zIndex: 9999 }}
-                className="rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden"
-                role="listbox"
-                aria-label="Concierge model"
-              >
-                {CONCIERGE_MODELS.map((m, index) => (
-                  <button
-                    key={m.id}
-                    ref={(element) => { modelOptionRefs.current[index] = element; }}
-                    onClick={() => handleModelSelect(m.id)}
-                    onKeyDown={(e) => handleModelOptionKeyDown(e, index)}
-                    role="option"
-                    aria-selected={m.id === state.conciergeModel}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/50
-                      ${m.id === state.conciergeModel
-                        ? 'bg-gold/10 text-gold'
-                        : 'text-white/60 hover:bg-white/5 hover:text-white/80'
-                      }`}
-                  >
-                    <div className="font-medium">{m.label}</div>
-                    <div className="text-xs opacity-50 mt-0.5">{m.provider}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Focus view: agent info badge */}
           {clawView === 'focus' && focusedAgent && (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px] text-white/70">
@@ -1226,108 +872,7 @@ export default function ClawMode() {
         </div>
       </div>
 
-      {/* ─── Intent-First Composer ──────────────────────────── */}
-      <div className="relative z-10 border-t border-white/[0.06] px-4 py-3">
-        <div className="max-w-4xl mx-auto space-y-2">
-          {/* Routing bar — segmented primary mode selector */}
-          <div
-            role="radiogroup"
-            aria-label="Composer intent"
-            className="flex items-center gap-1 rounded-xl bg-white/[0.03] border border-white/[0.07] p-1"
-          >
-            {routingKeys.map((intent, index) => {
-              const cfg = INTENT_CONFIG[intent];
-              const BarIcon = cfg.Icon;
-              const isActive = composerIntent === intent;
-              const disabled = intent === 'build' && !hasRepo;
-              return (
-                <button
-                  key={intent}
-                  ref={(el) => { routingBarRef.current[index] = el; }}
-                  role="radio"
-                  aria-checked={isActive}
-                  disabled={disabled}
-                  onClick={() => { if (!disabled) setComposerIntent(intent); }}
-                  onKeyDown={(e) => handleRoutingKeyDown(e, index)}
-                  title={disabled ? `${cfg.label} — requires a connected repo` : cfg.consequence}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium
-                             transition-all ${focusRingClass}
-                             ${isActive
-                               ? `${cfg.bg} ${cfg.color} border ${cfg.border}`
-                               : 'text-white/45 hover:text-white/70 hover:bg-white/[0.05]'}
-                             ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
-                >
-                  <BarIcon size={12} />
-                  <span className="hidden sm:inline">{cfg.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Active intent consequence label */}
-          <div className="text-[10px] text-white/40 px-1">
-            {intentCfg.consequence}
-            {composerIntent === 'build' && !hasRepo && <span className="text-signal-risk/60 ml-1">— connect a repo in Vault first</span>}
-          </div>
-
-          {/* Textarea + send row */}
-          <div className="flex items-end gap-2">
-            {/* Input */}
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              rows={1}
-              className={`flex-1 resize-none rounded-xl border
-                         px-4 py-3 text-sm text-white/90 placeholder:text-white/60
-                         focus:outline-none focus:ring-2
-                         transition-all min-h-[44px] max-h-[200px] ${modeTheme.input}`}
-              style={{ height: 'auto', overflow: 'hidden' }}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-              }}
-            />
-
-            {/* Send button */}
-            <button
-              onClick={() => {
-                if (composerIntent === 'chat') handleSend();
-                else if (composerIntent === 'broadcast') handleBroadcast();
-                else if (composerIntent === 'execute') handleExecute();
-                else if (composerIntent === 'build') handleBuild();
-              }}
-              disabled={!input.trim() || state.isConciergeSending || state.isBroadcasting}
-              className={`flex items-center justify-center w-10 h-10 rounded-xl ${intentCfg.bg}
-                         ${intentCfg.buttonText} disabled:opacity-30 disabled:cursor-not-allowed
-                         transition-all flex-shrink-0 hover:brightness-110 ${focusRingClass}`}
-              aria-label={`${intentCfg.label} (Enter)`}
-              title={`${intentCfg.label} (Enter)`}
-            >
-              <SubmitIcon size={15} />
-            </button>
-
-            {/* Synthesize — contextual, appears when responses exist */}
-            {latestRound && latestResponses.length > 0 && (
-              <button
-                onClick={handleSynthesize}
-                disabled={state.isSynthesizing}
-                className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                           hover:bg-white/[0.08] text-white/70 hover:text-white/85
-                           disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                aria-label="Synthesize responses"
-                title="Synthesize responses"
-              >
-                <RefreshCw size={13} className={state.isSynthesizing ? 'animate-spin' : ''} />
-                <span className="hidden sm:inline">Synth</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <RevealComposer variant="thread" />
     </div>
   );
 }

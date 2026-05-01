@@ -167,6 +167,7 @@ Legacy (unused): agent_skills, flags
 | Truncation guard: regex catches lazy `// ... existing code` stubs | 2026-04-12 (code verified) |
 | Ask/Build session mode split — composer Ask/Build toggle, concierge Convert to Build, session dropdown indicator | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 0 foundation: `orchestrationMode` is removed, broadcast/build orchestration now derives from session/build context, and the thread shell now opens/closes from active thread focus instead of `clawModeActive` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 1 composer: `RevealComposer` is now the shared composer for both the workspace shell and thread shell, with one routing bar (Direct/Council/Execute/Build), one send action, and the concierge model picker moved into composer chrome | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -290,6 +291,25 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 1 shared composer
+
+**What was done**:
+1. Rebuilt `RevealComposer.tsx` as the shared composer used by both the legacy workspace shell and the thread shell, with a single intent bar (`Direct`, `Council`, `Execute`, `Build`), a single send action, and the concierge model picker moved into composer chrome.
+2. Added shared `composerIntent` state to `MaestroContext.tsx` / `src/types/index.ts` so intent selection is no longer local to `ClawMode.tsx`.
+3. Rewired the workspace composer so `Direct`, `Execute`, and `Build` can open/focus the concierge thread and route into the thread-first flows without a separate Claw toggle step.
+4. Deleted the duplicate composer implementation from `ClawMode.tsx` and replaced it with the shared `RevealComposer` thread variant.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/ClawMode.tsx`, `src/pages/WorkspacePage.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the shared composer as one component with layout variants (`workspace` vs `thread`) rather than maintaining two separate implementations with duplicated intent logic.
+- Let the workspace composer call into the thread-first flows directly so Phase 1 reduces UX split even before the full shell cutover in Phase 2.
+
+**What didn't work**:
+- Phase 2 shell unification is not complete yet; `WorkspacePage` still switches between the legacy stage tree and `ClawMode` based on whether a thread is focused.
+- Validation in this pass was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 0 foundation
 
