@@ -10,6 +10,7 @@ import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
 import SystemEventCard from './EventCards/SystemEventCard';
+import PlanCardRenderer from './PlanCards/PlanCardRenderer';
 import RevealComposer from './RevealComposer';
 
 const THREAD_GROUPS = [
@@ -827,6 +828,10 @@ function MessageBubble({ message, modelLabel, agentColor }: {
 
   if (!isUser && !isSystem && (metadataKind === 'concierge_decision' || metadataKind === 'concierge_triage')) {
     return <ConciergeEventCard message={message} />;
+  }
+
+  if (isSystem && metadataKind === 'plan_card') {
+    return <PlanCardRenderer message={message} />;
   }
 
   if (isSystem) {

@@ -171,6 +171,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 2 shell cutover: `WorkspacePage.tsx` now always renders the thread-first `ClawMode` shell, and `ClawMode` rehydrates the concierge thread per session instead of falling back to the legacy stage tree | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 3 concierge cards: quick-answer triage and concierge synthesis now persist as inline thread event cards, reusing the existing proceed/round-2/override/report/build actions without reopening a modal | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 4 build runway: build chat now always opens an in-thread runway card, and the runway can execute task builds or local session builds and push to GitHub without ejecting to the drawer | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 5 plan cards: build chat now opens a thread-native Pre-Build sequence for project type, repo, builder roster, backend, architect preview, lanes, and spec lock, while `PreBuildPanel.tsx` remains the advanced inspection surface | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 7 premium event cards: new system-thread flows now write typed `thread_messages.metadata` payloads for execution approvals, command status, build handoff, PR-opened results, and errors, while legacy plain-text system messages still render as a compatibility fallback | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -295,6 +296,27 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 5 plan cards
+
+**What was done**:
+1. Added persisted thread-native plan-card messages for Pre-Build so build setup now unfolds inline through project type, repo, builder roster, backend, architect, lane, and spec-lock cards.
+2. Added `src/hooks/usePreBuildPlan.ts` plus the new `src/components/reveal/PlanCards/` renderer set to drive real session/build-spec updates directly from the thread instead of defaulting to the drawer.
+3. Refactored `useThreads.buildFromChat()` so incomplete build setup no longer auto-opens `PreBuildPanel`; it now writes the plan-card sequence into the thread and only uses the drawer as an explicit advanced view.
+4. Added a shared runway activation helper so the final lock card can persist lanes, lock the spec, and hand the thread directly into the build runway.
+5. Removed the dead per-project Supabase placeholder block from `PreBuildPanel.tsx`.
+6. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/hooks/useThreads.ts`, `src/hooks/usePreBuildPlan.ts`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/PreBuildPanel.tsx`, `src/components/reveal/PlanCards/PlanCardFrame.tsx`, `src/components/reveal/PlanCards/PlanCardRenderer.tsx`, `src/components/reveal/PlanCards/ProjectTypeCard.tsx`, `src/components/reveal/PlanCards/RepoCard.tsx`, `src/components/reveal/PlanCards/BuilderRosterCard.tsx`, `src/components/reveal/PlanCards/BackendCard.tsx`, `src/components/reveal/PlanCards/ArchitectCard.tsx`, `src/components/reveal/PlanCards/LaneCard.tsx`, `src/components/reveal/PlanCards/SpecLockCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Stored plan cards as persisted `thread_messages` with `metadata.kind = 'plan_card'` so the Pre-Build flow stays thread-native and survives reloads without creating another side-channel state tree.
+- Kept the plan-card draft state in `sessions.build_spec` (especially builder roster, requested prompt, and suggested lanes) so multiple cards can read and mutate the same live draft without needing a separate frontend-only store.
+- Left `PreBuildPanel.tsx` intact as the power-user surface and added “Open advanced view” affordances on the cards instead of deleting the drawer.
+
+**What didn't work**:
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test through the full repo-connect → architect → lane-lock → runway flow.
+- The thread cards currently persist lane edits into `build_spec.suggested_lanes` before lock; the canonical `build_lanes` rows still only exist after the final spec-lock action.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 7 premium event cards
 

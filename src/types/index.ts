@@ -89,6 +89,7 @@ export interface ThreadMessage {
 export type ThreadMessageKind =
   | 'concierge_decision'
   | 'concierge_triage'
+  | 'plan_card'
   | 'execution_approval'
   | 'execution_intent'
   | 'execution_status'
@@ -111,10 +112,24 @@ export interface ThreadSystemEvent {
   backup_branch?: string;
 }
 
+export type ThreadPlanCardKind =
+  | 'project_type'
+  | 'repo'
+  | 'builder_roster'
+  | 'backend'
+  | 'architect'
+  | 'lane'
+  | 'spec_lock';
+
+export interface ThreadPlanCard {
+  card: ThreadPlanCardKind;
+}
+
 export interface ThreadMessageMetadata extends Record<string, unknown> {
   kind?: ThreadMessageKind;
   decision?: ConciergeDecision;
   triage?: TriageResult;
+  plan_card?: ThreadPlanCard;
   system_event?: ThreadSystemEvent;
   intent?: ExecutionIntent;
   job_id?: string;
@@ -266,6 +281,7 @@ export interface BuildLane {
 
 export interface SuggestedLane {
   agent_name: string;
+  agent_id?: string;
   lane_paths: string[];
   role: BuildLaneRole;
 }

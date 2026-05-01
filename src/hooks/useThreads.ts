@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, CONCIERGE_MODELS } from '../types';
 
 interface OrchestrateResult {
@@ -228,6 +228,26 @@ function suggestSessionScope(architectMd: string | null | undefined): {
     secondary: secondaryDir ? `${secondaryDir}/**` : null,
   };
 }
+
+const PLAN_CARD_ORDER: ThreadPlanCardKind[] = [
+  'project_type',
+  'repo',
+  'builder_roster',
+  'backend',
+  'architect',
+  'lane',
+  'spec_lock',
+];
+
+const PLAN_CARD_TITLES: Record<ThreadPlanCardKind, string> = {
+  project_type: 'Project type',
+  repo: 'Repository',
+  builder_roster: 'Builder roster',
+  backend: 'Execution backend',
+  architect: 'Architect plan',
+  lane: 'Lane assignment',
+  spec_lock: 'Lock and start build',
+};
 
 export function useThreads() {
   const { state, dispatch } = useMaestro();
@@ -546,6 +566,29 @@ export function useThreads() {
     ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join('\n\n');
     return addMessage(threadId, 'system', content || 'System update', undefined, metadata);
   }, [addMessage]);
+
+  const ensurePlanCard = useCallback(async (
+    threadId: string,
+    card: ThreadPlanCardKind,
+  ) => {
+    const exists = state.threadMessages.some((message) =>
+      message.thread_id === threadId
+      && message.role === 'system'
+      && message.metadata.kind === 'plan_card'
+      && message.metadata.plan_card?.card === card,
+    );
+    if (exists) return null;
+    return addMessage(threadId, 'system', PLAN_CARD_TITLES[card], undefined, {
+      kind: 'plan_card',
+      plan_card: { card },
+    });
+  }, [state.threadMessages, addMessage]);
+
+  const ensurePreBuildPlanCards = useCallback(async (threadId: string) => {
+    for (const card of PLAN_CARD_ORDER) {
+      await ensurePlanCard(threadId, card);
+    }
+  }, [ensurePlanCard]);
 
   // Build conversation history for the orchestrate call
   const buildConversationContext = useCallback((threadId: string): string => {
@@ -1027,6 +1070,64 @@ export function useThreads() {
     }
   }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, addSystemEvent, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
+  const activateBuildRunway = useCallback(async (
+    threadId: string,
+    userMessage: string,
+    buildSpecOverride?: Record<string, unknown>,
+  ) => {
+    if (!state.activeSession) return;
+
+    const buildSetup = getBuildSetupStatus();
+    if (!buildSetup.ready) {
+      throw new Error('Finish Pre-Build before starting the runway.');
+    }
+
+    const nextBuildSpec = buildSpecOverride ?? {
+      ...buildSetup.buildSpec,
+      requested_build_prompt: userMessage,
+    };
+
+    await updateSessionBuildState('build', nextBuildSpec);
+    dispatch({ type: 'CLOSE_TRANSIENT' });
+    dispatch({ type: 'SET_BUILD_PLAN', payload: null });
+
+    const scopes = suggestSessionScope(state.activeSession?.architect_md);
+    const localRouting = resolveLocalBuildRouting(
+      buildSetup.lockedBuilderIds,
+      buildSetup.executionBackend,
+    );
+    const builderNames = buildSetup.builderNames.length > 0
+      ? buildSetup.builderNames
+      : localRouting.builderNames;
+    const builderLabel = builderNames.length > 0
+      ? builderNames.join(', ')
+      : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
+    const backendLabel = buildSetup.executionBackend === 'auto'
+      ? 'Auto / hybrid routing'
+      : buildSetup.executionBackend === 'local'
+        ? 'Local session build'
+        : 'Edge task build';
+
+    dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
+    dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
+      threadId,
+      builderNames,
+      suggestedScope: scopes.primary,
+      executionBackend: buildSetup.executionBackend,
+      activeJobId: null,
+      defaultAdapter: localRouting.defaultAdapter,
+    }});
+
+    await addSystemEvent(threadId, {
+      kind: 'build_status',
+      system_event: {
+        tone: 'build',
+        title: 'Build runway ready',
+        body: `Locked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nReview the in-thread runway card to start the build, watch progress, and push to GitHub without leaving this thread.`,
+      },
+    });
+  }, [state.activeSession, getBuildSetupStatus, updateSessionBuildState, dispatch, resolveLocalBuildRouting, addSystemEvent]);
+
   const buildFromChat = useCallback(async (
     threadId: string,
     userMessage: string,
@@ -1092,60 +1193,23 @@ export function useThreads() {
 
       if (!buildSetup.ready) {
         await updateSessionBuildState('pre_build', nextBuildSpec);
-        dispatch({ type: 'OPEN_DRAWER', payload: 'pre-build' });
-        dispatch({ type: 'SHOW_TOAST', payload: 'Finish Pre-Build setup before starting Build' });
-
         const missingList = buildSetup.missing.map((item) => `- ${item}`).join('\n');
         await addSystemEvent(threadId, {
           kind: 'build_status',
           system_event: {
             tone: 'build',
-            title: 'Pre-Build required',
-            body: `Before Maestro can start the real build flow, Pre-Build still needs:\n${missingList}\n\nThat is where you choose the builder roster and backend for this session — including whether Build should use cloud builders or MaestroClaw/CLI builders like Claude Code, Copilot CLI, or Codex.`,
+            title: 'Pre-Build plan ready',
+            body: `Before Maestro can start the real build flow, Pre-Build still needs:\n${missingList}\n\nUse the plan cards below to configure the build in-thread. The drawer is still available from any card as an advanced view.`,
           },
         });
+        await ensurePreBuildPlanCards(threadId);
         return;
       }
 
-      await updateSessionBuildState('build', nextBuildSpec);
-      dispatch({ type: 'CLOSE_TRANSIENT' });
-      dispatch({ type: 'SET_BUILD_PLAN', payload: null });
-
-      const scopes = suggestSessionScope(state.activeSession?.architect_md);
-      const localRouting = resolveLocalBuildRouting(
-        buildSetup.lockedBuilderIds,
-        buildSetup.executionBackend,
-      );
-      const builderNames = buildSetup.builderNames.length > 0
-        ? buildSetup.builderNames
-        : localRouting.builderNames;
-      const builderLabel = builderNames.length > 0
-        ? builderNames.join(', ')
-        : `${buildSetup.lockedBuilderIds.length} builder${buildSetup.lockedBuilderIds.length !== 1 ? 's' : ''} locked`;
-      const backendLabel = buildSetup.executionBackend === 'auto'
-        ? 'Auto / hybrid routing'
-        : buildSetup.executionBackend === 'local'
-          ? 'Local session build'
-          : 'Edge task build';
-
-      dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
-      dispatch({ type: 'SET_CLAW_BUILD_SESSION', payload: {
-        threadId,
-        builderNames,
-        suggestedScope: scopes.primary,
-        executionBackend: buildSetup.executionBackend,
-        activeJobId: null,
-        defaultAdapter: localRouting.defaultAdapter,
-      }});
-
-      await addSystemEvent(threadId, {
-        kind: 'build_status',
-        system_event: {
-          tone: 'build',
-          title: 'Build runway ready',
-          body: `Locked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nReview the in-thread runway card to start the build, watch progress, and push to GitHub without leaving this thread.`,
-        },
-      });
+      const requestedPrompt = typeof nextBuildSpec.requested_build_prompt === 'string'
+        ? nextBuildSpec.requested_build_prompt
+        : userMessage;
+      await activateBuildRunway(threadId, requestedPrompt, nextBuildSpec);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       await addSystemEvent(threadId, {
@@ -1159,7 +1223,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.clawBuildSession, addMessage, addSystemEvent, getBuildSetupStatus, updateSessionBuildState, dispatch, resolveLocalBuildRouting]);
+  }, [user, state.activeSession, state.clawBuildSession, addMessage, addSystemEvent, getBuildSetupStatus, updateSessionBuildState, dispatch, ensurePreBuildPlanCards, activateBuildRunway, resolveLocalBuildRouting]);
 
   return {
     loadThreads,
@@ -1176,5 +1240,6 @@ export function useThreads() {
     pollJobStatus,
     executeFromChat,
     buildFromChat,
+    activateBuildRunway,
   };
 }

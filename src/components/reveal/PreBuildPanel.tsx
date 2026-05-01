@@ -4,7 +4,7 @@ import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
 import { IntakeSummary, BuildLaneRole, SuggestedLane } from '../../types';
 import {
-  Hammer, GitBranch, Database, ScanSearch, FileCode2,
+  Hammer, GitBranch, ScanSearch, FileCode2,
   ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Copy, Download,
   Users, Lock, Sparkles, Pencil, Trash2,
 } from 'lucide-react';
@@ -86,7 +86,6 @@ export default function PreBuildPanel() {
   const [projectType, setProjectType] = useState<ProjectType>(
     state.activeSession?.project_type ?? 'new',
   );
-  const [supabaseExpanded, setSupabaseExpanded] = useState(false);
 
   // B6 intake state
   const [scanning, setScanning] = useState(false);
@@ -766,63 +765,6 @@ export default function PreBuildPanel() {
           )}
         </div>
       </div>
-      {/* ── Supabase (collapsible) ──────────────────────────── */}
-      <button
-        onClick={() => setSupabaseExpanded(!supabaseExpanded)}
-        className="flex items-center gap-2 w-full mb-3"
-        style={{
-          padding: '0',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'var(--text-dim)',
-        }}
-      >
-        <div className="reveal-label flex items-center gap-2" style={{ margin: 0 }}>
-          <Database size={12} />
-          Infrastructure
-        </div>
-        {supabaseExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-      </button>
-
-      {supabaseExpanded && (
-        <div className="reveal-card" style={{ marginBottom: '20px' }}>
-          <div className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '10px' }}>
-            Per-project Supabase credentials for edge functions and database access.
-          </div>
-          <div className="flex flex-col gap-2">
-            <input
-              type="text"
-              placeholder="Project URL (https://xxx.supabase.co)"
-              disabled
-              style={{
-                height: '34px', padding: '0 12px', borderRadius: '12px',
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.02)',
-                color: 'var(--text-dim)', fontSize: '12px', outline: 'none',
-                width: '100%', opacity: 0.5,
-              }}
-            />
-            <input
-              type="password"
-              placeholder="Service Role Key"
-              disabled
-              style={{
-                height: '34px', padding: '0 12px', borderRadius: '12px',
-                border: '1px solid rgba(255,255,255,0.08)',
-                background: 'rgba(255,255,255,0.02)',
-                color: 'var(--text-dim)', fontSize: '12px',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                outline: 'none', width: '100%', opacity: 0.5,
-              }}
-            />
-            <div className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', opacity: 0.6, padding: '4px 0' }}>
-              Per-project credentials — coming in a future sprint.
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Build actions ───────────────────────────────────── */}
       <div className="reveal-label mb-3" style={{ marginTop: '4px' }}>
         <div className="flex items-center gap-2">
