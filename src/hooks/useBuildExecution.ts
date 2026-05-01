@@ -2,9 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import {
+  applyArtifactPayloadToBuffer,
   cancelBuildSessionJob,
+  createArtifactManifestBuffer,
+  fetchExecutorJobArtifactManifest,
+  getArtifactManifestFromBuffer,
   mergeSessionManifest,
+  normalizeSessionManifest,
   selectOnlineExecutor,
+  seedArtifactManifestBuffer,
   submitBuildSessionJob,
 } from '../lib/sessionBuild';
 import { useMaestro } from '../context/MaestroContext';
@@ -106,22 +112,6 @@ interface DecomposeResult {
   message?: string;
 }
 
-function normalizeSessionManifest(raw: unknown): SessionBuildManifestEntry[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((entry): entry is { path: string; content: string; operation?: string } =>
-      typeof entry === 'object'
-      && entry !== null
-      && typeof (entry as { path?: unknown }).path === 'string'
-      && typeof (entry as { content?: unknown }).content === 'string',
-    )
-    .map((entry) => ({
-      path: entry.path,
-      content: entry.content,
-      operation: entry.operation === 'delete' ? 'delete' : 'create',
-    }));
-}
-
 function mapJobStatusToRunStatus(status: string): SessionRunProgress['status'] {
   if (status === 'running' || status === 'claimed') return 'running';
   if (status === 'succeeded') return 'succeeded';
@@ -192,6 +182,7 @@ export function useBuildExecution() {
   const sessionRunsRef = useRef(sessionRuns);
   const sessionProgressRef = useRef(sessionProgress);
   const jobOutputsRef = useRef<Record<string, JobOutputState>>({});
+  const jobArtifactBuffersRef = useRef<Record<string, ReturnType<typeof createArtifactManifestBuffer>>>({});
   const jobWaitersRef = useRef(new Map<string, {
     resolve: (snapshot: ExecutorJobSnapshot) => void;
     reject: (error: Error) => void;
@@ -254,6 +245,45 @@ export function useBuildExecution() {
     return loaded;
   }, []);
 
+  const getArtifactBuffer = useCallback((jobId: string) => {
+    const existing = jobArtifactBuffersRef.current[jobId];
+    if (existing) return existing;
+
+    const next = createArtifactManifestBuffer();
+    jobArtifactBuffersRef.current = {
+      ...jobArtifactBuffersRef.current,
+      [jobId]: next,
+    };
+    return next;
+  }, []);
+
+  const updateTrackedSessionManifest = useCallback((
+    jobId: string,
+    manifest: SessionBuildManifestEntry[],
+    snapshot?: Pick<ExecutorJobSnapshot, 'status' | 'error_text' | 'result_summary'>,
+  ) => {
+    const trackedRuns = sessionRunsRef.current.filter((run) => run.jobId === jobId);
+    if (trackedRuns.length === 0) return;
+
+    const nextRuns = sessionRunsRef.current.map((run) => {
+      if (run.jobId !== jobId) return run;
+      return {
+        ...run,
+        status: snapshot ? mapJobStatusToRunStatus(snapshot.status) : run.status,
+        filesWritten: manifest.length,
+        manifest,
+        errorText: snapshot
+          ? (snapshot.status === 'failed' || snapshot.status === 'cancelled' || snapshot.status === 'expired'
+              ? snapshot.error_text ?? snapshot.result_summary ?? 'Session build failed.'
+              : null)
+          : run.errorText,
+      };
+    });
+
+    setSessionRuns(nextRuns);
+    setSessionProgress(deriveSessionProgress(nextRuns));
+  }, [setSessionProgress, setSessionRuns]);
+
   const fetchExecutorJobSnapshot = useCallback(async (jobId: string): Promise<ExecutorJobSnapshot | null> => {
     const { data: jobRaw } = await supabase
       .from('executor_jobs')
@@ -262,8 +292,27 @@ export function useBuildExecution() {
       .maybeSingle();
 
     if (!jobRaw) return null;
-    return jobRaw as ExecutorJobSnapshot;
-  }, []);
+    const snapshot = jobRaw as ExecutorJobSnapshot;
+    const buffer = getArtifactBuffer(snapshot.id);
+    let manifest = normalizeSessionManifest(snapshot.artifact_manifest);
+
+    if (manifest.length > 0) {
+      manifest = seedArtifactManifestBuffer(buffer, manifest);
+    } else {
+      manifest = getArtifactManifestFromBuffer(buffer);
+      if (manifest.length === 0 && isTerminalJobStatus(snapshot.status)) {
+        manifest = await fetchExecutorJobArtifactManifest(snapshot.id);
+        if (manifest.length > 0) {
+          manifest = seedArtifactManifestBuffer(buffer, manifest);
+        }
+      }
+    }
+
+    return {
+      ...snapshot,
+      artifact_manifest: manifest,
+    };
+  }, [getArtifactBuffer]);
 
   const upsertJobOutput = useCallback((jobId: string, stream: 'stdout' | 'stderr', text: string) => {
     if (!text.trim()) return;
@@ -319,32 +368,33 @@ export function useBuildExecution() {
     });
   }, [fetchExecutorJobSnapshot]);
 
-  const handleExecutorJobSnapshot = useCallback((snapshot: ExecutorJobSnapshot) => {
-    const manifest = normalizeSessionManifest(snapshot.artifact_manifest);
-    const trackedRuns = sessionRunsRef.current.filter((run) => run.jobId === snapshot.id);
+  const handleExecutorJobSnapshot = useCallback(async (snapshot: ExecutorJobSnapshot) => {
+    const buffer = getArtifactBuffer(snapshot.id);
+    let manifest = normalizeSessionManifest(snapshot.artifact_manifest);
 
-    if (trackedRuns.length > 0) {
-      const nextRuns = sessionRunsRef.current.map((run) => {
-        if (run.jobId !== snapshot.id) return run;
-        return {
-          ...run,
-          status: mapJobStatusToRunStatus(snapshot.status),
-          filesWritten: manifest.length,
-          manifest,
-          errorText: snapshot.status === 'failed' || snapshot.status === 'cancelled' || snapshot.status === 'expired'
-            ? snapshot.error_text ?? snapshot.result_summary ?? 'Session build failed.'
-            : null,
-        };
-      });
-
-      setSessionRuns(nextRuns);
-      setSessionProgress(deriveSessionProgress(nextRuns));
+    if (manifest.length > 0) {
+      manifest = seedArtifactManifestBuffer(buffer, manifest);
+    } else {
+      manifest = getArtifactManifestFromBuffer(buffer);
+      if (manifest.length === 0 && isTerminalJobStatus(snapshot.status)) {
+        manifest = await fetchExecutorJobArtifactManifest(snapshot.id);
+        if (manifest.length > 0) {
+          manifest = seedArtifactManifestBuffer(buffer, manifest);
+        }
+      }
     }
+
+    const hydratedSnapshot: ExecutorJobSnapshot = {
+      ...snapshot,
+      artifact_manifest: manifest,
+    };
+
+    updateTrackedSessionManifest(snapshot.id, manifest, snapshot);
 
     if (isTerminalJobStatus(snapshot.status)) {
-      resolveJobWaiter(snapshot);
+      resolveJobWaiter(hydratedSnapshot);
     }
-  }, [resolveJobWaiter, setSessionProgress, setSessionRuns]);
+  }, [getArtifactBuffer, resolveJobWaiter, updateTrackedSessionManifest]);
 
   const handleExecutorJobEvent = useCallback((event: ExecutorJobEventRow) => {
     const trackedJobIds = new Set<string>([
@@ -358,6 +408,12 @@ export function useBuildExecution() {
 
     if (!trackedJobIds.has(event.job_id)) return;
 
+    if (event.event_type === 'artifact') {
+      const manifest = applyArtifactPayloadToBuffer(getArtifactBuffer(event.job_id), event.payload);
+      updateTrackedSessionManifest(event.job_id, manifest);
+      return;
+    }
+
     const text = typeof event.payload?.text === 'string'
       ? event.payload.text
       : typeof event.payload?.message === 'string'
@@ -369,7 +425,7 @@ export function useBuildExecution() {
     } else if (event.event_type === 'stderr' && text) {
       upsertJobOutput(event.job_id, 'stderr', text);
     }
-  }, [upsertJobOutput]);
+  }, [getArtifactBuffer, updateTrackedSessionManifest, upsertJobOutput]);
 
   useEffect(() => {
     const sessionId = state.activeSession?.id;
@@ -378,11 +434,13 @@ export function useBuildExecution() {
       setTasks([]);
       setProgress({ total: 0, completed: 0, failed: 0, skipped: 0, dispatched: 0, queued: 0 });
       jobOutputsRef.current = {};
+      jobArtifactBuffersRef.current = {};
       setJobOutputs({});
       return;
     }
 
     jobOutputsRef.current = {};
+    jobArtifactBuffersRef.current = {};
     setJobOutputs({});
     void loadTasks(sessionId);
 
@@ -401,7 +459,7 @@ export function useBuildExecution() {
         (payload) => {
           const next = payload.new as Partial<ExecutorJobSnapshot> | null;
           if (!next?.id || typeof next.status !== 'string') return;
-          handleExecutorJobSnapshot({
+          void handleExecutorJobSnapshot({
             id: next.id,
             status: next.status,
             artifact_manifest: next.artifact_manifest ?? null,
@@ -845,6 +903,7 @@ export function useBuildExecution() {
       errorText: null,
     };
     jobOutputsRef.current = {};
+    jobArtifactBuffersRef.current = {};
     setJobOutputs({});
     dispatch({ type: 'RESET_SESSION_BUILD_STATE' });
   }, [dispatch]);

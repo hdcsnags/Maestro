@@ -140,7 +140,7 @@ export class ClaudeCodeAdapter implements Adapter {
       // --output-format omitted: executor collects files via dir-diff, not stdout parsing.
       const proc = spawn(
         "claude",
-        ["--print", "--dangerously-skip-permissions", "--model", model],
+        ["--dangerously-skip-permissions", "--model", model],
         {
           cwd: workDir,
           timeout: timeoutMs,

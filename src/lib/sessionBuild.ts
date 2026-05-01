@@ -27,6 +27,17 @@ export interface SessionPollResult {
   errorText: string | null;
 }
 
+interface ArtifactFileChunkBuffer {
+  operation: string;
+  total: number;
+  parts: string[];
+}
+
+export interface ArtifactManifestBuffer {
+  entries: Map<string, SessionBuildManifestEntry>;
+  fileChunks: Map<string, ArtifactFileChunkBuffer>;
+}
+
 const EXECUTOR_STALE_MS = 60_000;
 const SESSION_POLL_MS = 5_000;
 const SESSION_TIMEOUT_MS = 40 * 60 * 1_000;
@@ -93,6 +104,136 @@ export async function submitBuildSessionJob({
   }
 }
 
+export function normalizeSessionManifest(raw: unknown): SessionBuildManifestEntry[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is { path: string; content: string; operation?: string } =>
+      typeof entry === 'object'
+      && entry !== null
+      && typeof (entry as { path?: unknown }).path === 'string'
+      && typeof (entry as { content?: unknown }).content === 'string',
+    )
+    .map((entry) => ({
+      path: entry.path,
+      content: entry.content,
+      operation: entry.operation === 'delete' ? 'delete' : 'create',
+    }));
+}
+
+export function createArtifactManifestBuffer(): ArtifactManifestBuffer {
+  return {
+    entries: new Map<string, SessionBuildManifestEntry>(),
+    fileChunks: new Map<string, ArtifactFileChunkBuffer>(),
+  };
+}
+
+function upsertManifestEntries(
+  buffer: ArtifactManifestBuffer,
+  entries: SessionBuildManifestEntry[],
+): SessionBuildManifestEntry[] {
+  for (const entry of entries) {
+    buffer.entries.set(entry.path, entry);
+  }
+  return Array.from(buffer.entries.values());
+}
+
+export function seedArtifactManifestBuffer(
+  buffer: ArtifactManifestBuffer,
+  entries: SessionBuildManifestEntry[],
+): SessionBuildManifestEntry[] {
+  return upsertManifestEntries(buffer, entries);
+}
+
+export function getArtifactManifestFromBuffer(
+  buffer: ArtifactManifestBuffer,
+): SessionBuildManifestEntry[] {
+  return Array.from(buffer.entries.values());
+}
+
+export function applyArtifactPayloadToBuffer(
+  buffer: ArtifactManifestBuffer,
+  payload: Record<string, unknown> | null | undefined,
+): SessionBuildManifestEntry[] {
+  if (!payload) return getArtifactManifestFromBuffer(buffer);
+
+  const legacyManifest = normalizeSessionManifest(payload.manifest);
+  if (legacyManifest.length > 0) {
+    return upsertManifestEntries(buffer, legacyManifest);
+  }
+
+  const format = typeof payload.format === 'string' ? payload.format : '';
+  if (format === 'artifact_manifest_chunk') {
+    const entries = normalizeSessionManifest(payload.entries);
+    if (entries.length > 0) {
+      return upsertManifestEntries(buffer, entries);
+    }
+    return getArtifactManifestFromBuffer(buffer);
+  }
+
+  if (format === 'artifact_file_chunk') {
+    const path = typeof payload.path === 'string' ? payload.path : '';
+    const operation = payload.operation === 'delete' ? 'delete' : 'create';
+    const chunkIndex = typeof payload.chunk_index === 'number' ? payload.chunk_index : -1;
+    const chunkTotal = typeof payload.chunk_total === 'number' ? payload.chunk_total : -1;
+    const contentChunk = typeof payload.content_chunk === 'string' ? payload.content_chunk : '';
+
+    if (!path || chunkIndex < 0 || chunkTotal <= 0 || chunkIndex >= chunkTotal) {
+      return getArtifactManifestFromBuffer(buffer);
+    }
+
+    const existing = buffer.fileChunks.get(path) ?? {
+      operation,
+      total: chunkTotal,
+      parts: Array<string>(chunkTotal).fill(''),
+    };
+
+    if (existing.total !== chunkTotal) {
+      existing.total = chunkTotal;
+      existing.parts = Array<string>(chunkTotal).fill('');
+    }
+
+    existing.operation = operation;
+    existing.parts[chunkIndex] = contentChunk;
+    buffer.fileChunks.set(path, existing);
+
+    if (existing.parts.every((part) => typeof part === 'string' && part.length >= 0)) {
+      const isComplete = existing.parts.filter((part) => part !== '').length === existing.total
+        || (existing.total === 1 && existing.parts[0] === '');
+      if (isComplete) {
+        buffer.fileChunks.delete(path);
+        return upsertManifestEntries(buffer, [{
+          path,
+          content: existing.parts.join(''),
+          operation: existing.operation,
+        }]);
+      }
+    }
+  }
+
+  return getArtifactManifestFromBuffer(buffer);
+}
+
+export async function fetchExecutorJobArtifactManifest(jobId: string): Promise<SessionBuildManifestEntry[]> {
+  const { data } = await supabase
+    .from('executor_job_events')
+    .select('payload, created_at')
+    .eq('job_id', jobId)
+    .eq('event_type', 'artifact')
+    .order('created_at', { ascending: true });
+
+  const buffer = createArtifactManifestBuffer();
+  const rows = (data ?? []) as Array<{ payload?: unknown }>;
+  for (const row of rows) {
+    applyArtifactPayloadToBuffer(
+      buffer,
+      typeof row.payload === 'object' && row.payload !== null
+        ? row.payload as Record<string, unknown>
+        : null,
+    );
+  }
+  return getArtifactManifestFromBuffer(buffer);
+}
+
 export async function pollBuildSessionJob(
   jobId: string,
   options: {
@@ -123,11 +264,10 @@ export async function pollBuildSessionJob(
       return { success: false, manifest: [], errorText: 'Job not found' };
     }
 
-    const manifest = (job.artifact_manifest ?? []).map((entry) => ({
-      path: entry.path,
-      content: entry.content,
-      operation: entry.operation ?? 'create',
-    }));
+    let manifest = normalizeSessionManifest(job.artifact_manifest);
+    if (manifest.length === 0 && (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled' || job.status === 'expired')) {
+      manifest = await fetchExecutorJobArtifactManifest(jobId);
+    }
     onProgress?.({
       status: job.status,
       manifest,

@@ -17,6 +17,209 @@ function resolveSafeArtifactPath(rootDir: string, filePath: string): string {
   return resolvedPath;
 }
 
+interface ArtifactManifestEntry {
+  path: string;
+  content: string;
+  operation: "create" | "delete";
+}
+
+const JSON_TEXT_ENCODER = new TextEncoder();
+const MAX_ARTIFACT_EVENT_BYTES = 180_000;
+const MAX_COMPLETE_MANIFEST_BYTES = 2_400_000;
+
+function measureJsonBytes(value: unknown): number {
+  return JSON_TEXT_ENCODER.encode(JSON.stringify(value)).length;
+}
+
+function splitTextByUtf8Bytes(text: string, maxBytes: number): string[] {
+  if (text.length === 0) return [""];
+  if (maxBytes <= 0) return [text];
+
+  const parts: string[] = [];
+  let start = 0;
+
+  while (start < text.length) {
+    let low = 1;
+    let high = text.length - start;
+    let best = 1;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = text.slice(start, start + mid);
+      if (JSON_TEXT_ENCODER.encode(candidate).length <= maxBytes) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    parts.push(text.slice(start, start + best));
+    start += best;
+  }
+
+  return parts;
+}
+
+async function reportArtifactManifest(
+  config: ClawConfig,
+  jobId: string,
+  manifest: ArtifactManifestEntry[],
+): Promise<void> {
+  const baseChunkSize = measureJsonBytes({
+    format: "artifact_manifest_chunk",
+    entries: [],
+  });
+
+  let pending: ArtifactManifestEntry[] = [];
+
+  const flushPending = async () => {
+    if (pending.length === 0) return;
+    await reportEvent(config, jobId, "artifact", {
+      format: "artifact_manifest_chunk",
+      entries: pending,
+    });
+    pending = [];
+  };
+
+  for (const entry of manifest) {
+    const singlePayload = {
+      format: "artifact_manifest_chunk",
+      entries: [entry],
+    };
+
+    if (measureJsonBytes(singlePayload) <= MAX_ARTIFACT_EVENT_BYTES) {
+      const nextPayload = {
+        format: "artifact_manifest_chunk",
+        entries: [...pending, entry],
+      };
+
+      if (measureJsonBytes(nextPayload) > MAX_ARTIFACT_EVENT_BYTES) {
+        await flushPending();
+      }
+
+      pending.push(entry);
+      continue;
+    }
+
+    await flushPending();
+
+    const perChunkOverhead = measureJsonBytes({
+      format: "artifact_file_chunk",
+      path: entry.path,
+      operation: entry.operation,
+      chunk_index: 0,
+      chunk_total: 0,
+      content_chunk: "",
+    });
+    const contentBudget = MAX_ARTIFACT_EVENT_BYTES - perChunkOverhead - 64;
+    const chunks = splitTextByUtf8Bytes(entry.content, contentBudget);
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      await reportEvent(config, jobId, "artifact", {
+        format: "artifact_file_chunk",
+        path: entry.path,
+        operation: entry.operation,
+        chunk_index: index,
+        chunk_total: chunks.length,
+        content_chunk: chunks[index],
+      });
+    }
+  }
+
+  await flushPending();
+}
+
+function normalizePathForMatch(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim();
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let source = "^";
+  for (let i = 0; i < pattern.length; i += 1) {
+    const char = pattern[i];
+    if (char === "*") {
+      if (pattern[i + 1] === "*") {
+        source += ".*";
+        i += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    source += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  }
+  source += "$";
+  return new RegExp(source);
+}
+
+function isPathWithinAllowedScope(filePath: string, allowedPaths: string[]): boolean {
+  if (allowedPaths.length === 0) return true;
+
+  const normalizedPath = normalizePathForMatch(filePath);
+  return allowedPaths.some((pattern) => {
+    const normalizedPattern = normalizePathForMatch(pattern);
+    if (!normalizedPattern || normalizedPattern === "**") return true;
+    return globToRegExp(normalizedPattern).test(normalizedPath);
+  });
+}
+
+function enforceArtifactScope(
+  manifest: Record<string, string>,
+  allowedPaths: string[],
+): { kept: Record<string, string>; rejected: string[] } {
+  const kept: Record<string, string> = {};
+  const rejected: string[] = [];
+
+  for (const [filePath, content] of Object.entries(manifest)) {
+    if (isPathWithinAllowedScope(filePath, allowedPaths)) {
+      kept[filePath] = content;
+    } else {
+      rejected.push(filePath);
+    }
+  }
+
+  return { kept, rejected };
+}
+
+function revertOutOfScopeFile(workDir: string, filePath: string): void {
+  const normalizedPath = normalizePathForMatch(filePath);
+  const fullPath = resolveSafeArtifactPath(workDir, normalizedPath);
+
+  try {
+    execFileSync("git", ["restore", "--source=HEAD", "--worktree", "--staged", "--", normalizedPath], {
+      cwd: workDir,
+      stdio: "pipe",
+    });
+    return;
+  } catch {
+    // Fall through — untracked files still need removing.
+  }
+
+  try {
+    rmSync(fullPath, { recursive: true, force: true });
+  } catch {
+    // Best effort only.
+  }
+}
+
+function maybeInlineArtifactManifest(
+  manifest: ArtifactManifestEntry[],
+): ArtifactManifestEntry[] | null {
+  return measureJsonBytes({ artifact_manifest: manifest }) <= MAX_COMPLETE_MANIFEST_BYTES
+    ? manifest
+    : null;
+}
+
 // ─── Quality Assessment ────────────────────────────────────────────────────
 
 interface QualityResult {
@@ -348,16 +551,16 @@ export async function executeJob(
         }
       }
 
-      const manifestArray = Object.entries(artifacts).map(([path, content]) => ({
+      const manifestArray: ArtifactManifestEntry[] = Object.entries(artifacts).map(([path, content]) => ({
         path,
         content,
         operation: "create",
       }));
 
-      await reportEvent(config, job.id, "artifact", { manifest: manifestArray });
+      await reportArtifactManifest(config, job.id, manifestArray);
       await completeJob(config, job.id, true, {
         result_summary: `${retryBadge}${finalOutput.slice(0, 10_000)}`,
-        artifact_manifest: manifestArray,
+        artifact_manifest: maybeInlineArtifactManifest(manifestArray),
       });
     } else {
       // Graceful close — all attempts failed
@@ -640,13 +843,31 @@ export async function executeSessionJob(
       console.log(`  📝 [session] After fix pass: ${totalPaths.length} file(s) total`);
     }
 
+    const allowedScope = job.allowed_paths?.length ? job.allowed_paths : ["**"];
+    const { kept: scopedWritten, rejected: rejectedPaths } = enforceArtifactScope(written, allowedScope);
+
+    if (rejectedPaths.length > 0) {
+      rejectedPaths.forEach((filePath) => revertOutOfScopeFile(workDir, filePath));
+      const violationSummary = [
+        `Scope enforcement removed ${rejectedPaths.length} out-of-scope file(s).`,
+        ...rejectedPaths.slice(0, 10).map((filePath) => `- ${filePath}`),
+        rejectedPaths.length > 10 ? `... and ${rejectedPaths.length - 10} more` : "",
+      ].filter(Boolean).join("\n");
+      console.warn(`  ⚠️ [session] ${violationSummary}`);
+      await reportEvent(config, job.id, "stderr", {
+        text: violationSummary,
+        scope_violation: true,
+        removed_paths: rejectedPaths.slice(0, 25),
+      });
+    }
+
     // ── Git checkpoint ───────────────────────────────────────────────────────
     if (config.enableCheckpoints) createCheckpoint(workDir, `session:${job.id.slice(0, 8)}`);
 
     // ── Write to shared session build dir ────────────────────────────────────
-    if (job.session_id && Object.keys(written).length > 0) {
+    if (job.session_id && Object.keys(scopedWritten).length > 0) {
       const buildDir = join(config.workspaceDir, "builds", job.session_id.slice(0, 8));
-      for (const [filePath, content] of Object.entries(written)) {
+      for (const [filePath, content] of Object.entries(scopedWritten)) {
         const fullPath = resolveSafeArtifactPath(buildDir, filePath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, content, "utf-8");
@@ -658,21 +879,25 @@ export async function executeSessionJob(
     }
 
     // ── Complete ─────────────────────────────────────────────────────────────
-    const manifestArray = Object.entries(written).map(([path, content]) => ({
+    const manifestArray: ArtifactManifestEntry[] = Object.entries(scopedWritten).map(([path, content]) => ({
       path, content, operation: "create" as const,
     }));
     jobSucceeded = manifestArray.length > 0;
 
     if (jobSucceeded) {
-      await reportEvent(config, job.id, "artifact", { manifest: manifestArray });
+      await reportArtifactManifest(config, job.id, manifestArray);
       await completeJob(config, job.id, true, {
-        result_summary: `Session build: ${manifestArray.length} file(s) written`,
-        artifact_manifest: manifestArray,
+        result_summary: rejectedPaths.length > 0
+          ? `Session build: ${manifestArray.length} file(s) written (${rejectedPaths.length} out-of-scope file(s) removed)`
+          : `Session build: ${manifestArray.length} file(s) written`,
+        artifact_manifest: maybeInlineArtifactManifest(manifestArray),
       });
     } else {
       await completeJob(config, job.id, false, {
         result_summary: pass1.output?.slice(0, 10_000) ?? "",
-        error_text: "Session produced no files — check adapter stdout events for details.",
+        error_text: rejectedPaths.length > 0
+          ? "Session wrote only out-of-scope files — all outputs were discarded."
+          : "Session produced no files — check adapter stdout events for details.",
       });
     }
   } catch (err: unknown) {

@@ -177,6 +177,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 8 carousel actions: Folio cards now expose thread-native pin/compare/follow-up/decision/synthesize actions, comparisons open in a side-by-side sheet, and direct-thread bootstrap is shared through `useThreads.ts` so carousel actions and focus mode seed agent context the same way | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 9 topbar status chip: ClawMode now uses one interactive status chip for concierge model, executor status, key count, and execution mode switching, and the old mode banner is removed in favor of the chip’s inline detail panel | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 10 realtime progress: build task progress now hydrates from live `build_tasks` updates, executor/session jobs resolve through Supabase Realtime instead of polling, and runway/workspace execution views stream live stdout/stderr snippets from `executor_job_events` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| MaestroClaw hardening Phase A: executor `retry` events now match the DB schema, Claude session runs drop `--print`, `build_session` outputs are filtered back to allowed scope before checkpoint/reporting, and large local artifact manifests can hydrate from chunked `artifact` events instead of relying on one oversized completion payload | 2026-05-01 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -300,6 +301,27 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw hardening Phase A
+
+**What was done**:
+1. Added a follow-up migration so `executor_job_events` accepts the `retry` event type that the worker already emits during Ralph/fix-pass retries.
+2. Removed `--print` from Claude session-mode execution so `build_session` runs use the real file-writing path instead of the one-shot print mode that `CLAW_BUILD_V2_SPEC.md` called out.
+3. Hardened `executeSessionJob()` to enforce allowed scope after the run, revert or remove out-of-scope writes before checkpoint/build-dir export, and surface the violation through executor stderr events instead of silently keeping bad files.
+4. Switched worker artifact reporting to chunkable `artifact` events with a safe inline-manifest fallback so larger local builds no longer depend on a single oversized completion payload.
+5. Updated the web-side session/local build hook to reconstruct manifests from chunked `executor_job_events` on realtime updates and terminal fallback reads, preserving GitHub push and reload behavior.
+6. Re-ran app `typecheck`, app `build`, and `npm --prefix packages\maestroclaw run build`.
+
+**Files touched**: `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/adapters/claude-code.ts`, `src/lib/sessionBuild.ts`, `src/hooks/useBuildExecution.ts`, `supabase/migrations/20260501191500_allow_retry_executor_events.sql`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Used chunked `artifact` events plus frontend rehydration instead of inventing a new artifact table, so large-manifest recovery reuses the realtime/event channel already added in Unified UX Phase 10.
+- Enforced scope by pruning/reverting out-of-scope files before checkpoint/export rather than merely warning, which keeps session builds from smuggling unexpected files into the shared build dir or GitHub push flow.
+- Kept small manifests inline on the completion row for compatibility, while letting larger manifests fall back to the event stream only when needed.
+
+**What didn't work**:
+- This pass still does not add executor token rotation or fuller `build_session` context wiring (`expected_files`, cross-builder `context_files`); those remain the next remediation phase.
+- Validation here was compile/build level only; no live end-to-end smoke run against a connected local executor was performed yet.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 10 realtime progress
 
