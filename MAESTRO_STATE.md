@@ -175,6 +175,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 6 bouncer card: the post-build security/code-quality review now renders through a shared `BouncerCard` component in both the runway and advanced workspace, with collapsed severity groups and standardized approve/pause/abort actions | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 7 premium event cards: new system-thread flows now write typed `thread_messages.metadata` payloads for execution approvals, command status, build handoff, PR-opened results, and errors, while legacy plain-text system messages still render as a compatibility fallback | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 8 carousel actions: Folio cards now expose thread-native pin/compare/follow-up/decision/synthesize actions, comparisons open in a side-by-side sheet, and direct-thread bootstrap is shared through `useThreads.ts` so carousel actions and focus mode seed agent context the same way | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 9 topbar status chip: ClawMode now uses one interactive status chip for concierge model, executor status, key count, and execution mode switching, and the old mode banner is removed in favor of the chip’s inline detail panel | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -298,6 +299,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 9 topbar status chip
+
+**What was done**:
+1. Added `src/components/reveal/StatusChip.tsx` as the canonical shell status surface for concierge model, executor availability, connected key count, and execution mode.
+2. Replaced the old ClawMode thread/mode badge with the new status chip and moved execution-mode switching into the chip itself.
+3. Added an inline detail panel on the chip for surface context, repo context, and explicit execution-mode selection.
+4. Removed the old top-of-thread mode banner from `ClawMode.tsx` so the shell now has one canonical status surface instead of split badge + banner chrome.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/components/reveal/StatusChip.tsx`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the chip stateful and local to the shell instead of introducing more reducer state for a lightweight disclosure panel.
+- Reused the existing `executionMode` reducer state and let the chip cycle or directly set it, rather than inventing a separate topbar-specific mode model.
+- Removed the old mode banner entirely so build/execute readiness and trust mode now live in one place.
+
+**What didn't work**:
+- This pass did not yet migrate drawer-level trust summaries; the canonical shell status surface is unified, but the Trust drawer still shows deeper mode details on demand.
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 8 carousel actions
 

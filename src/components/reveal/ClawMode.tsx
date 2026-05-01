@@ -12,6 +12,7 @@ import ConciergeEventCard from './ConciergeEventCard';
 import SystemEventCard from './EventCards/SystemEventCard';
 import PlanCardRenderer from './PlanCards/PlanCardRenderer';
 import RevealComposer from './RevealComposer';
+import StatusChip from './StatusChip';
 
 const THREAD_GROUPS = [
   { type: 'concierge', Icon: Mic, label: 'Concierge' },
@@ -408,7 +409,6 @@ export default function ClawMode() {
 
   const SurfaceIcon = surfaceState.Icon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
-  const showModeBanner = clawView === 'concierge' && surfaceState.kind !== 'default';
   const emptyStateIconClass = surfaceState.kind === 'execute'
     ? 'bg-signal-warn/10 text-signal-warn/85'
     : surfaceState.kind === 'build'
@@ -468,13 +468,14 @@ export default function ClawMode() {
             </button>
           )}
 
-          {/* Thread / mode badge */}
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${modeTheme.badge}`}>
-            <SurfaceIcon size={11} className={shouldPulseHeader ? 'animate-pulse' : undefined} />
-            <span className="text-[11px] font-medium tracking-wide uppercase">
-              {surfaceState.badgeLabel}
-            </span>
-          </div>
+          <StatusChip
+            kind={surfaceState.kind}
+            label={surfaceState.badgeLabel}
+            description={surfaceState.description}
+            detailStatus={surfaceState.status}
+            pulse={shouldPulseHeader}
+            repoName={activeRepoName}
+          />
 
           {/* Context pills */}
           <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap" style={{ scrollbarWidth: 'none' }}>
@@ -500,14 +501,6 @@ export default function ClawMode() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Focus view: agent info badge */}
-          {clawView === 'focus' && focusedAgent && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[11px] text-white/70">
-              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: focusedAgent.color }} />
-              {focusedAgent.model}
-            </div>
-          )}
-
           <button
             onClick={handleClose}
             className={iconButtonClass}
@@ -518,33 +511,6 @@ export default function ClawMode() {
           </button>
         </div>
       </div>
-
-      {showModeBanner && (
-        <div className={`relative z-10 border-b px-4 py-3 ${modeTheme.banner}`}>
-          <div className="mx-auto max-w-4xl flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${modeTheme.bannerIcon}`}>
-                <SurfaceIcon size={16} />
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`text-[11px] font-medium uppercase tracking-[0.22em] ${modeTheme.bannerTitle}`}>
-                    {surfaceState.bannerTitle}
-                  </span>
-                  {surfaceState.status && (
-                    <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide ${modeTheme.status}`}>
-                      {surfaceState.status}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-white/75 max-w-2xl">
-                  {surfaceState.description}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ─── Body: Sidebar + Content ───────────────────────── */}
       <div className="relative flex-1 flex overflow-hidden">
