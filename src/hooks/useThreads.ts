@@ -495,19 +495,23 @@ export function useThreads() {
     role: ThreadMessage['role'],
     content: string,
     agentId?: string,
+    metadata?: ThreadMessage['metadata'],
   ): Promise<ThreadMessage | null> => {
     if (!user) return null;
 
     const persisted =
       role === 'user'
-        ? { content, metadata: {} as Record<string, unknown> }
+        ? { content, metadata: metadata ?? {} as ThreadMessage['metadata'] }
         : (() => {
             const redacted = redactThreadOutput(content);
             return {
               content: redacted.content,
-              metadata: redacted.redactionCount > 0
-                ? { redacted: true, redaction_count: redacted.redactionCount }
-                : {},
+              metadata: {
+                ...(metadata ?? {}),
+                ...(redacted.redactionCount > 0
+                  ? { redacted: true, redaction_count: redacted.redactionCount }
+                  : {}),
+              },
             };
           })();
 

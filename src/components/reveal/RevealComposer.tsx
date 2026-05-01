@@ -346,16 +346,8 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   const handleSynthesize = useCallback(async () => {
     if (state.isSynthesizing || !latestRound) return;
 
-    const result = await synthesize(latestRound.id);
-    const context = await ensureThreadContext();
-    if (context && result && typeof result === 'object' && 'content' in result && typeof result.content === 'string') {
-      await addMessage(context.thread.id, 'concierge', `**Synthesis**\n\n${result.content}`);
-      dispatch({ type: 'SET_ACTIVE_THREAD', payload: context.thread });
-    }
-
-    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-  }, [state.isSynthesizing, latestRound, synthesize, ensureThreadContext, addMessage, dispatch]);
+    await synthesize(latestRound.id);
+  }, [state.isSynthesizing, latestRound, synthesize]);
 
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;

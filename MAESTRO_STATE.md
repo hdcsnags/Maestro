@@ -169,6 +169,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 0 foundation: `orchestrationMode` is removed, broadcast/build orchestration now derives from session/build context, and the thread shell now opens/closes from active thread focus instead of `clawModeActive` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 1 composer: `RevealComposer` is now the shared composer for both the workspace shell and thread shell, with one routing bar (Direct/Council/Execute/Build), one send action, and the concierge model picker moved into composer chrome | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 2 shell cutover: `WorkspacePage.tsx` now always renders the thread-first `ClawMode` shell, and `ClawMode` rehydrates the concierge thread per session instead of falling back to the legacy stage tree | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 3 concierge cards: quick-answer triage and concierge synthesis now persist as inline thread event cards, reusing the existing proceed/round-2/override/report/build actions without reopening a modal | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -292,6 +293,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 3 concierge event cards
+
+**What was done**:
+1. Replaced the modal concierge path with persisted concierge thread messages that carry structured metadata for decision cards and quick-answer triage cards.
+2. Added `ConciergeEventCard.tsx` and taught `ClawMode.tsx` to render concierge event messages inline in the concierge thread instead of as generic markdown bubbles.
+3. Moved quick-answer triage and concierge synthesis writes into `useOrchestration.ts`, so both flows now create real thread events and return focus to the concierge thread.
+4. Decoupled `conciergeDecision` / `triageResult` reducer state from `conciergeVisible`, removed the `WorkspacePage.tsx` modal mount, and deleted the now-dead `ConciergePanel.tsx`.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/hooks/useThreads.ts`, `src/hooks/useOrchestration.ts`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/ConciergeEventCard.tsx`, `src/pages/WorkspacePage.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Stored concierge cards in `thread_messages.metadata` (`kind: 'concierge_decision' | 'concierge_triage'`) so the backend contract stayed intact while the frontend gained a thread-native rendering path.
+- Kept `conciergeDecision` and `triageResult` in reducer state for downstream consumers like `DesignPhase.tsx`, but stopped using those writes as an implicit "open modal now" signal.
+- Reused the existing concierge action semantics (Proceed / Round 2 / Override / Report / Convert to Build / Ask the council anyway) inside the new inline card rather than inventing a second action model.
+
+**What didn't work**:
+- This pass did not add deduping for repeated manual synthesis on the same round, so intentionally synthesizing the same round again can create another concierge decision card in the thread.
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 2 shell cutover
 

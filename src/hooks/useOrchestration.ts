@@ -14,6 +14,9 @@ import {
   ConciergeDecision,
   ConciergePhase,
   Session,
+  Thread,
+  ThreadMessage,
+  TriageResult,
 } from '../types';
 
 type BroadcastMode = 'analysis' | 'build';
@@ -55,6 +58,11 @@ interface ConciergeInvokeResult {
   tension_points?: string[];
   recommended_direction?: string;
   model_used?: string | null;
+  intent?: ConciergeDecision['intent'];
+  design_mode?: ConciergeDecision['design_mode'];
+  recommended_next_phase?: ConciergeDecision['recommended_next_phase'];
+  intent_reasoning?: string;
+  applied_phase?: ConciergeDecision['applied_phase'];
 }
 
 interface SynthesizeInvokeResult {
@@ -80,6 +88,85 @@ export function useOrchestration() {
     }
     return data.session;
   }, [session]);
+
+  const ensureConciergeThread = useCallback(async (sessionId: string): Promise<Thread | null> => {
+    const existing = state.threads.find(
+      thread => thread.session_id === sessionId && thread.type === 'concierge' && thread.status === 'active',
+    );
+    if (existing) return existing;
+
+    const { data: existingThread } = await supabase
+      .from('threads')
+      .select('*')
+      .eq('session_id', sessionId)
+      .eq('type', 'concierge')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingThread) {
+      const thread = existingThread as Thread;
+      dispatch({ type: 'ADD_THREAD', payload: thread });
+      return thread;
+    }
+
+    const { data: createdThread, error } = await supabase
+      .from('threads')
+      .insert({
+        session_id: sessionId,
+        type: 'concierge',
+        status: 'active',
+        include_in_synthesis: true,
+        title: 'Concierge',
+        metadata: {},
+      } as never)
+      .select()
+      .maybeSingle();
+
+    if (error || !createdThread) {
+      console.error('Failed to ensure concierge thread:', error);
+      return null;
+    }
+
+    const thread = createdThread as Thread;
+    dispatch({ type: 'ADD_THREAD', payload: thread });
+    return thread;
+  }, [state.threads, dispatch]);
+
+  const appendConciergeEventMessage = useCallback(async (
+    sessionId: string,
+    content: string,
+    metadata: ThreadMessage['metadata'],
+  ) => {
+    const conciergeThread = await ensureConciergeThread(sessionId);
+    if (!conciergeThread) return null;
+
+    const { data, error } = await supabase
+      .from('thread_messages')
+      .insert({
+        thread_id: conciergeThread.id,
+        role: 'concierge',
+        agent_id: null,
+        content,
+        context_weight: 'primary',
+        metadata,
+      } as never)
+      .select()
+      .maybeSingle();
+
+    if (error || !data) {
+      console.error('Failed to persist concierge event card:', error);
+      return null;
+    }
+
+    const message = data as ThreadMessage;
+    dispatch({ type: 'ADD_THREAD_MESSAGE', payload: message });
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+    return message;
+  }, [ensureConciergeThread, dispatch]);
 
   const logAudit = useCallback(async (
     eventType: string,
@@ -371,19 +458,25 @@ export function useOrchestration() {
             && typeof triageData.confidence === 'number'
             && triageData.confidence >= 0.75
           ) {
+            const triageResult: TriageResult = {
+              route: 'simple_ask',
+              intent: typeof triageData.intent === 'string'
+                ? triageData.intent as 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build'
+                : 'simple_ask',
+              confidence: triageData.confidence,
+              reasoning: typeof triageData.reasoning === 'string' ? triageData.reasoning : '',
+              direct_answer: typeof triageData.direct_answer === 'string' ? triageData.direct_answer : undefined,
+              prompt,
+            };
             dispatch({
               type: 'SET_TRIAGE_RESULT',
-              payload: {
-                route: 'simple_ask',
-                intent: typeof triageData.intent === 'string'
-                  ? triageData.intent as 'simple_ask' | 'analysis' | 'design' | 'pre_build' | 'build'
-                  : 'simple_ask',
-                confidence: triageData.confidence,
-                reasoning: typeof triageData.reasoning === 'string' ? triageData.reasoning : '',
-                direct_answer: typeof triageData.direct_answer === 'string' ? triageData.direct_answer : undefined,
-                prompt,
-              },
+              payload: triageResult,
             });
+            await appendConciergeEventMessage(
+              activeSession.id,
+              triageResult.direct_answer || triageResult.reasoning || 'Concierge posted a quick answer.',
+              { kind: 'concierge_triage', triage: triageResult, prompt },
+            );
             dispatch({ type: 'SET_IS_TRIAGING', payload: false });
             return;
           }
@@ -486,6 +579,7 @@ export function useOrchestration() {
         .filter(r => r.session_id === activeSessionId)
         .sort((a, b) => b.round_number - a.round_number)[0]?.id;
     if (!targetRoundId) return;
+    const targetRound = state.rounds.find(round => round.id === targetRoundId) ?? null;
 
     const responses = state.responses
       .filter(r => r.round_id === targetRoundId)
@@ -515,9 +609,24 @@ export function useOrchestration() {
         tension_points: Array.isArray(result.tension_points) ? result.tension_points : [],
         recommended_direction: result.recommended_direction ?? '',
         model_used: result.model_used ?? null,
+        intent: result.intent,
+        design_mode: result.design_mode,
+        recommended_next_phase: result.recommended_next_phase,
+        intent_reasoning: result.intent_reasoning,
+        applied_phase: result.applied_phase,
       };
       dispatch({ type: 'SET_CONCIERGE_DECISION', payload: decision });
-      dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: true });
+      await appendConciergeEventMessage(
+        activeSessionId,
+        decision.recommended_direction || decision.alignment_summary || 'Concierge posted a new decision.',
+        {
+          kind: 'concierge_decision',
+          decision,
+          round_id: targetRoundId,
+          round_number: targetRound?.round_number,
+          prompt: targetRound?.prompt,
+        },
+      );
       console.log('[Concierge] decision received', { phase, model: decision.model_used });
       await logAudit('concierge', 'Concierge', { mode: phase });
     } catch (err) {
@@ -533,14 +642,24 @@ export function useOrchestration() {
             ? 'Add an Anthropic API key in the Provider Vault to enable Concierge guidance.'
             : 'Concierge could not produce guidance for this round.',
           model_used: null,
-        };
+          };
         dispatch({ type: 'SET_CONCIERGE_DECISION', payload: errDecision });
-        dispatch({ type: 'SET_CONCIERGE_VISIBLE', payload: true });
+        await appendConciergeEventMessage(
+          activeSessionId,
+          errDecision.recommended_direction || errDecision.alignment_summary || 'Concierge could not produce guidance.',
+          {
+            kind: 'concierge_decision',
+            decision: errDecision,
+            round_id: targetRoundId,
+            round_number: targetRound?.round_number,
+            prompt: targetRound?.prompt,
+          },
+        );
         return;
       }
       console.error('Concierge call failed:', err);
     }
-  }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit, ensureSession]);
+  }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit, ensureSession, appendConciergeEventMessage]);
 
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;

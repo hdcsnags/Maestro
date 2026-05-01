@@ -320,8 +320,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
     case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
-    case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload, conciergeVisible: action.payload !== null };
-    case 'SET_TRIAGE_RESULT': return { ...state, triageResult: action.payload, conciergeVisible: action.payload !== null };
+    case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload };
+    case 'SET_TRIAGE_RESULT': return { ...state, triageResult: action.payload };
     case 'SET_IS_TRIAGING': return { ...state, isTriaging: action.payload };
     case 'SET_BUILD_PLAN': return { ...state, buildPlan: action.payload };
     case 'SET_CAROUSEL_VISIBLE': return { ...state, carouselVisible: action.payload };

@@ -82,8 +82,19 @@ export interface ThreadMessage {
   agent_id?: string | null;
   content: string;
   context_weight: ContextWeight;
-  metadata: Record<string, unknown>;
+  metadata: ThreadMessageMetadata;
   created_at: string;
+}
+
+export interface ThreadMessageMetadata extends Record<string, unknown> {
+  kind?: 'concierge_decision' | 'concierge_triage';
+  decision?: ConciergeDecision;
+  triage?: TriageResult;
+  round_id?: string;
+  round_number?: number;
+  prompt?: string;
+  redacted?: boolean;
+  redaction_count?: number;
 }
 
 // All models available as concierge (union of direct + OpenRouter)

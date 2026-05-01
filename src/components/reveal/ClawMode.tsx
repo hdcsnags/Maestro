@@ -8,6 +8,7 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import FolioCarousel from './FolioCarousel';
 import ClawBuildSessionCard from './ClawBuildSessionCard';
+import ConciergeEventCard from './ConciergeEventCard';
 import RevealComposer from './RevealComposer';
 
 const THREAD_GROUPS = [
@@ -935,6 +936,11 @@ function MessageBubble({ message, modelLabel, agentColor }: {
   const isSystem = message.role === 'system';
   const accentColor = agentColor || '#D6B24A';
   const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const metadataKind = typeof message.metadata.kind === 'string' ? message.metadata.kind : null;
+
+  if (!isUser && !isSystem && (metadataKind === 'concierge_decision' || metadataKind === 'concierge_triage')) {
+    return <ConciergeEventCard message={message} />;
+  }
 
   if (isSystem) {
     const category = detectSystemCategory(message.content);

@@ -10,7 +10,6 @@ import ShortcutOverlay from '../components/reveal/ShortcutOverlay';
 import PatchModal from '../components/reveal/PatchModal';
 import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
-import ConciergePanel from '../components/reveal/ConciergePanel';
 import ClawMode from '../components/reveal/ClawMode';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
@@ -241,7 +240,6 @@ export default function WorkspacePage() {
       <DesignPhase />
       <BuildWorkspace />
       <BuildReport />
-      {state.conciergeVisible && <ConciergePanel />}
       <Toast />
     </div>
   );
