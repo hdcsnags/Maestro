@@ -172,6 +172,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 3 concierge cards: quick-answer triage and concierge synthesis now persist as inline thread event cards, reusing the existing proceed/round-2/override/report/build actions without reopening a modal | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 4 build runway: build chat now always opens an in-thread runway card, and the runway can execute task builds or local session builds and push to GitHub without ejecting to the drawer | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 5 plan cards: build chat now opens a thread-native Pre-Build sequence for project type, repo, builder roster, backend, architect preview, lanes, and spec lock, while `PreBuildPanel.tsx` remains the advanced inspection surface | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 6 bouncer card: the post-build security/code-quality review now renders through a shared `BouncerCard` component in both the runway and advanced workspace, with collapsed severity groups and standardized approve/pause/abort actions | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 7 premium event cards: new system-thread flows now write typed `thread_messages.metadata` payloads for execution approvals, command status, build handoff, PR-opened results, and errors, while legacy plain-text system messages still render as a compatibility fallback | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -296,6 +297,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 6 bouncer card
+
+**What was done**:
+1. Added `src/components/reveal/BouncerCard.tsx` as the shared presentation component for bouncer status, severity counts, collapsed finding groups, and conductor actions.
+2. Added `src/hooks/useBouncerReview.ts` so both the thread runway and the advanced `BuildWorkspace` can trigger bouncer review and record conductor decisions through the same behavior.
+3. Replaced the inline bouncer presentation in `BuildWorkspace.tsx` with the new shared card while preserving the existing completeness gate and phase transitions.
+4. Added the shared bouncer card to `BuildRunwayCard.tsx`, so a conductor can run review and approve/pause/abort without leaving the thread.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/hooks/useBouncerReview.ts`, `src/components/reveal/BouncerCard.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/BuildRunwayCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the bouncer trigger behavior unchanged at the edge-function level and limited the phase to UI/component extraction, per spec.
+- Left severity groups collapsed by default so the card summary stays compact in both the runway and drawer views.
+- Reused the same conductor-decision semantics (`approve_continue`, `acknowledge`, `pause`, `abort`) and only standardized the visual hierarchy around them.
+
+**What didn't work**:
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test through push → bouncer → approval/abort flows.
+- The shared bouncer hook still keeps its review result in component-local state, so reopening the other surface after a fresh reload may require rerunning the review to repopulate the card.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 5 plan cards
 

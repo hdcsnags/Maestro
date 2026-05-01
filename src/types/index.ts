@@ -268,6 +268,21 @@ export interface BuildTask {
   updated_at?: string;
 }
 
+export interface BouncerFinding {
+  file: string;
+  issue: string;
+  severity: 'minor' | 'critical_pause' | 'critical_approved';
+  suggestion: string;
+}
+
+export interface BouncerResult {
+  findings: BouncerFinding[];
+  overall_severity: string;
+  summary: string;
+  model_used: string;
+  review_source?: 'build_tasks' | 'github_files' | 'file_names_only';
+}
+
 export interface BuildLane {
   id?: string;
   session_id: string;

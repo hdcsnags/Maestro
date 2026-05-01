@@ -7,9 +7,11 @@ import {
 import { invokeEdgeFunction } from '../../lib/functions';
 import { selectOnlineExecutor } from '../../lib/sessionBuild';
 import { useMaestro } from '../../context/MaestroContext';
+import { useBouncerReview } from '../../hooks/useBouncerReview';
 import { useBuildExecution } from '../../hooks/useBuildExecution';
 import { useThreads } from '../../hooks/useThreads';
 import type { BuildPlan, BuildTask, ClawBuildSessionState } from '../../types';
+import BouncerCard from './BouncerCard';
 
 interface NormalizedBuilderAgent {
   agent_id: string;
@@ -197,6 +199,24 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
   const activeStepIndex = RUNWAY_STEPS.findIndex(step => step.key === currentStep);
   const canPush = usesSessionBuild ? sessionManifest.length > 0 : taskManifest.length > 0;
   const failedTaskIds = buildExec.tasks.filter(task => task.status === 'failed').map(task => task.id);
+  const bouncerBuildFiles = useMemo(() => {
+    const manifest = usesSessionBuild ? sessionManifest : taskManifest;
+    return manifest
+      .filter((entry) => entry.content && entry.operation !== 'delete')
+      .map((entry) => ({ path: entry.path, content: entry.content!, operation: entry.operation }));
+  }, [usesSessionBuild, sessionManifest, taskManifest]);
+  const {
+    bouncerLoading,
+    bouncerResult,
+    bouncerError,
+    elapsedMs: bouncerElapsedMs,
+    runBouncer,
+    handleConductorDecision,
+  } = useBouncerReview({
+    session: currentSession,
+    writtenFiles: pushResult.pushWrittenFiles,
+    buildFiles: bouncerBuildFiles,
+  });
 
   const taskCountsByBackend = useMemo(() => {
     return buildExec.tasks.reduce((acc, task) => {
@@ -678,6 +698,18 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
             </div>
           )}
         </section>
+
+        {(pushResult.pushState === 'done' || currentSession?.current_phase === 'bouncer' || currentSession?.current_phase === 'complete') && (
+          <BouncerCard
+            result={bouncerResult}
+            loading={bouncerLoading}
+            error={bouncerError}
+            elapsedMs={bouncerElapsedMs}
+            showActions={currentSession?.current_phase === 'bouncer'}
+            onRun={pushResult.pushState === 'done' ? () => void runBouncer() : undefined}
+            onDecision={handleConductorDecision}
+          />
+        )}
       </div>
     </div>
   );

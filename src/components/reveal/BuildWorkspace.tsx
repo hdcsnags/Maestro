@@ -3,16 +3,18 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useBuildExecution } from '../../hooks/useBuildExecution';
+import { useBouncerReview } from '../../hooks/useBouncerReview';
 import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
 import { checkBuildCompleteness, type CompletenessResult } from '../../lib/buildCompleteness';
 import type { BuildLaneRole, BuildPlan, SessionPhase, Response } from '../../types';
 import {
-  Hammer, Play, Shield, CheckCircle2, AlertTriangle,
+  Hammer, Play, CheckCircle2, AlertTriangle,
   ExternalLink, Loader2, ChevronDown, ChevronUp,
-  Pause, XCircle, ThumbsUp, GitBranch, RotateCcw,
+  Pause, GitBranch, RotateCcw,
   FileCode, SkipForward, ClipboardCheck, Zap,
 } from 'lucide-react';
+import BouncerCard from './BouncerCard';
 
 /* ── Types ─────────────────────────────────────────────────── */
 
@@ -22,21 +24,6 @@ interface LaneRow {
   agent_name: string;
   lane_paths: string[];
   role: BuildLaneRole;
-}
-
-interface Finding {
-  file: string;
-  issue: string;
-  severity: 'minor' | 'critical_pause' | 'critical_approved';
-  suggestion: string;
-}
-
-interface BouncerResult {
-  findings: Finding[];
-  overall_severity: string;
-  summary: string;
-  model_used: string;
-  review_source?: 'build_tasks' | 'github_files' | 'file_names_only';
 }
 
 type BuildStage = 'preparing' | 'plan_review' | 'broadcast' | 'broadcasting' | 'reviewing' | 'ready' | 'executing' | 'complete' | 'bouncer' | 'done' | 'task_decomposing' | 'task_building' | 'session_building';
@@ -56,12 +43,6 @@ interface NormalizedBuildPlan {
 }
 
 /* ── Constants ─────────────────────────────────────────────── */
-
-const SEVERITY_STYLE: Record<string, { color: string; bg: string; label: string }> = {
-  minor: { color: '#d4a843', bg: 'rgba(212,168,67,0.08)', label: 'Minor' },
-  critical_pause: { color: '#e05a5a', bg: 'rgba(224,90,90,0.08)', label: 'Critical' },
-  critical_approved: { color: '#e0925a', bg: 'rgba(224,146,90,0.08)', label: 'Approved' },
-};
 
 const ROLE_BADGE: Record<BuildLaneRole, { color: string; label: string }> = {
   builder: { color: '#5ab88e', label: 'Builder' },
@@ -246,12 +227,29 @@ export default function BuildWorkspace() {
   const [handoffs, setHandoffs] = useState<{ from_agent: string; path: string }[]>([]);
   const [backupBranch, setBackupBranch] = useState('');
 
-  // Bouncer state
-  const [bouncerLoading, setBouncerLoading] = useState(false);
-  const [bouncerResult, setBouncerResult] = useState<BouncerResult | null>(null);
-  const [bouncerError, setBouncerError] = useState('');
-  const [findingsExpanded, setFindingsExpanded] = useState(true);
   const [completenessResult, setCompletenessResult] = useState<CompletenessResult | null>(null);
+  const bouncerBuildFiles = useMemo(() => {
+    const manifest = buildExec.collectManifest();
+    const buildManifest = manifest.length > 0
+      ? manifest
+      : buildExec.collectSessionManifest();
+    return buildManifest
+      .filter((entry) => entry.content && entry.operation !== 'delete')
+      .map((entry) => ({ path: entry.path, content: entry.content!, operation: entry.operation }));
+  }, [buildExec]);
+  const {
+    bouncerLoading,
+    bouncerResult,
+    bouncerError,
+    elapsedMs: bouncerElapsedMs,
+    runBouncer,
+    handleConductorDecision,
+  } = useBouncerReview({
+    session,
+    writtenFiles,
+    buildFiles: bouncerBuildFiles,
+    onApproved: () => setStage('done'),
+  });
 
   useEffect(() => {
     if (!session || !isVisible) return;
@@ -267,9 +265,6 @@ export default function BuildWorkspace() {
     setCollisionCount(0);
     setHandoffs([]);
     setBackupBranch('');
-    setBouncerResult(null);
-    setBouncerError('');
-    setBouncerLoading(false);
     setCompletenessResult(null);
   }, [session?.id, isVisible]);
 
@@ -1033,93 +1028,13 @@ export default function BuildWorkspace() {
 
   /* ── Trigger bouncer ─────────────────────────────────────── */
   const handleBouncer = useCallback(async () => {
-    if (!session) return;
-    setBouncerLoading(true);
-    setBouncerError('');
-    setBouncerResult(null);
-
-    // Advance session phase to bouncer
-    await supabase
-      .from('sessions')
-      .update({ current_phase: 'bouncer' } as never)
-      .eq('id', session.id);
-    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'bouncer' } });
-
-    try {
-      // Prefer build_tasks manifest (pre-push content) over writtenFiles (post-push paths)
-      const manifest = buildExec.collectManifest();
-      const buildFiles = manifest
-        .filter(m => m.content && m.operation !== 'delete')
-        .map(m => ({ path: m.path, content: m.content!, operation: m.operation }));
-
-      // Run completeness gate (client-side, no API cost)
-      if (buildFiles.length > 0) {
-        const completeness = checkBuildCompleteness(buildFiles);
-        setCompletenessResult(completeness);
-      }
-
-      const data = await invokeEdgeFunction<BouncerResult & { error?: string; message?: string }>('bouncer', {
-        session_id: session.id,
-        trigger: 'end_of_build',
-        files: writtenFiles,
-        build_files: buildFiles.length > 0 ? buildFiles : undefined,
-      });
-
-      if (data.error === 'ANTHROPIC_KEY_MISSING') throw new Error('Add an Anthropic API key in the Vault to run bouncer review.');
-
-      setBouncerResult(data as BouncerResult);
-      setStage('bouncer');
-    } catch (err) {
-      setBouncerError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBouncerLoading(false);
+    if (bouncerBuildFiles.length > 0) {
+      const completeness = checkBuildCompleteness(bouncerBuildFiles);
+      setCompletenessResult(completeness);
     }
-  }, [session, writtenFiles, buildExec, dispatch]);
-
-  /* ── Conductor decisions ─────────────────────────────────── */
-  const handleConductorDecision = useCallback(async (decision: string) => {
-    if (!session || !bouncerResult) return;
-
-    // Record decision in bouncer_events
-    const { data: events } = await supabase
-      .from('bouncer_events')
-      .select('id')
-      .eq('session_id', session.id)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (events?.[0]) {
-      const eventId = (events[0] as { id: string }).id;
-      await supabase
-        .from('bouncer_events')
-        .update({ conductor_decision: decision } as never)
-        .eq('id', eventId);
-    }
-
-    if (decision === 'pause') {
-      dispatch({ type: 'SHOW_TOAST', payload: 'Build paused — fix critical findings first' });
-      return;
-    }
-
-    if (decision === 'abort') {
-      await supabase
-        .from('sessions')
-        .update({ current_phase: 'pre_build' } as never)
-        .eq('id', session.id);
-      dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'pre_build' } });
-      dispatch({ type: 'SHOW_TOAST', payload: 'Build aborted — returning to Pre-Build' });
-      return;
-    }
-
-    // approve_continue or acknowledge
-    await supabase
-      .from('sessions')
-      .update({ current_phase: 'complete' } as never)
-      .eq('id', session.id);
-    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { current_phase: 'complete' } });
-    setStage('done');
-    dispatch({ type: 'SHOW_TOAST', payload: 'Build approved — session complete ✓' });
-  }, [session, bouncerResult, dispatch]);
+    const succeeded = await runBouncer();
+    if (succeeded) setStage('bouncer');
+  }, [bouncerBuildFiles, runBouncer]);
 
   /* ── Render gate ─────────────────────────────────────────── */
   if (!isVisible || !session) return null;
@@ -1146,7 +1061,6 @@ export default function BuildWorkspace() {
     : stage === 'task_decomposing' ? 'Build — Preparing Tasks'
     : stage === 'task_building' ? `Build — ${buildExec.progress.completed}/${buildExec.progress.total} Files`
     : 'Build in Progress';
-  const hasCritical = bouncerResult?.findings.some(f => f.severity === 'critical_pause') ?? false;
   const drawerExpandedHeight = 'clamp(56px, 50dvh, calc(100dvh - 240px))';
 
   return (
@@ -2370,28 +2284,17 @@ export default function BuildWorkspace() {
                 </div>
               )}
 
-              {/* Bouncer trigger */}
-              {stage === 'complete' && (
-                <button
-                  className="reveal-pill"
-                  style={{
-                    height: '36px', fontSize: '12px', padding: '0 20px',
-                    background: bouncerLoading ? 'transparent' : 'rgba(224,123,90,0.12)',
-                    borderColor: 'rgba(224,123,90,0.25)',
-                    color: 'var(--text)',
-                  }}
-                  onClick={handleBouncer}
-                  disabled={bouncerLoading}
-                >
-                  {bouncerLoading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
-                  {bouncerLoading ? 'Reviewing…' : 'Run Bouncer Review'}
-                </button>
-              )}
-
-              {bouncerError && (
-                <div className="flex items-center gap-2" style={{ marginTop: '8px' }}>
-                  <AlertTriangle size={12} style={{ color: 'var(--risk)' }} />
-                  <span style={{ fontSize: '11px', color: 'var(--risk)' }}>{bouncerError}</span>
+              {(stage === 'complete' || stage === 'bouncer' || stage === 'done') && (
+                <div style={{ marginTop: '16px' }}>
+                  <BouncerCard
+                    result={bouncerResult}
+                    loading={bouncerLoading}
+                    error={bouncerError}
+                    elapsedMs={bouncerElapsedMs}
+                    showActions={stage === 'bouncer'}
+                    onRun={stage === 'complete' ? handleBouncer : undefined}
+                    onDecision={handleConductorDecision}
+                  />
                 </div>
               )}
             </section>
@@ -2445,121 +2348,6 @@ export default function BuildWorkspace() {
                     </div>
                   )}
                 </div>
-              )}
-            </section>
-          )}
-
-          {/* ── Bouncer findings ───────────────────────────── */}
-          {bouncerResult && (stage === 'bouncer' || stage === 'done') && (
-            <section style={{ marginBottom: '28px' }}>
-              <button
-                className="flex items-center gap-2 w-full"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', marginBottom: '12px', padding: 0 }}
-                onClick={() => setFindingsExpanded(!findingsExpanded)}
-              >
-                <Shield size={14} style={{ color: hasCritical ? 'var(--risk)' : 'var(--gold)' }} />
-                <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.18em', textTransform: 'uppercase', color: hasCritical ? 'var(--risk)' : 'var(--gold)' }}>
-                  Bouncer Findings
-                </span>
-                <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginLeft: '8px' }}>
-                  {bouncerResult.findings.length} finding{bouncerResult.findings.length !== 1 ? 's' : ''}
-                  {bouncerResult.review_source && ` · ${bouncerResult.review_source === 'build_tasks' ? 'code review' : bouncerResult.review_source === 'github_files' ? 'paths only' : 'no files'}`}
-                </span>
-                {findingsExpanded ? <ChevronUp size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} /> : <ChevronDown size={12} style={{ color: 'var(--text-dim)', marginLeft: 'auto' }} />}
-              </button>
-
-              {findingsExpanded && (
-                <>
-                  {/* Summary */}
-                  <p style={{ fontSize: '13px', lineHeight: 1.6, color: 'rgba(232,230,224,0.8)', marginBottom: '16px', fontWeight: 300 }}>
-                    {bouncerResult.summary}
-                  </p>
-
-                  {/* Finding cards */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                    {bouncerResult.findings.map((f, i) => {
-                      const sev = SEVERITY_STYLE[f.severity] ?? SEVERITY_STYLE.minor;
-                      return (
-                        <div key={i} style={{
-                          borderRadius: '12px', padding: '12px 16px',
-                          border: `1px solid ${sev.color}25`,
-                          background: sev.bg,
-                        }}>
-                          <div className="flex items-center gap-2" style={{ marginBottom: '6px' }}>
-                            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: sev.color }} />
-                            <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', color: sev.color }}>
-                              {sev.label}
-                            </span>
-                            <span className="font-mono-dm" style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                              {f.file}
-                            </span>
-                          </div>
-                          <p style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5, margin: '0 0 4px' }}>
-                            {f.issue}
-                          </p>
-                          <p style={{ fontSize: '11px', color: 'var(--text-dim)', lineHeight: 1.5, margin: 0, fontStyle: 'italic' }}>
-                            → {f.suggestion}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Conductor actions */}
-                  {stage === 'bouncer' && (
-                    <div className="flex items-center gap-3">
-                      {!hasCritical && (
-                        <button
-                          className="reveal-pill"
-                          style={{
-                            height: '36px', fontSize: '12px', padding: '0 18px',
-                            background: 'var(--ok)', color: 'var(--void)',
-                            borderColor: 'transparent', fontWeight: 500,
-                          }}
-                          onClick={() => handleConductorDecision('approve_continue')}
-                        >
-                          <CheckCircle2 size={14} />
-                          Approve & continue
-                        </button>
-                      )}
-                      <button
-                        className="reveal-pill"
-                        style={{ height: '36px', fontSize: '12px', padding: '0 16px' }}
-                        onClick={() => handleConductorDecision('acknowledge')}
-                      >
-                        <ThumbsUp size={12} />
-                        Acknowledge minor
-                      </button>
-                      {hasCritical && (
-                        <button
-                          className="reveal-pill"
-                          style={{
-                            height: '36px', fontSize: '12px', padding: '0 16px',
-                            borderColor: 'rgba(224,90,90,0.3)',
-                          }}
-                          onClick={() => handleConductorDecision('pause')}
-                        >
-                          <Pause size={12} />
-                          Pause — fix critical
-                        </button>
-                      )}
-                      <button
-                        className="reveal-pill"
-                        style={{ height: '36px', fontSize: '12px', padding: '0 16px', opacity: 0.7 }}
-                        onClick={() => handleConductorDecision('abort')}
-                      >
-                        <XCircle size={12} />
-                        Abort
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {bouncerResult.model_used && (
-                <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', display: 'block', marginTop: '8px' }}>
-                  reviewed via {bouncerResult.model_used}
-                </span>
               )}
             </section>
           )}
