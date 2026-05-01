@@ -41,7 +41,7 @@ export default function ClawMode() {
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const initRef = useRef(false);
+  const initializedSessionRef = useRef<string | null>(null);
   const executionApprovalRef = useRef<HTMLDivElement>(null);
 
   const clawView = state.clawView as ClawView;
@@ -256,32 +256,41 @@ export default function ClawMode() {
         };
   const shouldPulseHeader = state.isBroadcasting || state.isConciergeSending || isExecutionPending;
 
-  // Initialize: load persisted threads + ensure concierge thread
+  // Initialize per session: load persisted threads + ensure concierge thread
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
-
+    let cancelled = false;
     const init = async () => {
       let sessionId = state.activeSession?.id;
       if (!sessionId && state.workspace) {
         const session = await createSession(state.workspace.id, 'ask');
-        if (!session) return;
+        if (!session || cancelled) return;
         sessionId = session.id;
       }
-      if (!sessionId) return;
+      if (!sessionId || cancelled) return;
 
-      // Load all persisted threads for the sidebar
+      const alreadyInitialized = initializedSessionRef.current === sessionId;
+      if (alreadyInitialized && state.activeThread?.session_id === sessionId) {
+        return;
+      }
+
       await loadThreads(sessionId);
+      if (cancelled) return;
 
       const thread = await ensureConciergeThread(sessionId);
-      if (thread) {
-        dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
-        await loadThreadMessages(thread.id);
-      }
+      if (!thread || cancelled) return;
+
+      initializedSessionRef.current = sessionId;
+      dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
+      dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+      await loadThreadMessages(thread.id);
     };
-    init();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void init();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.activeSession?.id, state.workspace?.id, state.activeThread?.session_id, createSession, loadThreads, ensureConciergeThread, loadThreadMessages, dispatch]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -323,7 +332,10 @@ export default function ClawMode() {
       }
       e.preventDefault();
       e.stopPropagation();
-      dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
+      const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
+      if (conciergeThread) {
+        dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+      }
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
       dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
       return;
@@ -341,7 +353,7 @@ export default function ClawMode() {
 
     e.preventDefault();
     focusable[nextIndex]?.focus();
-  }, [dispatch, isMobile, sidebarOpen]);
+  }, [dispatch, isMobile, sidebarOpen, state.threads]);
 
   const handleFocusAgent = useCallback(async (agentId: string) => {
     if (!state.activeSession) return;
@@ -400,10 +412,13 @@ export default function ClawMode() {
   }, [state.threads, dispatch]);
 
   const handleClose = useCallback(() => {
-    dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
+    const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
+    if (conciergeThread) {
+      dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+    }
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-  }, [dispatch]);
+  }, [dispatch, state.threads]);
 
   const handleApproveExecution = useCallback(async () => {
     const pending = state.pendingExecution;
@@ -556,8 +571,8 @@ export default function ClawMode() {
           <button
             onClick={handleClose}
             className={iconButtonClass}
-            aria-label="Exit Claw Mode"
-            title="Exit to legacy workspace"
+            aria-label="Return to concierge thread"
+            title="Return to concierge thread"
           >
             <X size={15} />
           </button>

@@ -168,6 +168,7 @@ Legacy (unused): agent_skills, flags
 | Ask/Build session mode split — composer Ask/Build toggle, concierge Convert to Build, session dropdown indicator | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 0 foundation: `orchestrationMode` is removed, broadcast/build orchestration now derives from session/build context, and the thread shell now opens/closes from active thread focus instead of `clawModeActive` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 1 composer: `RevealComposer` is now the shared composer for both the workspace shell and thread shell, with one routing bar (Direct/Council/Execute/Build), one send action, and the concierge model picker moved into composer chrome | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 2 shell cutover: `WorkspacePage.tsx` now always renders the thread-first `ClawMode` shell, and `ClawMode` rehydrates the concierge thread per session instead of falling back to the legacy stage tree | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -291,6 +292,25 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 2 shell cutover
+
+**What was done**:
+1. Removed the `WorkspacePage.tsx` shell branch between the legacy stage tree and `ClawMode`, so the app now always renders the thread-first shell.
+2. Reworked `ClawMode.tsx` session initialization so it rehydrates threads and restores the concierge thread per session instead of relying on a one-time mount path.
+3. Changed the shell close/escape behavior to return to the concierge thread instead of clearing thread state and falling back to the old workspace shell.
+4. Kept drawers/modals/build workspace overlays intact on top of the unified thread shell.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/pages/WorkspacePage.tsx`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treated the thread shell as the canonical workspace now, even though Phase 3+ still need to move more legacy presentation patterns into thread-native cards.
+- Kept the existing `ClawMode` shell component as the transition surface for the cutover instead of doing a separate large rename/shim in the same pass.
+
+**What didn't work**:
+- The old orb/hero presentation from `EmptyStage.tsx` / `HeroContext.tsx` is not yet reintroduced inside the unified shell; this pass focused on deleting the shell split first.
+- Validation in this pass was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 1 shared composer
 

@@ -3,11 +3,6 @@ import { AlertTriangle } from 'lucide-react';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
 import LoadingScreen from '../components/ui/LoadingScreen';
-import RevealTopbar from '../components/reveal/RevealTopbar';
-import HeroContext from '../components/reveal/HeroContext';
-import FolioCarousel from '../components/reveal/FolioCarousel';
-import EmptyStage from '../components/reveal/EmptyStage';
-import RevealComposer from '../components/reveal/RevealComposer';
 import OrchestraDrawer from '../components/reveal/OrchestraDrawer';
 import TrustDrawer from '../components/reveal/TrustDrawer';
 import SynthesisDrawer from '../components/reveal/SynthesisDrawer';
@@ -22,7 +17,6 @@ import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
-import { deriveOrbState } from '../lib/orbState';
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
   const { signOut } = useAuth();
@@ -33,7 +27,6 @@ export default function WorkspacePage() {
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
   const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
-  // Selected round for carousel item count (mirrors FolioCarousel logic)
   const selectedIdx = state.selectedRoundIndex === -1
     ? state.rounds.length - 1
     : Math.min(state.selectedRoundIndex, state.rounds.length - 1);
@@ -46,10 +39,6 @@ export default function WorkspacePage() {
     ? state.agents.filter(a => state.broadcastingAgents.includes(a.id) && !selectedResponses.find(r => r.agent_id === a.id))
     : [];
   const totalFolioItems = selectedResponses.length + streamingAgents.length;
-  const hasContent = totalFolioItems > 0 || state.isBroadcasting;
-  const activeAgentCount = state.agents.filter(a => a.is_active).length;
-  const orbState = deriveOrbState(state, latestResponses, activeAgentCount);
-  const threadShellActive = !!state.activeThread;
 
   // Auto-show carousel when broadcast finishes and responses exist
   const wasBroadcasting = useRef(false);
@@ -70,11 +59,7 @@ export default function WorkspacePage() {
       const isTyping = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable;
 
       if (e.key === 'Escape') {
-        if (threadShellActive) {
-          dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
-          dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-          dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-        } else if (state.executionModalOpen) {
+        if (state.executionModalOpen) {
           dispatch({ type: 'SET_EXECUTION_MODAL', payload: false });
         } else if (state.patchModalOpen) {
           dispatch({ type: 'SET_PATCH_MODAL', payload: false });
@@ -170,7 +155,7 @@ export default function WorkspacePage() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, threadShellActive, dispatch]);
+  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, dispatch]);
 
   if (state.initError) {
     return (
@@ -241,23 +226,9 @@ export default function WorkspacePage() {
         onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}
       />
 
-      {/* Claw Mode = primary workspace when active */}
-      {threadShellActive ? (
+      <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
         <ClawMode />
-      ) : (
-        <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
-          {!state.focusMode && <RevealTopbar />}
-          {!state.focusMode && <HeroContext />}
-
-          {hasContent && state.carouselVisible ? (
-            <FolioCarousel />
-          ) : (
-            <EmptyStage orbState={orbState} />
-          )}
-
-            {!state.focusMode && <RevealComposer variant="workspace" />}
-          </div>
-        )}
+      </div>
 
       <OrchestraDrawer />
       <TrustDrawer />
@@ -270,7 +241,7 @@ export default function WorkspacePage() {
       <DesignPhase />
       <BuildWorkspace />
       <BuildReport />
-      {state.conciergeVisible && !threadShellActive && <ConciergePanel />}
+      {state.conciergeVisible && <ConciergePanel />}
       <Toast />
     </div>
   );
