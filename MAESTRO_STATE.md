@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-04-27 (context_bundle forwarding fix + Phase 5); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
-| Unapplied migrations | None verified 2026-04-21 |
+| Last verified deploy | `executor-api` deployed 2026-05-01 (MaestroClaw hardening/alignment Phases A-B: token rotation + large-artifact/session-scope fixes); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
+| Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -302,6 +302,24 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw deployment follow-through
+
+**What was done**:
+1. Verified the real Supabase target project ref as `hhlnadxbrdwxcxwfbvwh` by listing the live function set and matching it to the Maestro stack (`executor-api`, `concierge`, `orchestrate`, `github-read`, etc.).
+2. Logged the CLI into Supabase, linked the repo to that remote project, and deployed `executor-api` to the verified target.
+3. Pushed the pending remote migrations `20260501183500_enable_realtime_build_progress.sql` and `20260501191500_allow_retry_executor_events.sql`.
+4. Updated deployment state in `MAESTRO_STATE.md` so the repo now reflects that the Phase 10 realtime tables and the new executor retry-event schema are live remotely.
+
+**Files touched**: `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Deployed with explicit project verification first instead of assuming the pasted URL was correct, because this environment had multiple accessible Supabase projects and the repo was not linked yet.
+- Used the linked-project flow for `db push` after verifying `--project-ref` works for function deploys but not for `db push` in this CLI version.
+
+**What didn't work**:
+- No additional edge functions were redeployed in this pass because only `executor-api` changed in the remediation track.
+- The local repo still has the user-owned untracked `UNIFIED_UX_MOCKUP.html`; it was intentionally left untouched.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw alignment Phase B
 
