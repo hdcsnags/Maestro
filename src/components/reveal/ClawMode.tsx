@@ -34,7 +34,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, createThread, loadThreads, loadThreadMessages, addMessage } = useThreads();
+  const { ensureConciergeThread, focusDirectThread, loadThreads, loadThreadMessages } = useThreads();
   const { createSession } = useWorkspace();
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
@@ -351,41 +351,14 @@ export default function ClawMode() {
   }, [dispatch, isMobile, sidebarOpen, state.threads]);
 
   const handleFocusAgent = useCallback(async (agentId: string) => {
-    if (!state.activeSession) return;
+    const agent = state.agents.find(a => a.id === agentId);
+    const agentResponse = latestResponses.find(r => r.agent_id === agentId);
 
-    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: agentId });
-
-    // Find or create a direct thread for this agent
-    let directThread: Thread | null | undefined = state.threads.find(
-      t => t.type === 'direct' && t.agent_id === agentId && t.status === 'active'
-    );
-
-    const isNewThread = !directThread;
-
-    if (!directThread) {
-      const agent = state.agents.find(a => a.id === agentId);
-      directThread = await createThread(state.activeSession.id, 'direct', {
-        agentId,
-        title: agent?.display_name || agent?.name || 'Agent',
-      });
-    }
-
-    if (directThread) {
-      dispatch({ type: 'SET_ACTIVE_THREAD', payload: directThread });
-
-      if (isNewThread) {
-        // Seed the new thread with the agent's broadcast response so context is preserved
-        const agentResponse = latestResponses.find(r => r.agent_id === agentId);
-        if (agentResponse?.content) {
-          await addMessage(directThread.id, 'concierge', agentResponse.content);
-        }
-      }
-
-      await loadThreadMessages(directThread.id);
-    }
-
-    dispatch({ type: 'SET_CLAW_VIEW', payload: 'focus' });
-  }, [state.activeSession, state.threads, state.agents, latestResponses, createThread, loadThreadMessages, addMessage, dispatch]);
+    await focusDirectThread(agentId, {
+      title: agent?.display_name || agent?.name || 'Agent',
+      seedContent: agentResponse?.content,
+    });
+  }, [state.agents, latestResponses, focusDirectThread]);
 
   const handleBackToCarousel = useCallback(() => {
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });

@@ -174,6 +174,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 5 plan cards: build chat now opens a thread-native Pre-Build sequence for project type, repo, builder roster, backend, architect preview, lanes, and spec lock, while `PreBuildPanel.tsx` remains the advanced inspection surface | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 6 bouncer card: the post-build security/code-quality review now renders through a shared `BouncerCard` component in both the runway and advanced workspace, with collapsed severity groups and standardized approve/pause/abort actions | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 7 premium event cards: new system-thread flows now write typed `thread_messages.metadata` payloads for execution approvals, command status, build handoff, PR-opened results, and errors, while legacy plain-text system messages still render as a compatibility fallback | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 8 carousel actions: Folio cards now expose thread-native pin/compare/follow-up/decision/synthesize actions, comparisons open in a side-by-side sheet, and direct-thread bootstrap is shared through `useThreads.ts` so carousel actions and focus mode seed agent context the same way | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -297,6 +298,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 8 carousel actions
+
+**What was done**:
+1. Added thread-native action rails to `FolioCard.tsx` for pinning a response into the concierge thread, opening compare mode, asking a direct follow-up, extracting a decision, and synthesizing from a selected response.
+2. Extended `FolioCarousel.tsx` with local compare selection state, a side-by-side comparison sheet, comparison persistence, and selected-response synthesis that flags the chosen response before calling the existing round synthesize flow.
+3. Added shared thread helpers in `useThreads.ts` for concierge info-card writes, response pinning, response comparison, decision extraction, and direct-thread focusing/seeding.
+4. Rewired `ClawMode.tsx` agent focus to reuse the same direct-thread bootstrap helper as the new carousel follow-up action.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/hooks/useThreads.ts`, `src/components/reveal/FolioCard.tsx`, `src/components/reveal/FolioCarousel.tsx`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept Phase 8 event persistence on the existing typed `info` system-card path instead of introducing another message kind, so pinned references, comparisons, and recorded decisions all survive reloads without expanding the renderer surface again.
+- Extracted direct-thread focus/seeding into `useThreads.ts` so carousel follow-ups and focus-mode entry now share the same bootstrap behavior.
+- Reused the existing round-level synthesize path by flagging the selected response first, which keeps concierge synthesis behavior consistent without adding a second synthesis API.
+
+**What didn't work**:
+- The comparison result persisted to the thread is currently a deterministic summary card, not an additional LLM-generated diff artifact.
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 6 bouncer card
 

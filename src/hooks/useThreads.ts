@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, CONCIERGE_MODELS } from '../types';
 
 interface OrchestrateResult {
@@ -227,6 +227,37 @@ function suggestSessionScope(architectMd: string | null | undefined): {
     primary: primaryDir ? `${primaryDir}/**` : '**',
     secondary: secondaryDir ? `${secondaryDir}/**` : null,
   };
+}
+
+function createResponseExcerpt(response: MaestroResponse): string {
+  const source = response.title?.trim() || response.content.trim();
+  const normalized = source.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'No summary available.';
+  return normalized.length > 220 ? `${normalized.slice(0, 217).trimEnd()}...` : normalized;
+}
+
+function compareResponseSummary(primary: MaestroResponse, secondary: MaestroResponse): string {
+  const primarySignals = Object.entries(primary.signals ?? {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key}: ${value}`)
+    .slice(0, 3);
+  const secondarySignals = Object.entries(secondary.signals ?? {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key}: ${value}`)
+    .slice(0, 3);
+  const primaryFiles = (primary.file_manifest ?? []).map((entry) => entry.path);
+  const secondaryFiles = (secondary.file_manifest ?? []).map((entry) => entry.path);
+  const overlappingFiles = primaryFiles.filter((path) => secondaryFiles.includes(path)).slice(0, 5);
+
+  return [
+    `${primary.agent_name} emphasizes: ${createResponseExcerpt(primary)}`,
+    primarySignals.length > 0 ? `Signals: ${primarySignals.join(' · ')}` : null,
+    '',
+    `${secondary.agent_name} emphasizes: ${createResponseExcerpt(secondary)}`,
+    secondarySignals.length > 0 ? `Signals: ${secondarySignals.join(' · ')}` : null,
+    '',
+    overlappingFiles.length > 0 ? `Shared file scope: ${overlappingFiles.join(', ')}` : 'Shared file scope: none called out explicitly.',
+  ].filter((value): value is string => typeof value === 'string').join('\n');
 }
 
 const PLAN_CARD_ORDER: ThreadPlanCardKind[] = [
@@ -589,6 +620,102 @@ export function useThreads() {
       await ensurePlanCard(threadId, card);
     }
   }, [ensurePlanCard]);
+
+  const postConciergeInfoCard = useCallback(async (
+    title: string,
+    body: string,
+  ) => {
+    if (!state.activeSession) return null;
+    const conciergeThread = await ensureConciergeThread(state.activeSession.id);
+    if (!conciergeThread) return null;
+
+    return addSystemEvent(conciergeThread.id, {
+      kind: 'info',
+      system_event: {
+        tone: 'info',
+        title,
+        body,
+      },
+    });
+  }, [state.activeSession, ensureConciergeThread, addSystemEvent]);
+
+  const pinResponse = useCallback(async (response: MaestroResponse) => {
+    const nextPinned = true;
+    if (!response.is_pinned) {
+      await supabase
+        .from('responses')
+        .update({ is_pinned: nextPinned } as never)
+        .eq('id', response.id);
+      dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: nextPinned } });
+    }
+
+    await postConciergeInfoCard(
+      'Pinned reference',
+      `${response.agent_name} was pinned from round ${response.round_id.slice(0, 8)}.\n\n${createResponseExcerpt(response)}`,
+    );
+    dispatch({ type: 'SHOW_TOAST', payload: `${response.agent_name} pinned to thread context` });
+  }, [dispatch, postConciergeInfoCard]);
+
+  const compareResponses = useCallback(async (primary: MaestroResponse, secondary: MaestroResponse) => {
+    await postConciergeInfoCard(
+      'Comparison recorded',
+      compareResponseSummary(primary, secondary),
+    );
+    dispatch({ type: 'SHOW_TOAST', payload: 'Comparison saved to the concierge thread' });
+  }, [dispatch, postConciergeInfoCard]);
+
+  const extractDecision = useCallback(async (response: MaestroResponse) => {
+    await postConciergeInfoCard(
+      'Decision recorded',
+      `Recorded from ${response.agent_name}.\n\n${createResponseExcerpt(response)}`,
+    );
+    dispatch({ type: 'SHOW_TOAST', payload: 'Decision recorded in concierge thread' });
+  }, [dispatch, postConciergeInfoCard]);
+
+  const focusDirectThread = useCallback(async (
+    agentId: string,
+    options: { title?: string; seedContent?: string } = {},
+  ) => {
+    if (!state.activeSession) return null;
+
+    let directThread: Thread | null = state.threads.find(
+      thread => thread.type === 'direct' && thread.agent_id === agentId && thread.status === 'active',
+    ) ?? null;
+    const isNewThread = !directThread;
+
+    if (!directThread) {
+      directThread = await createThread(state.activeSession.id, 'direct', {
+        agentId,
+        title: options.title,
+      });
+    }
+
+    if (!directThread) return null;
+
+    if (isNewThread && options.seedContent) {
+      await addMessage(
+        directThread.id,
+        'concierge',
+        options.seedContent,
+      );
+    }
+
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: directThread });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: agentId });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'focus' });
+    dispatch({ type: 'SET_COMPOSER_INTENT', payload: 'chat' });
+    await loadThreadMessages(directThread.id);
+    return directThread;
+  }, [state.activeSession, state.threads, createThread, addMessage, dispatch, loadThreadMessages]);
+
+  const askFollowUp = useCallback(async (response: MaestroResponse) => {
+    if (!response.agent_id) return null;
+
+    return focusDirectThread(response.agent_id, {
+      title: response.agent_name,
+      seedContent: `Context from round ${response.round_id.slice(0, 8)} — ${response.agent_name}\n\n${response.content}`,
+    });
+  }, [focusDirectThread]);
 
   // Build conversation history for the orchestrate call
   const buildConversationContext = useCallback((threadId: string): string => {
@@ -1241,5 +1368,10 @@ export function useThreads() {
     executeFromChat,
     buildFromChat,
     activateBuildRunway,
+    focusDirectThread,
+    pinResponse,
+    compareResponses,
+    extractDecision,
+    askFollowUp,
   };
 }

@@ -9,13 +9,21 @@ import remarkGfm from 'remark-gfm';
 
 interface Props {
   response: MaestroResponse;
+  onPinToThread?: () => Promise<void> | void;
+  onCompare?: () => void;
+  onAskFollowUp?: () => Promise<void> | void;
+  onExtractDecision?: () => Promise<void> | void;
+  onSynthesizeSelection?: () => Promise<void> | void;
+  compareLabel?: string;
+  compareActive?: boolean;
+  compareDisabled?: boolean;
 }
 
 const unescape = (s: string) =>
   s.replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
 
 // If parseResult failed upstream and raw JSON leaked into content, extract just the prose.
-function getDisplayContent(raw: string): string {
+export function getFolioDisplayContent(raw: string): string {
   const trimmed = raw.trim();
 
   // Try to extract content from any JSON structure first (fenced or raw)
@@ -67,11 +75,22 @@ function tryExtractFromJson(text: string): string | null {
   return null;
 }
 
-export default function FolioCard({ response }: Props) {
+export default function FolioCard({
+  response,
+  onPinToThread,
+  onCompare,
+  onAskFollowUp,
+  onExtractDecision,
+  onSynthesizeSelection,
+  compareLabel = 'Compare',
+  compareActive = false,
+  compareDisabled = false,
+}: Props) {
   const { dispatch } = useMaestro();
   const [flagging, setFlagging] = useState(false);
   const [signalsExpanded, setSignalsExpanded] = useState(false);
   const [manifestExpanded, setManifestExpanded] = useState(false);
+  const [busyAction, setBusyAction] = useState<'pin' | 'followup' | 'decision' | 'synthesize' | null>(null);
 
   useEffect(() => {
     setSignalsExpanded(false);
@@ -127,8 +146,21 @@ export default function FolioCard({ response }: Props) {
   const signalEntries = Object.entries(signals).filter(([, v]) => v).slice(0, 3);
   const fileManifest: FileManifestEntry[] = response.file_manifest || [];
   const artifacts = response.artifacts || [];
-  const displayContent = getDisplayContent(response.content);
+  const displayContent = getFolioDisplayContent(response.content);
   const remarkPlugins = useMemo(() => [remarkGfm], []);
+
+  const runThreadAction = async (
+    action: 'pin' | 'followup' | 'decision' | 'synthesize',
+    handler?: () => Promise<void> | void,
+  ) => {
+    if (!handler) return;
+    setBusyAction(action);
+    try {
+      await handler();
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col" style={{ position: 'relative', zIndex: 2 }}>
@@ -137,8 +169,8 @@ export default function FolioCard({ response }: Props) {
       <div
         className="flex items-center justify-between flex-shrink-0"
         style={{ padding: '22px 28px 16px', borderBottom: '1px solid rgba(255,255,255,0.045)' }}
-      >
-        <div className="flex items-center gap-3 min-w-0">
+       >
+         <div className="flex items-center gap-3 min-w-0">
           <div
             className="flex-shrink-0"
             style={{ width: '9px', height: '9px', borderRadius: '50%', background: response.agent_color, boxShadow: `0 0 18px ${response.agent_color}` }}
@@ -170,8 +202,73 @@ export default function FolioCard({ response }: Props) {
             style={{ cursor: 'pointer' }}>
             <Download size={11} />Export
           </button>
+          </div>
         </div>
-      </div>
+
+        {(onPinToThread || onCompare || onAskFollowUp || onExtractDecision || onSynthesizeSelection) && (
+          <div
+            className="flex items-center gap-2 flex-wrap flex-shrink-0"
+            style={{ padding: '12px 28px 0' }}
+          >
+            {onPinToThread && (
+              <button
+                type="button"
+                className="reveal-chip"
+                disabled={busyAction !== null}
+                onClick={() => void runThreadAction('pin', onPinToThread)}
+                style={{ cursor: busyAction !== null ? 'default' : 'pointer' }}
+              >
+                Pin to thread
+              </button>
+            )}
+            {onCompare && (
+              <button
+                type="button"
+                className="reveal-chip"
+                disabled={compareDisabled}
+                onClick={onCompare}
+                style={compareActive
+                  ? { color: 'var(--text)', borderColor: 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer' }
+                  : { cursor: compareDisabled ? 'default' : 'pointer' }}
+              >
+                {compareLabel}
+              </button>
+            )}
+            {onAskFollowUp && (
+              <button
+                type="button"
+                className="reveal-chip"
+                disabled={busyAction !== null}
+                onClick={() => void runThreadAction('followup', onAskFollowUp)}
+                style={{ cursor: busyAction !== null ? 'default' : 'pointer' }}
+              >
+                Ask follow-up
+              </button>
+            )}
+            {onExtractDecision && (
+              <button
+                type="button"
+                className="reveal-chip"
+                disabled={busyAction !== null}
+                onClick={() => void runThreadAction('decision', onExtractDecision)}
+                style={{ cursor: busyAction !== null ? 'default' : 'pointer' }}
+              >
+                Extract decision
+              </button>
+            )}
+            {onSynthesizeSelection && (
+              <button
+                type="button"
+                className="reveal-chip"
+                disabled={busyAction !== null}
+                onClick={() => void runThreadAction('synthesize', onSynthesizeSelection)}
+                style={{ cursor: busyAction !== null ? 'default' : 'pointer' }}
+              >
+                Synthesize from selection
+              </button>
+            )}
+          </div>
+        )}
 
       {/* Scrollable body — full width always */}
       <div className="flex-1 overflow-y-auto" style={{ padding: '28px 28px 24px' }}>
@@ -278,4 +375,4 @@ function SignalCell({ label, value }: { label: string; value: string }) {
       <div style={{ fontSize: '13px', color, fontWeight: 500 }}>{value}</div>
     </div>
   );
-}
+}
