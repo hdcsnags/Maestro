@@ -622,6 +622,8 @@ export async function executeJob(
 interface SessionContextBundle {
   /** Glob pattern for this builder's scope, default "**" (all files). */
   scope?: string;
+  /** Exact scope globs/paths for this builder. */
+  scope_paths?: string[];
   /** Raw content of ARCHITECT.md from the cloned repo or web-side fetch. */
   architect_content?: string;
   /** Files this session is expected to produce. Used for fix-pass detection. */
@@ -698,7 +700,14 @@ function buildSessionPrompt(job: ExecutorJob, bundle: SessionContextBundle): str
     "",
   ];
 
-  if (bundle.scope && bundle.scope !== "**") {
+  if (bundle.scope_paths && bundle.scope_paths.length > 0) {
+    parts.push(
+      "SCOPE PATHS — you are responsible only for these paths/patterns:",
+      ...bundle.scope_paths.map((scopePath) => `  - ${scopePath}`),
+      "Only create or modify files that match these scope paths.",
+      "",
+    );
+  } else if (bundle.scope && bundle.scope !== "**") {
     parts.push(
       `SCOPE: You are responsible for files matching: ${bundle.scope}`,
       "Only create files within your scope. Do not modify files outside your scope.",

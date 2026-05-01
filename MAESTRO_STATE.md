@@ -178,6 +178,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 9 topbar status chip: ClawMode now uses one interactive status chip for concierge model, executor status, key count, and execution mode switching, and the old mode banner is removed in favor of the chip’s inline detail panel | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 10 realtime progress: build task progress now hydrates from live `build_tasks` updates, executor/session jobs resolve through Supabase Realtime instead of polling, and runway/workspace execution views stream live stdout/stderr snippets from `executor_job_events` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | MaestroClaw hardening Phase A: executor `retry` events now match the DB schema, Claude session runs drop `--print`, `build_session` outputs are filtered back to allowed scope before checkpoint/reporting, and large local artifact manifests can hydrate from chunked `artifact` events instead of relying on one oversized completion payload | 2026-05-01 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
+| MaestroClaw alignment Phase B: local session builds now forward exact `scope_paths`, literal `expected_files`, and a bounded set of sibling `context_files`, the worker prompt renders exact scope lists, and executor tokens can be rotated/reissued from both `executor-api` and the Executor UI | 2026-05-01 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -301,6 +302,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw alignment Phase B
+
+**What was done**:
+1. Added executor token rotation to `executor-api`, returning a one-time replacement token while forcing the rotated executor back to `offline` so stale tokens stop being treated as live nodes.
+2. Updated `ExecutorSection.tsx` with per-executor rotate controls and a reusable one-time token reveal panel so newly rotated tokens are surfaced the same way as registration tokens.
+3. Extended local `build_session` dispatch in `useBuildExecution.ts` to send exact `scope_paths`, literal `expected_files`, and a bounded set of sibling `context_files` fetched from the connected GitHub repo through `github-read`.
+4. Updated the MaestroClaw worker prompt builder to render exact scope-path lists when provided, instead of collapsing everything to a single coarse summary string.
+5. Re-ran app `typecheck`, app `build`, and `npm --prefix packages\maestroclaw run build`.
+
+**Files touched**: `supabase/functions/executor-api/index.ts`, `src/components/reveal/ExecutorSection.tsx`, `src/hooks/useBuildExecution.ts`, `packages/maestroclaw/src/executor.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Derived `expected_files` only from literal scoped file paths, which gives the worker concrete completion targets without pretending that broad globs can be enumerated safely client-side.
+- Limited `context_files` to a small set of sibling literal files from the connected repo and skipped oversized files, keeping `executor-api?action=submit` under its existing body limit instead of creating a second artifact upload path.
+- Forced rotated executors offline immediately so token rotation acts like a real credential rollover, not just a hidden duplicate secret.
+
+**What didn't work**:
+- This pass still does not add rename/edit executor metadata or a richer executor operations dashboard; rotation/reissue was the production-critical control added here.
+- Edge-function deployment was not performed from this environment; this session updated the repo code and validation state only.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw hardening Phase A
 

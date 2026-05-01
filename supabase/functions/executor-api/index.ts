@@ -113,6 +113,7 @@ const EXECUTOR_API_BODY_LIMITS = {
   event: 262_144,
   complete: 3_145_728,
   register: 65_536,
+  rotate: 16_384,
   submit: 524_288,
   approve: 16_384,
 } as const;
@@ -559,6 +560,43 @@ Deno.serve(async (req: Request) => {
         .single();
 
       if (insertErr) return err(insertErr.message, 500);
+
+      return json({ executor, token: rawToken });
+    }
+
+    // ── ROTATE TOKEN ──────────────────────────────────────────
+    // POST ?action=rotate  body: { executor_id }
+    // Returns: updated executor + new raw token (only time it's shown)
+    if (req.method === "POST" && action === "rotate") {
+      const bodyResult = await readJsonBody<{ executor_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.rotate,
+        label: "Executor rotate body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+      const executorId = typeof body.executor_id === "string" ? body.executor_id.trim() : "";
+
+      if (!executorId) return err("executor_id is required");
+
+      const rawToken = crypto.randomUUID() + "-" + crypto.randomUUID();
+      const tokenHash = await hashToken(rawToken);
+      const now = new Date().toISOString();
+
+      const { data: executor, error: rotateErr } = await supabase
+        .from("executors")
+        .update({
+          token_hash: tokenHash,
+          status: "offline",
+          last_seen_at: null,
+          updated_at: now,
+        })
+        .eq("id", executorId)
+        .eq("owner_user_id", userId)
+        .select()
+        .maybeSingle();
+
+      if (rotateErr) return err(rotateErr.message, 500);
+      if (!executor) return err("Executor not found", 404);
 
       return json({ executor, token: rawToken });
     }

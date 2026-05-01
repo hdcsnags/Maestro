@@ -48,6 +48,8 @@ export default function ExecutorSection() {
   const [jobPrompt, setJobPrompt] = useState('');
   const [jobAdapter, setJobAdapter] = useState('claude_code');
   const [submitting, setSubmitting] = useState(false);
+  const [rotatingExecutorId, setRotatingExecutorId] = useState<string | null>(null);
+  const [tokenMessage, setTokenMessage] = useState('Save this token — it\'s shown only once');
 
   const executors = state.executors;
   const jobs = state.executorJobs;
@@ -72,6 +74,8 @@ export default function ExecutorSection() {
     setRegistering(true);
     setError('');
     setNewToken(null);
+    setCopied(false);
+    setTokenMessage('Save this token — it\'s shown only once');
     try {
       const data = await invokeEdgeFunction<{ executor: Executor; token: string }>(
         'executor-api?action=register',
@@ -91,6 +95,29 @@ export default function ExecutorSection() {
     if (!user) return;
     await supabase.from('executors').delete().eq('id', id).eq('owner_user_id', user.id);
     dispatch({ type: 'SET_EXECUTORS', payload: executors.filter(e => e.id !== id) });
+  };
+
+  const handleRotate = async (executor: Executor) => {
+    setRotatingExecutorId(executor.id);
+    setError('');
+    setNewToken(null);
+    setCopied(false);
+    try {
+      const data = await invokeEdgeFunction<{ executor: Executor; token: string }>(
+        'executor-api?action=rotate',
+        { executor_id: executor.id },
+      );
+      dispatch({
+        type: 'SET_EXECUTORS',
+        payload: executors.map((entry) => (entry.id === executor.id ? data.executor : entry)),
+      });
+      setTokenMessage(`Token rotated for ${executor.name}. Restart that executor with this new token.`);
+      setNewToken(data.token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Token rotation failed');
+    } finally {
+      setRotatingExecutorId(null);
+    }
   };
 
   const handleSubmitJob = async () => {
@@ -155,6 +182,36 @@ export default function ExecutorSection() {
         </div>
       </div>
 
+      {newToken && (
+        <div
+          className="rounded-lg p-3 mb-3"
+          style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)' }}
+        >
+          <div style={{ fontSize: '12px', color: 'var(--gold)', fontWeight: 600, marginBottom: '6px' }}>
+            {tokenMessage}
+          </div>
+          <div className="flex items-center gap-2">
+            <code
+              style={{
+                flex: 1,
+                fontSize: '11px',
+                background: 'rgba(0,0,0,0.3)',
+                padding: '6px 8px',
+                borderRadius: '6px',
+                color: 'rgba(255,255,255,0.8)',
+                wordBreak: 'break-all',
+                userSelect: 'all',
+              }}
+            >
+              {newToken}
+            </code>
+            <button onClick={copyToken} className="reveal-pill" style={{ padding: '4px 8px' }}>
+              {copied ? <Check size={14} style={{ color: '#4ade80' }} /> : <Copy size={14} />}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Registration form */}
       {showRegister && (
         <div
@@ -196,36 +253,6 @@ export default function ExecutorSection() {
             <div style={{ color: 'var(--risk)', fontSize: '12px', marginTop: '6px' }}>{error}</div>
           )}
 
-          {/* Token reveal — shown once */}
-          {newToken && (
-            <div
-              className="rounded-lg p-3 mt-3"
-              style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.25)' }}
-            >
-              <div style={{ fontSize: '12px', color: 'var(--gold)', fontWeight: 600, marginBottom: '6px' }}>
-                ⚠️ Save this token — it's shown only once
-              </div>
-              <div className="flex items-center gap-2">
-                <code
-                  style={{
-                    flex: 1,
-                    fontSize: '11px',
-                    background: 'rgba(0,0,0,0.3)',
-                    padding: '6px 8px',
-                    borderRadius: '6px',
-                    color: 'rgba(255,255,255,0.8)',
-                    wordBreak: 'break-all',
-                    userSelect: 'all',
-                  }}
-                >
-                  {newToken}
-                </code>
-                <button onClick={copyToken} className="reveal-pill" style={{ padding: '4px 8px' }}>
-                  {copied ? <Check size={14} style={{ color: '#4ade80' }} /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -321,14 +348,25 @@ export default function ExecutorSection() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => handleDelete(ex.id)}
-                className="reveal-pill"
-                style={{ padding: '4px 6px', opacity: 0.5 }}
-                title="Remove executor"
-              >
-                <Trash2 size={12} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleRotate(ex)}
+                  className="reveal-pill"
+                  style={{ padding: '4px 6px', opacity: 0.75 }}
+                  title="Rotate token"
+                  disabled={rotatingExecutorId === ex.id}
+                >
+                  <RefreshCw size={12} className={rotatingExecutorId === ex.id ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  onClick={() => handleDelete(ex.id)}
+                  className="reveal-pill"
+                  style={{ padding: '4px 6px', opacity: 0.5 }}
+                  title="Remove executor"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
           ))}
         </div>

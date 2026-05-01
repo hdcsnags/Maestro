@@ -91,6 +91,11 @@ interface JobOutputState {
   stderr: string;
 }
 
+interface GitHubReadFileResult {
+  path: string;
+  content: string;
+}
+
 interface DecomposeResult {
   phase?: string;
   total_tasks?: number;
@@ -112,6 +117,9 @@ interface DecomposeResult {
   message?: string;
 }
 
+const MAX_SESSION_CONTEXT_FILES = 3;
+const MAX_SESSION_CONTEXT_CHARS = 12_000;
+
 function mapJobStatusToRunStatus(status: string): SessionRunProgress['status'] {
   if (status === 'running' || status === 'claimed') return 'running';
   if (status === 'succeeded') return 'succeeded';
@@ -127,6 +135,24 @@ function appendJobOutput(existing: string, incoming: string): string {
   const next = [existing, incoming.trim()].filter(Boolean).join('\n\n').trim();
   if (next.length <= 6000) return next;
   return next.slice(next.length - 6000);
+}
+
+function normalizeScopedPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '').trim();
+}
+
+function isLiteralScopedFile(path: string): boolean {
+  const normalized = normalizeScopedPath(path);
+  if (!normalized || normalized.endsWith('/')) return false;
+  return !/[*?[\]{}]/.test(normalized);
+}
+
+function listLiteralScopeFiles(paths: string[]): string[] {
+  return Array.from(new Set(
+    paths
+      .map(normalizeScopedPath)
+      .filter(isLiteralScopedFile),
+  ));
 }
 
 function deriveSessionProgress(runs: SessionRunProgress[]): SessionBuildProgress {
@@ -740,10 +766,38 @@ export function useBuildExecution() {
 
       const basePrompt = state.buildPlan?.build_prompt ?? state.activeSession?.title ?? 'Build this project';
       const architectMd = state.activeSession?.architect_md;
+      const repoConnectionId = state.activeRepoConnection?.id ?? null;
+      const repoFileCache = new Map<string, Promise<{ path: string; content: string } | null>>();
+      const fetchRepoContextFile = async (path: string) => {
+        const normalizedPath = normalizeScopedPath(path);
+        if (!repoConnectionId || !normalizedPath) return null;
+
+        const cached = repoFileCache.get(normalizedPath);
+        if (cached) return await cached;
+
+        const request = invokeEdgeFunction<GitHubReadFileResult>('github-read', {
+          action: 'get_file',
+          repo_connection_id: repoConnectionId,
+          path: normalizedPath,
+        }).then((file) => {
+          const content = typeof file.content === 'string' ? file.content : '';
+          if (!content || content.length > MAX_SESSION_CONTEXT_CHARS) return null;
+          return { path: normalizedPath, content };
+        }).catch(() => null);
+
+        repoFileCache.set(normalizedPath, request);
+        return await request;
+      };
       const results = await Promise.all(normalizedSpecs.map(async (spec) => {
-        const scopeLabel = spec.scopePaths.length === 1
-          ? spec.scopePaths[0]
-          : `${spec.scopePaths[0]} +${spec.scopePaths.length - 1} more`;
+        const expectedFiles = listLiteralScopeFiles(spec.scopePaths);
+        const contextCandidates = normalizedSpecs
+          .filter((candidate) => candidate.key !== spec.key)
+          .flatMap((candidate) => listLiteralScopeFiles(candidate.scopePaths))
+          .filter((path, index, all) => all.indexOf(path) === index)
+          .filter((path) => !expectedFiles.includes(path))
+          .slice(0, MAX_SESSION_CONTEXT_FILES);
+        const contextFiles = (await Promise.all(contextCandidates.map((path) => fetchRepoContextFile(path))))
+          .filter((entry): entry is { path: string; content: string } => entry !== null);
         const prompt = [
           basePrompt,
           '',
@@ -764,13 +818,15 @@ export function useBuildExecution() {
           refreshExecutors,
           adapter: spec.adapter,
           prompt,
-          scope: scopeLabel,
+          scope: spec.scopePaths.join(', '),
           allowedPaths: spec.scopePaths,
           architectMd,
           contextBundle: {
             scope_paths: spec.scopePaths,
             builder_name: spec.builderName,
             builder_instruction: spec.instruction ?? null,
+            expected_files: expectedFiles.length > 0 ? expectedFiles : undefined,
+            context_files: contextFiles.length > 0 ? contextFiles : undefined,
           },
         });
 
