@@ -86,10 +86,38 @@ export interface ThreadMessage {
   created_at: string;
 }
 
+export type ThreadMessageKind =
+  | 'concierge_decision'
+  | 'concierge_triage'
+  | 'execution_approval'
+  | 'execution_intent'
+  | 'execution_status'
+  | 'build_status'
+  | 'pr_opened'
+  | 'file_manifest'
+  | 'error_retry'
+  | 'info';
+
+export interface ThreadSystemEvent {
+  tone: 'build' | 'execute' | 'approval' | 'pr' | 'error' | 'info';
+  title: string;
+  body?: string;
+  command?: string;
+  adapter?: string;
+  trust?: string;
+  pr_urls?: string[];
+  written_files?: string[];
+  skipped_files?: Array<{ path: string; reason: string }>;
+  backup_branch?: string;
+}
+
 export interface ThreadMessageMetadata extends Record<string, unknown> {
-  kind?: 'concierge_decision' | 'concierge_triage';
+  kind?: ThreadMessageKind;
   decision?: ConciergeDecision;
   triage?: TriageResult;
+  system_event?: ThreadSystemEvent;
+  intent?: ExecutionIntent;
+  job_id?: string;
   round_id?: string;
   round_number?: number;
   prompt?: string;

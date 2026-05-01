@@ -534,6 +534,19 @@ export function useThreads() {
     return msg;
   }, [user, dispatch]);
 
+  const addSystemEvent = useCallback(async (
+    threadId: string,
+    metadata: ThreadMessage['metadata'],
+  ) => {
+    const event = metadata.system_event;
+    const content = [
+      event?.title,
+      event?.body,
+      event?.command ? `Command: ${event.command}` : null,
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0).join('\n\n');
+    return addMessage(threadId, 'system', content || 'System update', undefined, metadata);
+  }, [addMessage]);
+
   // Build conversation history for the orchestrate call
   const buildConversationContext = useCallback((threadId: string): string => {
     const messages = state.threadMessages
@@ -595,12 +608,19 @@ export function useThreads() {
     } catch (err) {
       // On error, save a system message so the user sees what happened
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `Error: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Concierge request failed',
+          body: errorMessage,
+        },
+      });
       return null;
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, buildConversationContext, dispatch, resolveConciergeRuntime]);
+  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, addSystemEvent, buildConversationContext, dispatch, resolveConciergeRuntime]);
 
   // Send a message to a specific agent in a direct thread
   const sendToAgent = useCallback(async (
@@ -648,12 +668,19 @@ export function useThreads() {
       return agentMsg;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `Error: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Agent request failed',
+          body: errorMessage,
+        },
+      });
       return null;
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.agents, ensureAuth, addMessage, buildConversationContext, dispatch]);
+  }, [user, state.activeSession, state.agents, ensureAuth, addMessage, addSystemEvent, buildConversationContext, dispatch]);
 
   // Parse user message into an execution intent via Concierge
   const parseExecutionIntent = useCallback(async (
@@ -729,21 +756,49 @@ export function useThreads() {
         dispatch({ type: 'ADD_EXECUTOR_JOB', payload: result.job });
 
         const requiresApproval = result.job.approval_required && result.job.status === 'queued';
-
-        const statusIcon = requiresApproval ? '⏳' : '⚡';
-        const statusText = requiresApproval
-          ? `${statusIcon} Awaiting approval: **${intent.description}**\n\nCommand: \`${intent.command || intent.action}\``
-          : `${statusIcon} Executing: ${intent.description}`;
-        await addMessage(threadId, 'system', statusText);
+        await addSystemEvent(threadId, requiresApproval
+          ? {
+              kind: 'execution_approval',
+              job_id: result.job.id,
+              intent,
+              system_event: {
+                tone: 'approval',
+                title: 'Approval required',
+                body: intent.description,
+                command: intent.command || intent.action,
+                adapter: intent.adapter,
+                trust: intent.trust,
+              },
+            }
+          : {
+              kind: 'execution_status',
+              job_id: result.job.id,
+              intent,
+              system_event: {
+                tone: 'execute',
+                title: 'Executing',
+                body: intent.description,
+                command: intent.command || intent.action,
+                adapter: intent.adapter,
+                trust: intent.trust,
+              },
+            });
       }
 
       return result.job;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Failed to submit job: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Failed to submit job',
+          body: errorMessage,
+        },
+      });
       return null;
     }
-  }, [user, state.activeSession, callExecutorApi, addMessage, dispatch]);
+  }, [user, state.activeSession, callExecutorApi, addSystemEvent, dispatch]);
 
   // Approve a queued execution job
   const approveExecutionJob = useCallback(async (
@@ -757,16 +812,32 @@ export function useThreads() {
 
       if (result.job) {
         dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: result.job });
-        await addMessage(threadId, 'system', '✅ Approved — job sent to executor.');
+        await addSystemEvent(threadId, {
+          kind: 'execution_status',
+          job_id: jobId,
+          system_event: {
+            tone: 'approval',
+            title: 'Approved',
+            body: 'Job sent to the executor.',
+          },
+        });
         return true;
       }
       return false;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Approval failed: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        job_id: jobId,
+        system_event: {
+          tone: 'error',
+          title: 'Approval failed',
+          body: errorMessage,
+        },
+      });
       return false;
     }
-  }, [callExecutorApi, addMessage, dispatch]);
+  }, [callExecutorApi, addSystemEvent, dispatch]);
 
   // Poll a job's status and post updates to the thread
   const pollJobStatus = useCallback(async (
@@ -786,14 +857,30 @@ export function useThreads() {
 
     if (job.status === 'succeeded') {
       const summary = job.result_summary || 'Completed successfully.';
-      await addMessage(threadId, 'system', `✅ **Done**: ${summary}`);
+      await addSystemEvent(threadId, {
+        kind: 'execution_status',
+        job_id: jobId,
+        system_event: {
+          tone: 'execute',
+          title: 'Execution complete',
+          body: summary,
+        },
+      });
     } else if (job.status === 'failed') {
       const errText = job.error_text || 'Unknown failure.';
-      await addMessage(threadId, 'system', `❌ **Failed**: ${errText}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        job_id: jobId,
+        system_event: {
+          tone: 'error',
+          title: 'Execution failed',
+          body: errText,
+        },
+      });
     }
 
     return job;
-  }, [addMessage, dispatch]);
+  }, [addSystemEvent, dispatch]);
 
   // Full execute flow: parse → approve/auto → submit → poll
   const executeFromChat = useCallback(async (
@@ -809,9 +896,14 @@ export function useThreads() {
       return Date.now() - new Date(ex.last_seen_at).getTime() < 60_000;
     });
     if (!hasOnlineExecutor) {
-      await addMessage(threadId, 'system',
-        '⚠️ No executor is currently online.\n\nStart MaestroClaw on your local machine, then try again. Check the Vault → Executors panel for status.'
-      );
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'No executor online',
+          body: 'Start MaestroClaw on your local machine, then try again. Check the Vault → Executors panel for status.',
+        },
+      });
       return;
     }
 
@@ -826,30 +918,62 @@ export function useThreads() {
 
       let intent: ExecutionIntent | null = localIntent;
       if (localIntent) {
-        await addMessage(threadId, 'system', '⚡ Parsed locally — skipping the cloud intent parser for this command.');
+        await addSystemEvent(threadId, {
+          kind: 'info',
+          system_event: {
+            tone: 'info',
+            title: 'Parsed locally',
+            body: 'Skipping the cloud intent parser for this command.',
+          },
+        });
       } else {
         if (!hasConciergeProvider) {
-          await addMessage(threadId, 'system',
-            '⚠️ No AI provider is connected.\n\nAdd an API key in Vault to allow Maestro to parse complex execution requests, or enter a direct command like `npm run build`.'
-          );
+          await addSystemEvent(threadId, {
+            kind: 'error_retry',
+            system_event: {
+              tone: 'error',
+              title: 'No AI provider connected',
+              body: 'Add an API key in Vault to allow Maestro to parse complex execution requests, or enter a direct command like `npm run build`.',
+            },
+          });
           return;
         }
 
-        await addMessage(threadId, 'system', '🔍 Parsing execution intent...');
+        await addSystemEvent(threadId, {
+          kind: 'info',
+          system_event: {
+            tone: 'info',
+            title: 'Parsing execution intent',
+          },
+        });
         intent = await parseExecutionIntent(userMessage);
       }
 
       if (!intent) {
-        await addMessage(threadId, 'system',
-          '❌ Could not parse execution intent.\n\nMake sure your Anthropic or OpenAI key is connected in Vault. Try rephrasing the command more specifically (e.g. "run npm install" or "list files in src/").'
-        );
+        await addSystemEvent(threadId, {
+          kind: 'error_retry',
+          system_event: {
+            tone: 'error',
+            title: 'Could not parse execution intent',
+            body: 'Make sure your Anthropic or OpenAI key is connected in Vault. Try rephrasing the command more specifically (for example, "run npm install" or "list files in src/").',
+          },
+        });
         return;
       }
 
       // Show what we parsed
-      await addMessage(threadId, 'system',
-        `📋 **${intent.description}**\nAction: \`${intent.action}\`${intent.command ? `\nCommand: \`${intent.command}\`` : ''}\nAdapter: ${intent.adapter}\nTrust: ${intent.trust}`
-      );
+      await addSystemEvent(threadId, {
+        kind: 'execution_intent',
+        intent,
+        system_event: {
+          tone: 'execute',
+          title: intent.description,
+          body: `Action: ${intent.action}\nAdapter: ${intent.adapter}\nTrust: ${intent.trust}`,
+          command: intent.command,
+          adapter: intent.adapter,
+          trust: intent.trust,
+        },
+      });
 
       // Submit the job
       const job = await submitExecutionJob(intent, threadId);
@@ -876,17 +1000,32 @@ export function useThreads() {
             return;
           }
         }
-        await addMessage(threadId, 'system', '⏰ Execution timed out. Check executor status.');
+        await addSystemEvent(threadId, {
+          kind: 'error_retry',
+          job_id: job.id,
+          system_event: {
+            tone: 'error',
+            title: 'Execution timed out',
+            body: 'Check executor status and retry the command.',
+          },
+        });
       };
 
       await poll();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Execution error: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Execution error',
+          body: errorMessage,
+        },
+      });
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
+  }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, addSystemEvent, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
   const buildFromChat = useCallback(async (
     threadId: string,
@@ -919,7 +1058,16 @@ export function useThreads() {
       await addMessage(
         threadId,
         'system',
-        '🏗️ Build runway is already active.\n\nUse the in-thread runway card to monitor progress, review outputs, or open the advanced workspace view.',
+        'Build runway is already active.',
+        undefined,
+        {
+          kind: 'build_status',
+          system_event: {
+            tone: 'build',
+            title: 'Build runway already active',
+            body: 'Use the in-thread runway card to monitor progress, review outputs, or open the advanced workspace view.',
+          },
+        },
       );
       return;
     }
@@ -928,7 +1076,13 @@ export function useThreads() {
 
     try {
       await addMessage(threadId, 'user', `🏗️ ${userMessage}`);
-      await addMessage(threadId, 'system', '🧭 Checking build setup…');
+      await addSystemEvent(threadId, {
+        kind: 'info',
+        system_event: {
+          tone: 'build',
+          title: 'Checking build setup',
+        },
+      });
 
       const buildSetup = getBuildSetupStatus();
       const nextBuildSpec = {
@@ -942,11 +1096,14 @@ export function useThreads() {
         dispatch({ type: 'SHOW_TOAST', payload: 'Finish Pre-Build setup before starting Build' });
 
         const missingList = buildSetup.missing.map((item) => `- ${item}`).join('\n');
-        await addMessage(
-          threadId,
-          'system',
-          `🏗️ Build handoff paused.\n\nBefore Maestro can start the real build flow, Pre-Build still needs:\n${missingList}\n\nThat is where you choose the builder roster and backend for this session — including whether Build should use cloud builders or MaestroClaw/CLI builders like Claude Code, Copilot CLI, or Codex.`,
-        );
+        await addSystemEvent(threadId, {
+          kind: 'build_status',
+          system_event: {
+            tone: 'build',
+            title: 'Pre-Build required',
+            body: `Before Maestro can start the real build flow, Pre-Build still needs:\n${missingList}\n\nThat is where you choose the builder roster and backend for this session — including whether Build should use cloud builders or MaestroClaw/CLI builders like Claude Code, Copilot CLI, or Codex.`,
+          },
+        });
         return;
       }
 
@@ -981,18 +1138,28 @@ export function useThreads() {
         defaultAdapter: localRouting.defaultAdapter,
       }});
 
-      await addMessage(
-        threadId,
-        'system',
-        `🏗️ Build runway ready.\n\nLocked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nReview the in-thread runway card to start the build, watch progress, and push to GitHub without leaving this thread.`,
-      );
+      await addSystemEvent(threadId, {
+        kind: 'build_status',
+        system_event: {
+          tone: 'build',
+          title: 'Build runway ready',
+          body: `Locked builders: ${builderLabel}\nBackend: ${backendLabel}\nSaved request: ${summarizeBuildRequest(userMessage)}\n\nReview the in-thread runway card to start the build, watch progress, and push to GitHub without leaving this thread.`,
+        },
+      });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      await addMessage(threadId, 'system', `❌ Build handoff error: ${errorMessage}`);
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Build handoff failed',
+          body: errorMessage,
+        },
+      });
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.clawBuildSession, addMessage, getBuildSetupStatus, updateSessionBuildState, dispatch, resolveLocalBuildRouting]);
+  }, [user, state.activeSession, state.clawBuildSession, addMessage, addSystemEvent, getBuildSetupStatus, updateSessionBuildState, dispatch, resolveLocalBuildRouting]);
 
   return {
     loadThreads,

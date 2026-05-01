@@ -8,6 +8,7 @@ import { invokeEdgeFunction } from '../../lib/functions';
 import { selectOnlineExecutor } from '../../lib/sessionBuild';
 import { useMaestro } from '../../context/MaestroContext';
 import { useBuildExecution } from '../../hooks/useBuildExecution';
+import { useThreads } from '../../hooks/useThreads';
 import type { BuildPlan, BuildTask, ClawBuildSessionState } from '../../types';
 
 interface NormalizedBuilderAgent {
@@ -97,6 +98,7 @@ function createEmptyPushState(): PushResultState {
 export default function BuildRunwayCard({ session }: { session: ClawBuildSessionState }) {
   const { state, dispatch } = useMaestro();
   const buildExec = useBuildExecution();
+  const { addMessage } = useThreads();
   const [scopeOverride, setScopeOverride] = useState(session.suggestedScope || '**');
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
@@ -323,6 +325,18 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
         pushCollisionCount: result.collisionCount,
         pushHandoffs: result.handoffs,
       });
+      await addMessage(session.threadId, 'system', 'Pull request ready.', undefined, {
+        kind: 'pr_opened',
+        system_event: {
+          tone: 'pr',
+          title: 'Pull request ready',
+          body: `${result.writtenFiles.length} files written${result.skippedFiles.length > 0 ? ` · ${result.skippedFiles.length} skipped` : ''}`,
+          pr_urls: result.prUrls,
+          written_files: result.writtenFiles,
+          skipped_files: result.skippedFiles,
+          backup_branch: result.backupBranch,
+        },
+      });
     } catch (error) {
       setPushResult(prev => ({
         ...prev,
@@ -330,7 +344,7 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
         pushError: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [usesSessionBuild, buildExec]);
+  }, [usesSessionBuild, buildExec, addMessage, session.threadId]);
 
   return (
     <div className="mx-3 mb-3 overflow-hidden rounded-2xl border border-signal-ok/25 bg-signal-ok/[0.04]">

@@ -171,6 +171,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 2 shell cutover: `WorkspacePage.tsx` now always renders the thread-first `ClawMode` shell, and `ClawMode` rehydrates the concierge thread per session instead of falling back to the legacy stage tree | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 3 concierge cards: quick-answer triage and concierge synthesis now persist as inline thread event cards, reusing the existing proceed/round-2/override/report/build actions without reopening a modal | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Unified UX Phase 4 build runway: build chat now always opens an in-thread runway card, and the runway can execute task builds or local session builds and push to GitHub without ejecting to the drawer | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 7 premium event cards: new system-thread flows now write typed `thread_messages.metadata` payloads for execution approvals, command status, build handoff, PR-opened results, and errors, while legacy plain-text system messages still render as a compatibility fallback | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -294,6 +295,26 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 7 premium event cards
+
+**What was done**:
+1. Added a typed system-event metadata model in `src/types/index.ts` and converted new thread-system writes in `useThreads.ts` from emoji-prefixed plain text into structured event payloads.
+2. Added the `src/components/reveal/EventCards/` renderer set (`ExecutionApprovalCard`, `CommandResultCard`, `FileManifestCard`, `PrOpenedCard`, `ErrorRetryCard`, `InfoCard`) plus a `SystemEventCard` dispatcher.
+3. Replaced the old inline approval banner and `detectSystemCategory()` path in `ClawMode.tsx` with metadata-based card rendering, while keeping legacy system messages on the plain-text fallback path.
+4. Updated `BuildRunwayCard.tsx` to post a typed PR-opened event back into the thread after a successful GitHub push.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/hooks/useThreads.ts`, `src/components/reveal/BuildRunwayCard.tsx`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/EventCards/SystemEventCard.tsx`, `src/components/reveal/EventCards/ExecutionApprovalCard.tsx`, `src/components/reveal/EventCards/CommandResultCard.tsx`, `src/components/reveal/EventCards/FileManifestCard.tsx`, `src/components/reveal/EventCards/PrOpenedCard.tsx`, `src/components/reveal/EventCards/ErrorRetryCard.tsx`, `src/components/reveal/EventCards/InfoCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the migration backwards-compatible: old persisted system messages still render as simple thread copy, but all new system flows now prefer typed event metadata.
+- Promoted the execution approval UI into a persisted thread card so approvals survive reloads and no longer depend on a special-case shell banner.
+- Reused the shared `addMessage()` persistence path instead of inventing a second event transport, keeping system cards inside existing `thread_messages` rows.
+
+**What didn't work**:
+- This pass does not yet emit every possible build artifact as a dedicated manifest card; the file-manifest renderer exists, but current live writes are still focused on approvals, status/error updates, and PR/open results.
+- Validation here was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 4 build runway
 

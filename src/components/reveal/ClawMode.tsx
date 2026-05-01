@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { type LucideIcon, X, Loader2, Bot, User, AlertCircle, Radio, ArrowLeft, MessageSquare, Zap, Check, XCircle, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
+import { X, Loader2, Bot, User, Radio, ArrowLeft, MessageSquare, Zap, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
@@ -9,6 +9,7 @@ import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from
 import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
+import SystemEventCard from './EventCards/SystemEventCard';
 import RevealComposer from './RevealComposer';
 
 const THREAD_GROUPS = [
@@ -32,7 +33,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
-  const { ensureConciergeThread, createThread, loadThreads, loadThreadMessages, addMessage, approveExecutionJob, pollJobStatus } = useThreads();
+  const { ensureConciergeThread, createThread, loadThreads, loadThreadMessages, addMessage } = useThreads();
   const { createSession } = useWorkspace();
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
@@ -43,7 +44,6 @@ export default function ClawMode() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const initializedSessionRef = useRef<string | null>(null);
-  const executionApprovalRef = useRef<HTMLDivElement>(null);
 
   const clawView = state.clawView as ClawView;
   const focusedAgent = useMemo(
@@ -298,13 +298,6 @@ export default function ClawMode() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  useEffect(() => {
-    if (!state.pendingExecution || state.pendingExecution.threadId !== state.activeThread?.id) return;
-    requestAnimationFrame(() => {
-      executionApprovalRef.current?.focus();
-    });
-  }, [state.pendingExecution, state.activeThread?.id]);
-
   // Auto-switch to carousel when broadcast finishes
   const wasBroadcasting = useRef(false);
   useEffect(() => {
@@ -420,34 +413,6 @@ export default function ClawMode() {
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
   }, [dispatch, state.threads]);
-
-  const handleApproveExecution = useCallback(async () => {
-    const pending = state.pendingExecution;
-    if (!pending) return;
-
-    await approveExecutionJob(pending.jobId, pending.threadId);
-    dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
-
-    // Start polling for result
-    let attempts = 0;
-    const maxAttempts = 30;
-    const pollInterval = 2000;
-    while (attempts < maxAttempts) {
-      await new Promise(r => setTimeout(r, pollInterval));
-      attempts++;
-      const updated = await pollJobStatus(pending.jobId, pending.threadId);
-      if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
-    }
-    await loadThreadMessages(pending.threadId);
-  }, [state.pendingExecution, approveExecutionJob, pollJobStatus, loadThreadMessages, dispatch]);
-
-  const handleRejectExecution = useCallback(async () => {
-    const pending = state.pendingExecution;
-    if (!pending) return;
-    await addMessage(pending.threadId, 'system', 'Execution rejected by user.');
-    dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
-    await loadThreadMessages(pending.threadId);
-  }, [state.pendingExecution, addMessage, loadThreadMessages, dispatch]);
 
   // Handle thread click in sidebar
   const handleThreadClick = useCallback(async (thread: Thread) => {
@@ -754,50 +719,6 @@ export default function ClawMode() {
                 </div>
               )}
 
-              {/* Pending execution approval card */}
-              {state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id && (
-                <div
-                  ref={executionApprovalRef}
-                  tabIndex={-1}
-                  role="alertdialog"
-                  aria-modal="false"
-                  aria-labelledby="claw-execution-approval-title"
-                  aria-describedby="claw-execution-approval-body"
-                  className="mx-auto max-w-md rounded-xl border border-signal-warn/30 bg-signal-warn/10 p-4 my-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                >
-                  <div id="claw-execution-approval-title" className="flex items-center gap-2 text-signal-warn text-sm font-medium mb-2">
-                    <Zap size={14} />
-                    Approval Required
-                  </div>
-                  <div id="claw-execution-approval-body" className="text-white/70 text-sm mb-1">
-                    {state.pendingExecution.intent.description}
-                  </div>
-                  {state.pendingExecution.intent.command && (
-                    <code className="block overflow-x-auto text-xs text-white/70 bg-black/30 rounded px-2 py-1 mb-3 font-mono">
-                      {state.pendingExecution.intent.command}
-                    </code>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleApproveExecution}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-ok/80 hover:bg-signal-ok 
-                                 text-white text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                      aria-label="Approve execution"
-                    >
-                      <Check size={12} /> Approve
-                    </button>
-                    <button
-                      onClick={handleRejectExecution}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-signal-risk/20 hover:bg-signal-risk/30 
-                                 text-signal-risk text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                      aria-label="Reject execution"
-                    >
-                      <XCircle size={12} /> Reject
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* In-thread build session card (local executor) */}
               {activeClawBuildSession && (
                 <BuildRunwayCard session={activeClawBuildSession} />
@@ -893,40 +814,6 @@ export default function ClawMode() {
   );
 }
 
-// ─── Message Bubble Component ──────────────────────────────
-
-// Detect system message category from emoji prefix
-type SystemCategory = 'build' | 'execute' | 'approval' | 'pr' | 'error' | 'info';
-
-function detectSystemCategory(content: string): SystemCategory {
-  if (content.startsWith('🏗️')) return 'build';
-  if (content.startsWith('⚡') || content.startsWith('🔧')) return 'execute';
-  if (content.startsWith('✅') || content.startsWith('☑️')) return 'approval';
-  if (content.startsWith('🔀') || content.startsWith('📬')) return 'pr';
-  if (content.startsWith('❌') || content.startsWith('⚠️') || content.startsWith('🚫')) return 'error';
-  return 'info';
-}
-
-const SYSTEM_CATEGORY_STYLES: Record<SystemCategory, {
-  bg: string; border: string; icon: string; iconBg: string; text: string;
-}> = {
-  build:    { bg: 'bg-signal-ok/5',    border: 'border-signal-ok/20',   icon: 'text-signal-ok/80',   iconBg: 'bg-signal-ok/15',   text: 'text-signal-ok/80'   },
-  execute:  { bg: 'bg-gold/5',         border: 'border-gold/20',         icon: 'text-gold/80',         iconBg: 'bg-gold/15',         text: 'text-gold/80'         },
-  approval: { bg: 'bg-signal-ok/5',    border: 'border-signal-ok/20',   icon: 'text-signal-ok/80',   iconBg: 'bg-signal-ok/15',   text: 'text-white/75'        },
-  pr:       { bg: 'bg-purple-500/5',   border: 'border-purple-500/20',  icon: 'text-purple-400/80',  iconBg: 'bg-purple-500/15',  text: 'text-white/75'        },
-  error:    { bg: 'bg-signal-risk/5',  border: 'border-signal-risk/20', icon: 'text-signal-risk/80', iconBg: 'bg-signal-risk/15', text: 'text-signal-risk/80' },
-  info:     { bg: 'bg-white/[0.03]',   border: 'border-white/[0.08]',   icon: 'text-white/50',        iconBg: 'bg-white/[0.06]',   text: 'text-white/65'        },
-};
-
-const SYSTEM_CATEGORY_ICONS: Record<SystemCategory, LucideIcon> = {
-  build:    Hammer,
-  execute:  Zap,
-  approval: Check,
-  pr:       GitBranch,
-  error:    AlertCircle,
-  info:     Radio,
-};
-
 function MessageBubble({ message, modelLabel, agentColor }: {
   message: ThreadMessage;
   modelLabel: string;
@@ -943,17 +830,14 @@ function MessageBubble({ message, modelLabel, agentColor }: {
   }
 
   if (isSystem) {
-    const category = detectSystemCategory(message.content);
-    const styles = SYSTEM_CATEGORY_STYLES[category];
-    const CategoryIcon = SYSTEM_CATEGORY_ICONS[category];
+    if (metadataKind) {
+      return <SystemEventCard message={message} />;
+    }
 
     return (
-      <div className={`flex items-start gap-3 mx-1 my-0.5 px-3 py-2.5 rounded-xl border ${styles.bg} ${styles.border}`}>
-        <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${styles.iconBg}`}>
-          <CategoryIcon size={12} className={styles.icon} />
-        </div>
+      <div className="mx-1 my-0.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5">
         <div
-          className={`text-sm leading-relaxed ${styles.text} whitespace-pre-wrap flex-1 min-w-0`}
+          className="text-sm leading-relaxed text-white/65 whitespace-pre-wrap"
           style={{ whiteSpace: 'pre-wrap' }}
         >
           {message.content}
