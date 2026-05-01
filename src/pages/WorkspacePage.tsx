@@ -55,6 +55,7 @@ export default function WorkspacePage() {
   const hasContent = totalFolioItems > 0 || state.isBroadcasting;
   const activeAgentCount = state.agents.filter(a => a.is_active).length;
   const orbState = deriveOrbState(state, latestResponses, activeAgentCount);
+  const threadShellActive = !!state.activeThread;
 
   // Auto-show carousel when broadcast finishes and responses exist
   const wasBroadcasting = useRef(false);
@@ -88,8 +89,10 @@ export default function WorkspacePage() {
       const isTyping = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable;
 
       if (e.key === 'Escape') {
-        if (state.clawModeActive) {
-          dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: false });
+        if (threadShellActive) {
+          dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
+          dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+          dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
         } else if (state.executionModalOpen) {
           dispatch({ type: 'SET_EXECUTION_MODAL', payload: false });
         } else if (state.patchModalOpen) {
@@ -186,7 +189,7 @@ export default function WorkspacePage() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, state.clawModeActive, dispatch]);
+  }, [anyTransientOpen, totalFolioItems, state.folioIndex, state.rounds, state.selectedRoundIndex, state.patchModalOpen, state.executionModalOpen, threadShellActive, dispatch]);
 
   if (state.initError) {
     return (
@@ -258,7 +261,7 @@ export default function WorkspacePage() {
       />
 
       {/* Claw Mode = primary workspace when active */}
-      {state.clawModeActive ? (
+      {threadShellActive ? (
         <ClawMode />
       ) : (
         <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
@@ -286,7 +289,7 @@ export default function WorkspacePage() {
       <DesignPhase />
       <BuildWorkspace />
       <BuildReport />
-      {state.conciergeVisible && !state.clawModeActive && <ConciergePanel />}
+      {state.conciergeVisible && !threadShellActive && <ConciergePanel />}
       <Toast />
     </div>
   );

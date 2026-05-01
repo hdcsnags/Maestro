@@ -10,15 +10,17 @@ import {
   Round,
   Synthesis,
   ResponseArtifact,
-  OrchestrationMode,
   FileManifestEntry,
   ConciergeDecision,
   ConciergePhase,
   Session,
 } from '../types';
 
+type BroadcastMode = 'analysis' | 'build';
+type AgentCallMode = BroadcastMode | 'build_task';
+
 interface BroadcastOptions {
-  modeOverride?: OrchestrationMode;
+  modeOverride?: BroadcastMode;
   skipSynthesis?: boolean;
   skipTriage?: boolean;
   promptOverridesByAgentId?: Record<string, string>;
@@ -101,10 +103,11 @@ export function useOrchestration() {
     }
   }, [user, state.activeSession, state.executionMode, dispatch]);
 
-  const buildTieredContext = useCallback((prompt: string, mode: OrchestrationMode = 'analysis') => {
+  const buildTieredContext = useCallback((prompt: string, mode?: BroadcastMode) => {
     const sessionId = state.activeSession?.id;
     if (!sessionId) return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
-    if (mode === 'build') return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
+    const resolvedMode = mode ?? (state.activeSession?.mode === 'build' ? 'build' : 'analysis');
+    if (resolvedMode === 'build') return { contextText: '', indicator: [] as string[], contextFiles: [] as { path: string }[] };
 
     const sessionRounds = state.rounds
       .filter(r => r.session_id === sessionId)
@@ -176,7 +179,7 @@ export function useOrchestration() {
     agent: Agent,
     prompt: string,
     roundId: string,
-    mode: OrchestrationMode = 'analysis',
+    mode: AgentCallMode = 'analysis',
     tieredContext = '',
     contextFiles: { path: string }[] = [],
   ) => {
@@ -332,9 +335,15 @@ export function useOrchestration() {
   ) => {
     const activeSession = sessionOverride ?? state.activeSession;
     if (!user || !activeSession || !state.workspace) return;
-    const broadcastMode = options.modeOverride ?? state.orchestrationMode;
-
     const phase = activeSession.current_phase;
+    const broadcastMode = options.modeOverride ?? (
+      activeSession.mode === 'build'
+      || phase === 'pre_build'
+      || phase === 'build'
+      || phase === 'bouncer'
+        ? 'build'
+        : 'analysis'
+    );
     const skipTriage = options.skipTriage || activeSession.mode === 'build' || broadcastMode === 'build' || phase === 'build' || phase === 'pre_build' || state.rounds.length > 0;
 
     if (!skipTriage) {

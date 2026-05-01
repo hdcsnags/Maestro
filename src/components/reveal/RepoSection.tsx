@@ -512,7 +512,7 @@ export default function RepoSection() {
                   {saving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
                   Connect repo
                 </button>
-                {state.orchestrationMode === 'build' && (
+                {state.activeSession?.mode === 'build' && (
                   <button
                     className="reveal-pill"
                     style={{ height: '30px', fontSize: '11px' }}

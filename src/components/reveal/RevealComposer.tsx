@@ -1,9 +1,11 @@
 import { useState, useRef, useMemo, useEffect, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
+import { useThreads } from '../../hooks/useThreads';
+import { useWorkspace } from '../../hooks/useWorkspace';
 import { supabase } from '../../lib/supabase';
 import { Send, Music, AlertTriangle, Terminal } from 'lucide-react';
-import { OrchestrationMode, SessionMode } from '../../types';
+import { SessionMode } from '../../types';
 import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
 
 interface Props {
@@ -13,6 +15,8 @@ interface Props {
 export default function RevealComposer({ onBroadcast }: Props) {
   const { state, dispatch } = useMaestro();
   const { buildTieredContext } = useOrchestration();
+  const { ensureConciergeThread } = useThreads();
+  const { createSession } = useWorkspace();
   const [prompt, setPrompt] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>(
     state.agents.filter(a => a.is_active).map(a => a.id)
@@ -62,10 +66,6 @@ export default function RevealComposer({ onBroadcast }: Props) {
   const handleSessionModeChange = async (mode: SessionMode) => {
     setPendingSessionMode(mode);
 
-    if (mode === 'ask' && state.orchestrationMode !== 'analysis') {
-      dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: 'analysis' });
-    }
-
     if (!state.activeSession) return;
 
     await supabase
@@ -80,6 +80,23 @@ export default function RevealComposer({ onBroadcast }: Props) {
         session.id === state.activeSession?.id ? { ...session, mode } : session,
       ),
     });
+  };
+
+  const handleOpenThreadWorkspace = async () => {
+    let sessionForThread = state.activeSession;
+    if (!sessionForThread && state.workspace) {
+      const created = await createSession(state.workspace.id, sessionMode);
+      if (!created) return;
+      sessionForThread = created;
+    }
+    if (!sessionForThread) return;
+
+    const conciergeThread = await ensureConciergeThread(sessionForThread.id);
+    if (!conciergeThread) return;
+
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
   };
 
   const handleBroadcast = async () => {
@@ -307,45 +324,6 @@ export default function RevealComposer({ onBroadcast }: Props) {
             })}
           </div>
 
-          <div
-            className="flex items-center"
-            style={{
-              padding: '3px',
-              borderRadius: '999px',
-              border: '1px solid rgba(255,255,255,0.07)',
-              background: 'rgba(255,255,255,0.02)',
-            }}
-          >
-            {(['analysis', 'build', 'artifact'] as OrchestrationMode[])
-              .filter(m => sessionMode === 'ask' ? m === 'analysis' : true)
-              .map(m => {
-                const active = state.orchestrationMode === m;
-                return (
-                  <button
-                    key={m}
-                    onClick={() => dispatch({ type: 'SET_ORCHESTRATION_MODE', payload: m })}
-                    style={{
-                      height: '28px',
-                      padding: '0 12px',
-                      borderRadius: '999px',
-                      border: 'none',
-                      background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
-                      color: active ? 'var(--gold)' : 'var(--text-dim)',
-                      fontSize: '11px',
-                      letterSpacing: '0.06em',
-                      textTransform: 'capitalize' as const,
-                      cursor: 'pointer',
-                      fontWeight: active ? 500 : 400,
-                      transition: 'all 0.15s ease',
-                    }}
-                    title={`${m.charAt(0).toUpperCase() + m.slice(1)} mode`}
-                  >
-                    {m}
-                  </button>
-                );
-              })}
-          </div>
-
           <button
             className="reveal-pill"
             onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
@@ -357,13 +335,8 @@ export default function RevealComposer({ onBroadcast }: Props) {
 
           <button
             className="reveal-pill"
-            onClick={() => dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: true })}
-            style={{
-              height: '42px',
-              fontSize: '13px',
-              background: state.clawModeActive ? 'rgba(201,168,76,0.14)' : undefined,
-              color: state.clawModeActive ? 'var(--gold)' : undefined,
-            }}
+            onClick={() => { void handleOpenThreadWorkspace(); }}
+            style={{ height: '42px', fontSize: '13px' }}
           >
             <Terminal size={14} />
             Claw

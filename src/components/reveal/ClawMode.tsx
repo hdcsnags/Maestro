@@ -426,7 +426,9 @@ export default function ClawMode() {
       }
       e.preventDefault();
       e.stopPropagation();
-      dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: false });
+      dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
+      dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
       return;
     }
 
@@ -630,7 +632,9 @@ export default function ClawMode() {
   }, [state.threads, dispatch]);
 
   const handleClose = useCallback(() => {
-    dispatch({ type: 'SET_CLAW_MODE_ACTIVE', payload: false });
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: null });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
   }, [dispatch]);
 
   const handleModelSelect = useCallback((modelId: string) => {

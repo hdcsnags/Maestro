@@ -165,7 +165,8 @@ Legacy (unused): agent_skills, flags
 | Build artifact protocol hardening (`artifact_protocol`, `complete`, `continuation_prompt`, manifest validation) | 2026-04-12 (`npm run typecheck`) |
 | Scope enforcement: out-of-scope files skipped with reason logged | 2026-04-12 (code verified) |
 | Truncation guard: regex catches lazy `// ... existing code` stubs | 2026-04-12 (code verified) |
-| Ask/Build session mode split — composer Ask/Build toggle, orchestration tab gating, concierge Convert to Build, session dropdown indicator | 2026-04-13 (`npm run typecheck`) |
+| Ask/Build session mode split — composer Ask/Build toggle, concierge Convert to Build, session dropdown indicator | 2026-05-01 (`npm run typecheck`, `npm run build`) |
+| Unified UX Phase 0 foundation: `orchestrationMode` is removed, broadcast/build orchestration now derives from session/build context, and the thread shell now opens/closes from active thread focus instead of `clawModeActive` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -289,6 +290,25 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Unified UX Phase 0 foundation
+
+**What was done**:
+1. Removed the extra `orchestrationMode` state axis from shared types/context and rewired `useOrchestration.ts` so broadcast/build mode derives from the active session mode and current build phase instead of a separate reducer flag.
+2. Cleaned the legacy workspace composer so it no longer exposes the dead orchestration toggle; repo-creation gating in `RepoSection.tsx` now keys off `sessions.mode === 'build'`.
+3. Removed the `clawModeActive` shell flag from shared state and rewired shell open/close behavior around focused thread state (`activeThread`) instead.
+4. Updated the Claw entry/exit paths so the composer opens the concierge thread directly, Escape/close clear thread focus, and `BuildWorkspace.tsx` uses thread focus to decide whether to behave like a drawer or the legacy full-screen surface.
+5. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/hooks/useOrchestration.ts`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/RepoSection.tsx`, `src/pages/WorkspacePage.tsx`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/ClawMode.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Treated session mode (`ask`/`build`) plus current build phase as the source of truth for orchestration behavior instead of preserving a separate UI-only orchestration toggle.
+- Used focused thread presence as the shell switch rather than introducing another transition flag, which lines up with the unified thread-first shell direction in `UNIFIED_UX_SPEC.md`.
+
+**What didn't work**:
+- Phase 1 composer unification did not land in this session; Claw still owns its richer routing/model picker composer while the legacy shell keeps its separate broadcast composer.
+- Validation in this pass was compile-level only (`npm run typecheck`, `npm run build`), not a live browser smoke test.
 
 ### 2026-04-29 — GitHub Copilot (GPT-5.4) — Added a local fast path for direct Claw execute commands
 

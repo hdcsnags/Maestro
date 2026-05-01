@@ -3,7 +3,7 @@ import { createContext, useContext, useReducer, ReactNode } from 'react';
 import {
   Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
-  ExecutionRun, ExecutionStrategy, OrchestrationMode, ConciergeDecision,
+  ExecutionRun, ExecutionStrategy, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
   ClawView, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
@@ -31,7 +31,6 @@ export interface MaestroState {
   executorJobs: ExecutorJob[];
   executionMode: ExecutionMode;
   executionStrategy: ExecutionStrategy;
-  orchestrationMode: OrchestrationMode;
   broadcastingAgents: string[];
   isBroadcasting: boolean;
   isSynthesizing: boolean;
@@ -55,7 +54,6 @@ export interface MaestroState {
   threads: Thread[];
   threadMessages: ThreadMessage[];
   activeThread: Thread | null;
-  clawModeActive: boolean;
   clawView: ClawView;
   focusedAgentId: string | null;
   conciergeModel: string;
@@ -88,7 +86,6 @@ type Action =
   | { type: 'ADD_AUDIT_EVENT'; payload: AuditEvent }
   | { type: 'SET_EXECUTION_MODE'; payload: ExecutionMode }
   | { type: 'SET_EXECUTION_STRATEGY'; payload: ExecutionStrategy }
-  | { type: 'SET_ORCHESTRATION_MODE'; payload: OrchestrationMode }
   | { type: 'SET_PROVIDER_CONNECTIONS'; payload: ProviderConnection[] }
   | { type: 'UPSERT_PROVIDER_CONNECTION'; payload: ProviderConnection }
   | { type: 'SET_REPO_CONNECTIONS'; payload: RepoConnection[] }
@@ -133,7 +130,6 @@ type Action =
   | { type: 'SET_THREAD_MESSAGES'; payload: ThreadMessage[] }
   | { type: 'ADD_THREAD_MESSAGE'; payload: ThreadMessage }
   | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
-  | { type: 'SET_CLAW_MODE_ACTIVE'; payload: boolean }
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
@@ -166,7 +162,6 @@ const initial: MaestroState = {
   executorJobs: [],
   executionMode: 'pr_flow',
   executionStrategy: 'synthesized',
-  orchestrationMode: 'analysis',
   broadcastingAgents: [],
   isBroadcasting: false,
   isSynthesizing: false,
@@ -190,7 +185,6 @@ const initial: MaestroState = {
   threads: [],
   threadMessages: [],
   activeThread: null,
-  clawModeActive: false,
   clawView: 'concierge' as ClawView,
   focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
@@ -278,7 +272,6 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'ADD_AUDIT_EVENT': return { ...state, auditEvents: [action.payload, ...state.auditEvents] };
     case 'SET_EXECUTION_MODE': return { ...state, executionMode: action.payload };
     case 'SET_EXECUTION_STRATEGY': return { ...state, executionStrategy: action.payload };
-    case 'SET_ORCHESTRATION_MODE': return { ...state, orchestrationMode: action.payload };
     case 'SET_PROVIDER_CONNECTIONS': return { ...state, providerConnections: action.payload };
     case 'UPSERT_PROVIDER_CONNECTION': {
       const exists = state.providerConnections.find(p => p.id === action.payload.id);
@@ -368,7 +361,6 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     }
     case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
-    case 'SET_CLAW_MODE_ACTIVE': return { ...state, clawModeActive: action.payload, clawView: 'concierge' as ClawView, focusedAgentId: null };
     case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };

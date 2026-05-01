@@ -198,7 +198,7 @@ export default function BuildWorkspace() {
   }, [session, user, buildExec, selectedSessionAdapter]);
 
   const isVisible = session?.current_phase === 'build' || session?.current_phase === 'bouncer';
-  const isClawMode = state.clawModeActive;
+  const isThreadShellActive = state.activeThread !== null;
 
   const [lanes, setLanes] = useState<LaneRow[]>([]);
   const [stage, setStage] = useState<BuildStage>('preparing');
@@ -275,12 +275,12 @@ export default function BuildWorkspace() {
 
   // Start drawer expanded when a build begins in Claw mode — user just triggered it from Concierge
   useEffect(() => {
-    if (isVisible && isClawMode && !state.clawBuildSession) setDrawerCollapsed(false);
-  }, [session?.id, isVisible, isClawMode]);
+    if (isVisible && isThreadShellActive && !state.clawBuildSession) setDrawerCollapsed(false);
+  }, [session?.id, isVisible, isThreadShellActive, state.clawBuildSession]);
 
   // Sync local drawerCollapsed → context (guarded against no-op dispatches)
   useEffect(() => {
-    if (!isClawMode || !isVisible) {
+    if (!isThreadShellActive || !isVisible) {
       if (state.buildDrawerExpanded) dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: false });
       return;
     }
@@ -288,7 +288,7 @@ export default function BuildWorkspace() {
     if (state.buildDrawerExpanded !== expanded) {
       dispatch({ type: 'SET_BUILD_DRAWER_EXPANDED', payload: expanded });
     }
-  }, [drawerCollapsed, isClawMode, isVisible, state.buildDrawerExpanded, dispatch]);
+  }, [drawerCollapsed, isThreadShellActive, isVisible, state.buildDrawerExpanded, dispatch]);
 
   const normalizedBuildPlan: NormalizedBuildPlan | null = useMemo(() => {
     if (!state.buildPlan) return null;
@@ -1223,13 +1223,13 @@ export default function BuildWorkspace() {
 
   return (
     <div
-      className={isClawMode
+      className={isThreadShellActive
         ? 'fixed left-0 right-0 bottom-0 z-50 flex flex-col'
         : 'fixed inset-0 z-40 flex flex-col'}
       style={{
         background: 'rgba(8,8,6,0.96)',
         backdropFilter: 'blur(8px)',
-        ...(isClawMode ? {
+        ...(isThreadShellActive ? {
           height: drawerCollapsed ? '56px' : drawerExpandedHeight,
           borderTop: '1px solid rgba(255,255,255,0.08)',
           transition: 'height 0.25s cubic-bezier(0.4,0,0.2,1)',
@@ -1237,7 +1237,7 @@ export default function BuildWorkspace() {
       }}
     >
       {/* ── Claw mode: drawer handle ─────────────────────────── */}
-      {isClawMode && (
+      {isThreadShellActive && (
         <button
           type="button"
           className="flex items-center gap-3 px-4 w-full text-left flex-shrink-0 hover:bg-white/[0.02] transition-colors"
@@ -1289,10 +1289,10 @@ export default function BuildWorkspace() {
       )}
 
       {/* ── Full workspace content (hidden when claw drawer is collapsed) ── */}
-      {(!isClawMode || !drawerCollapsed) && (
+      {(!isThreadShellActive || !drawerCollapsed) && (
         <>
           {/* Phase rail — full-screen mode only */}
-          {!isClawMode && <PhaseRail currentPhase={session.current_phase ?? 'build'} />}
+          {!isThreadShellActive && <PhaseRail currentPhase={session.current_phase ?? 'build'} />}
 
           {/* ── Main content ─────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto overscroll-contain" style={{ padding: '0 32px 32px' }}>
