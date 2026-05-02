@@ -179,6 +179,7 @@ Legacy (unused): agent_skills, flags
 | Unified UX Phase 10 realtime progress: build task progress now hydrates from live `build_tasks` updates, executor/session jobs resolve through Supabase Realtime instead of polling, and runway/workspace execution views stream live stdout/stderr snippets from `executor_job_events` | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | MaestroClaw hardening Phase A: executor `retry` events now match the DB schema, Claude session runs drop `--print`, `build_session` outputs are filtered back to allowed scope before checkpoint/reporting, and large local artifact manifests can hydrate from chunked `artifact` events instead of relying on one oversized completion payload | 2026-05-01 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
 | MaestroClaw alignment Phase B: local session builds now forward exact `scope_paths`, literal `expected_files`, and a bounded set of sibling `context_files`, the worker prompt renders exact scope lists, and executor tokens can be rotated/reissued from both `executor-api` and the Executor UI | 2026-05-01 (`npm run typecheck`, `npm run build`, `npm --prefix packages\maestroclaw run build`) |
+| Workspace bootstrap hotfix: `WorkspacePage.tsx` mounts `useWorkspace()` again, restoring initial workspace seeding/loading after the shell-unification refactor so signed-in users no longer deadlock on `Initializing workspace` with no Supabase requests | 2026-05-01 (`npm run typecheck`, `npm run build`) |
 | Quick-answer triage can escalate to a full council round, and build sessions bypass quick-answer triage on first broadcast | 2026-04-13 (code verified, `npm run typecheck`) |
 | Synthesis falls back to persisted round responses when local response state is stale, keeping concierge reachable after a council round | 2026-04-13 (code verified, `npm run typecheck`) |
 | New sessions now start repo-unbound and GitHub repo binding is explicit per session in `RepoSection.tsx` / `useWorkspace.ts` | 2026-04-13 (code verified, `npm run typecheck`) |
@@ -302,6 +303,22 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-01 — GitHub Copilot (GPT-5.4) — Workspace bootstrap hotfix
+
+**What was done**:
+1. Identified a startup deadlock introduced by the shell refactor: `WorkspacePage.tsx` gated on `state.workspace`, but the `useWorkspace()` hook that seeds `workspace` was no longer mounted anywhere before that gate.
+2. Re-mounted `useWorkspace()` inside `WorkspacePage.tsx`, restoring the initialization effect that loads/creates the workspace, agents, sessions, providers, repos, and executor state.
+3. Re-ran app `typecheck` and `build`.
+
+**Files touched**: `src/pages/WorkspacePage.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Fixed the deadlock at the mount point instead of moving bootstrap logic into a new provider, because the regression was a simple lost hook mount and the smallest correct repair was to restore that lifecycle.
+- Kept the hotfix surgical so the production site can recover quickly without reopening the broader shell/state model again.
+
+**What didn't work**:
+- This pass does not add an explicit watchdog or timeout UI for future init stalls; it fixes the concrete regression that left the loader hook unmounted.
 
 ### 2026-05-01 — GitHub Copilot (GPT-5.4) — MaestroClaw deployment follow-through
 

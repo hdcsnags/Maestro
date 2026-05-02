@@ -16,9 +16,11 @@ import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
+import { useWorkspace } from '../hooks/useWorkspace';
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
   const { signOut } = useAuth();
+  useWorkspace();
 
   const drawerOpen = state.activeDrawer !== null;
   const overlayOpen = state.shortcutOverlayOpen;
