@@ -4,7 +4,7 @@ import { Orb } from './Orb';
 
 export function BoardroomStage() {
   const { state } = useMaestro();
-  const agents = state.agents || [];
+  const agents = (state.agents || []).filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw');
 
   // Map agents to positions around a semi-circle
   const seats = agents.map((agent, i) => {
