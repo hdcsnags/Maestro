@@ -3,34 +3,73 @@
 @tailwind utilities;
 
 :root {
-  --void: #0a0a0c;
-  --void-2: #0e0e11;
-  --void-3: #131317;
-  --surface: rgba(255,255,255,0.035);
-  --surface-hov: rgba(255,255,255,0.06);
-  --border: rgba(255,255,255,0.07);
-  --border-lit: rgba(255,255,255,0.14);
-  --text: #e8e6e0;
-  --text-muted: #7a7872;
-  --text-dim: #4a4845;
+  /* Surfaces — toned warm-black, NOT pure black */
+  --void-0: #08090b;
+  --void-1: #0b0c0f;
+  --void-2: #0e1014;
+  --void-3: #131519;
+  --void-4: #181a20;
 
-  --claude: #e07b5a;
-  --gpt: #5ab88e;
-  --gemini: #5a8fe0;
-  --kimi: #b45ae0;
-  --qwen: #e0c25a;
+  /* Edges */
+  --edge-0: rgba(255,255,255,0.04);
+  --edge-1: rgba(255,255,255,0.07);
+  --edge-2: rgba(255,255,255,0.12);
+  --edge-3: rgba(255,255,255,0.20);
 
-  --gold: #c9a84c;
-  --gold-dim: rgba(201,168,76,0.12);
-  --gold-glow: rgba(201,168,76,0.06);
+  /* Surfaces */
+  --surf-0: rgba(255,255,255,0.018);
+  --surf-1: rgba(255,255,255,0.035);
+  --surf-2: rgba(255,255,255,0.06);
+  --surf-3: rgba(255,255,255,0.09);
 
-  --ok: #4ebb7f;
-  --warn: #e0a94a;
-  --risk: #e05a5a;
+  /* Type — parchment, not paper */
+  --ink-0: #ece8de;
+  --ink-1: #d4cfc2;
+  --ink-2: #908a7e;
+  --ink-3: #5e594f;
+  --ink-4: #3a362f;
 
+  /* Accent — true gold (was bronze ember) */
+  --ember: #d4a84a;
+  --ember-glow: rgba(212,168,74,0.32);
+  --ember-soft: rgba(212,168,74,0.13);
+  --ember-hairline: rgba(212,168,74,0.26);
+
+  /* Legacy aliases for gradual migration */
+  --void: var(--void-0);
+  --surface: var(--surf-1);
+  --surface-hov: var(--surf-2);
+  --border: var(--edge-1);
+  --border-lit: var(--edge-2);
+  --text: var(--ink-0);
+  --text-muted: var(--ink-2);
+  --text-dim: var(--ink-3);
+  --gold: var(--ember);
+  --gold-dim: var(--ember-soft);
+  --gold-glow: var(--ember-glow);
+
+  /* Agent voices — desaturated, not skittle */
+  --claude: #c97a5a;
+  --gpt: #6ea88a;
+  --gemini: #6e8fc4;
+  --kimi: #a48fc4;
+  --qwen: #d4b270;
+
+  /* Signals */
+  --ok: #6ea88a;
+  --warn: #c9a060;
+  --risk: #c46a6a;
+
+  /* Motion */
   --spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --drawer-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Type stacks */
+  --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
 
   --folio-radius: 28px;
 }
@@ -46,80 +85,95 @@ html, body, #root {
 }
 
 body {
-  font-family: 'DM Sans', sans-serif;
-  background: var(--void);
-  color: var(--text);
+  font-family: var(--sans);
+  background: var(--void-0);
+  color: var(--ink-0);
   font-size: 13px;
   line-height: 1.6;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.005em;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
   text-rendering: optimizeLegibility;
 }
 
-::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+::-webkit-scrollbar-thumb { background: var(--edge-1); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--edge-2); }
 
 ::selection {
-  background: rgba(201,168,76,0.2);
-  color: var(--text);
+  background: var(--ember-soft);
+  color: var(--ink-0);
 }
 
 select option,
 select optgroup {
-  background: #1a1a1f;
-  color: var(--text);
+  background: var(--void-2);
+  color: var(--ink-0);
 }
 
 select option:checked {
-  background: rgba(138,138,224,0.25);
+  background: var(--surf-2);
   color: #fff;
 }
 
 @layer utilities {
   .font-syne { font-family: 'Syne', sans-serif; }
-  .font-mono-dm { font-family: 'DM Mono', monospace; }
+  .font-mono-dm { font-family: var(--mono); }
 }
 
 /* ═══ Atmospheric layers ═══ */
 
-.reveal-bg {
+.void-bg {
+  position: absolute; inset: 0;
   background:
-    radial-gradient(circle at 50% 18%, rgba(201,168,90,0.07), transparent 32%),
-    radial-gradient(circle at 15% 20%, rgba(90,143,224,0.06), transparent 20%),
-    radial-gradient(circle at 85% 22%, rgba(90,184,142,0.06), transparent 22%),
-    linear-gradient(180deg, #07080b 0%, #040507 100%);
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(217,119,87,0.05), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(217,119,87,0.025), transparent 70%),
+    linear-gradient(180deg, var(--void-0) 0%, var(--void-1) 50%, var(--void-0) 100%);
+  z-index: 0;
 }
 
-.grain-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.04;
+.void-grain {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: 0.035;
   background-image: radial-gradient(rgba(255,255,255,0.7) 0.4px, transparent 0.4px);
-  background-size: 7px 7px;
+  background-size: 6px 6px;
   mix-blend-mode: soft-light;
   z-index: 1;
 }
 
-.vignette-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(circle at center, transparent 45%, rgba(0,0,0,0.4) 100%);
+.void-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.35) 100%);
   z-index: 1;
 }
 
-.stage-glow-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
+/* Legacy layer aliases pointing to void equivalents */
+.reveal-bg {
+  position: fixed; inset: 0; z-index: 0;
   background:
-    radial-gradient(circle at 50% 34%, rgba(255,255,255,0.025), transparent 38%),
-    radial-gradient(circle at 50% 78%, rgba(201,168,90,0.03), transparent 26%);
-  z-index: 1;
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(217,119,87,0.05), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(217,119,87,0.025), transparent 70%),
+    linear-gradient(180deg, var(--void-0) 0%, var(--void-1) 50%, var(--void-0) 100%);
+}
+
+.grain-layer {
+  position: fixed; inset: 0; pointer-events: none; opacity: 0.035;
+  background-image: radial-gradient(rgba(255,255,255,0.7) 0.4px, transparent 0.4px);
+  background-size: 6px 6px; mix-blend-mode: soft-light; z-index: 1;
+}
+
+.vignette-layer {
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.4) 100%);
+}
+
+.stage-glow-layer {
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255,255,255,0.015), transparent 38%),
+    radial-gradient(circle at 50% 78%, rgba(212,168,74,0.02), transparent 26%);
 }
 
 /* ═══ Scrim (drawer backdrop) ═══ */

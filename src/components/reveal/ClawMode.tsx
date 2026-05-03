@@ -626,17 +626,7 @@ export default function ClawMode() {
           {clawView === 'concierge' && (
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 claw-view-enter">
               {messages.length === 0 && !state.isConciergeSending && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${emptyStateIconClass}`}>
-                    <SurfaceIcon size={28} />
-                  </div>
-                  <h3 className={`text-lg font-medium mb-2 ${surfaceState.kind === 'default' ? 'text-white/70' : modeTheme.bannerTitle}`}>
-                    {emptyStateTitle}
-                  </h3>
-                  <p className="text-sm text-white/60 max-w-md">
-                    {emptyStateDescription}
-                  </p>
-                </div>
+                <BoardroomStage />
               )}
 
               {messages.map(msg => (
