@@ -6,6 +6,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
+import { BoardroomStage } from './BoardroomStage';
 import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
