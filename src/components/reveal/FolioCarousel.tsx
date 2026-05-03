@@ -37,15 +37,15 @@ export default function FolioCarousel() {
   const [savingComparison, setSavingComparison] = useState(false);
   const [synthesizingResponseId, setSynthesizingResponseId] = useState<string | null>(null);
 
-  const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
+  const latestRound = (state.rounds?.length ?? 0) > 0 ? state.rounds[state.rounds.length - 1] : null;
   const selectedIdx = state.selectedRoundIndex === -1
-    ? state.rounds.length - 1
-    : Math.min(state.selectedRoundIndex, state.rounds.length - 1);
-  const selectedRound = selectedIdx >= 0 ? state.rounds[selectedIdx] : null;
+    ? (state.rounds?.length ?? 0) - 1
+    : Math.min(state.selectedRoundIndex, (state.rounds?.length ?? 0) - 1);
+  const selectedRound = selectedIdx >= 0 && state.rounds ? state.rounds[selectedIdx] : null;
   const isViewingLatest = !selectedRound || selectedRound.id === latestRound?.id;
 
   const selectedResponses = useMemo(
-    () => selectedRound ? state.responses.filter(r => r.round_id === selectedRound.id) : [],
+    () => selectedRound ? (state.responses || []).filter(r => r.round_id === selectedRound.id) : [],
     [selectedRound, state.responses],
   );
   const roundNumber = selectedRound?.round_number ?? 0;

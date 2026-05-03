@@ -10,8 +10,15 @@ interface OrbProps {
 export function Orb({ size = 'md', pulse }: OrbProps) {
   const { state } = useMaestro();
   
+  const latestRound = (state.rounds?.length ?? 0) > 0 ? state.rounds[state.rounds.length - 1] : null;
+  const currentRoundResponses = useMemo(
+    () => (latestRound ? (state.responses || []).filter(r => r.round_id === latestRound.id) : []),
+    [latestRound, state.responses]
+  );
+  const activeAgentCount = (state.agents || []).filter(a => a.is_active).length;
+
   // In the real app, we derive state from Maestro context
-  const orbState = deriveOrbState(state);
+  const orbState = deriveOrbState(state, currentRoundResponses, activeAgentCount);
   
   const dim = size === 'sm' ? 24 : size === 'lg' ? 180 : 80;
   const glow = size === 'sm' ? 12 : size === 'lg' ? 60 : 30;

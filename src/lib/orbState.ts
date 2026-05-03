@@ -12,13 +12,14 @@ export type OrbState =
 
 export function deriveOrbState(
   state: MaestroState,
-  currentRoundResponses: Response[],
-  activeAgentCount: number,
+  currentRoundResponses: Response[] = [],
+  activeAgentCount: number = 0,
 ): OrbState {
   void activeAgentCount;
 
-  const latestExecutionRun = state.executionRuns.length > 0
-    ? state.executionRuns[state.executionRuns.length - 1]
+  const executionRuns = state.executionRuns || [];
+  const latestExecutionRun = executionRuns.length > 0
+    ? executionRuns[executionRuns.length - 1]
     : null;
 
   if (state.conciergeVisible === true) return 'concierge';

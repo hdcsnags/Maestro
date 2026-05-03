@@ -26,18 +26,18 @@ export default function WorkspacePage() {
   const overlayOpen = state.shortcutOverlayOpen;
   const anyTransientOpen = drawerOpen || overlayOpen;
 
-  const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
-  const latestResponses = latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [];
+  const latestRound = (state.rounds?.length ?? 0) > 0 ? state.rounds[state.rounds.length - 1] : null;
+  const latestResponses = latestRound ? (state.responses || []).filter(r => r.round_id === latestRound.id) : [];
   const selectedIdx = state.selectedRoundIndex === -1
-    ? state.rounds.length - 1
-    : Math.min(state.selectedRoundIndex, state.rounds.length - 1);
-  const selectedRound = selectedIdx >= 0 ? state.rounds[selectedIdx] : null;
+    ? (state.rounds?.length ?? 0) - 1
+    : Math.min(state.selectedRoundIndex, (state.rounds?.length ?? 0) - 1);
+  const selectedRound = selectedIdx >= 0 && state.rounds ? state.rounds[selectedIdx] : null;
   const selectedResponses = selectedRound && selectedRound.id !== latestRound?.id
-    ? state.responses.filter(r => r.round_id === selectedRound.id)
+    ? (state.responses || []).filter(r => r.round_id === selectedRound.id)
     : latestResponses;
   const isViewingLatest = !selectedRound || selectedRound.id === latestRound?.id;
   const streamingAgents = state.isBroadcasting && latestRound && isViewingLatest
-    ? state.agents.filter(a => state.broadcastingAgents.includes(a.id) && !selectedResponses.find(r => r.agent_id === a.id))
+    ? (state.agents || []).filter(a => state.broadcastingAgents.includes(a.id) && !selectedResponses.find(r => r.agent_id === a.id))
     : [];
   const totalFolioItems = selectedResponses.length + streamingAgents.length;
 

@@ -70,15 +70,15 @@ export default function ClawMode() {
 
   // Latest round info for carousel view
   const latestRound = useMemo(
-    () => (state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null),
+    () => ((state.rounds?.length ?? 0) > 0 ? state.rounds[state.rounds.length - 1] : null),
     [state.rounds],
   );
   const latestResponses = useMemo(
-    () => (latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : []),
+    () => (latestRound ? (state.responses || []).filter(r => r.round_id === latestRound.id) : []),
     [latestRound, state.responses],
   );
   const councilAgents = useMemo(
-    () => state.agents.filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
+    () => (state.agents || []).filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
     [state.agents],
   );
   const hasRepo = useMemo(
