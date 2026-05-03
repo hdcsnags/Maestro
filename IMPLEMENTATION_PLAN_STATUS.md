@@ -1,0 +1,69 @@
+# IMPLEMENTATION_PLAN_STATUS
+
+Tracks status of tasks defined in `IMPLEMENTATION_PLAN.md`. Append-only log; newest at top.
+
+Format: `YYYY-MM-DD | TASK-ID | AGENT | STATUS | NOTES`
+
+Status values: `claimed` | `in_progress` | `verified` | `partial` | `blocked` | `reverted`
+
+---
+
+## Phase 1 — Security & Reliability
+
+| Task | Agent | Status | Date | Notes |
+|------|-------|--------|------|-------|
+| SEC-01 | Sonnet 4.6 | verified | 2026-05-03 | shell-analyzer.ts rewritten: &&/||/; are now segment separators, single & is disallowed, isWindows wired through. approved-shell.ts placeholder corruption also fixed. 26/26 tests pass. maestroclaw build clean. |
+| SEC-02 | — | not started | — | Trust classification server-side. Depends on SEC-01. |
+| SEC-03 | — | not started | — | IP allowlist. Parallel. |
+| SEC-04 | — | spec ready | 2026-05-03 | See `SEC-04_INCIDENT_SERVICE_SPEC.md`. Wire IncidentService end-to-end. Depends on SEC-01 (✅ done). |
+| REL-01 | — | not started | — | GPT OSS phantom agent. Active blocker per MAESTRO_STATE. |
+| REL-02 | — | not started | — | ESLint ignore. Trivial. |
+| REL-03 | — | not started | — | State doc drift. Trivial. |
+
+## Phase 2 — Conversational UX
+
+| Task | Agent | Status | Date | Notes |
+|------|-------|--------|------|-------|
+| UX-01 | — | not started | — | Bring orb into ClawMode. |
+| UX-02 | — | not started | — | Streaming events at line cadence. |
+| UX-03 | — | not started | — | Stuck-job detection + kick UI. |
+| UX-04 | — | not started | — | pty_shell routing. Depends on SEC-01. |
+
+## Phase 3 — Differentiation
+
+| Task | Agent | Status | Date | Notes |
+|------|-------|--------|------|-------|
+| DIFF-01 | — | not started | — | Cost rollup card. |
+| DIFF-02 | — | not started | — | Per-repo memory. |
+| DIFF-03 | — | not started | — | Lane-scoped prompt slicing. Depends on REL-01. |
+| DIFF-04 | — | spec ready | 2026-05-03 | See `DIFF-04_PROVIDER_FALLBACK_SPEC.md`. Provider fallback matrix. Depends on DIFF-03. |
+
+## Phase 4 — Product Moment
+
+| Task | Agent | Status | Date | Notes |
+|------|-------|--------|------|-------|
+| PRO-01 | — | not started | — | Inter-agent deliberation round. |
+| PRO-02 | — | not started | — | Iteration loop primitive. |
+
+## Tech Debt
+
+| Task | Agent | Status | Date | Notes |
+|------|-------|--------|------|-------|
+| TD-01 | — | not started | — | Split useThreads.ts. |
+| TD-02 | — | not started | — | Split useBuildExecution.ts. |
+| TD-03 | — | not started | — | Browser smoke tests. |
+
+---
+
+## Append Log
+
+(newest entries first)
+
+- 2026-05-03 | DIFF-04 | Opus 4.7 | spec ready | Full architectural spec at `DIFF-04_PROVIDER_FALLBACK_SPEC.md`. Two-layer provider health model (in-memory + DB), 5-state state machine, pre-build probe via new edge function, per-lane fallback chains via canonical lookup, mid-build reroute with cost-aware approval gate (default $1 threshold), failure classification table, BuilderRosterCard health UI, TrustDrawer Health panel. 10-step impl order. Sonnet can implement; Opus should review failure classification table before ship.
+- 2026-05-03 | SEC-04 | Opus 4.7 | spec ready | Full implementation spec at `SEC-04_INCIDENT_SERVICE_SPEC.md`. Replaces stub IncidentService with dedicated `report_incident` endpoint and first-class `executor_incidents` table (NOT piggybacking on executor_job_events). 6 incident categories, 4 severities, RLS-scoped, Realtime-pushed, ack flow. TrustDrawer Security tab with severity filter and metadata expand. StatusChip red dot for unacked criticals. Network-failure-resilient (kernel never crashes on report failure). Sonnet implementable end-to-end.
+- 2026-05-03 | PRO-02 | Opus 4.7 | spec ready | Full architectural spec at `PRO-02_ITERATION_LOOP_SPEC.md`. Largest spec in the plan. 4-table data model, per-step state machine, diff-application via git apply with per-step checkpoints, kernel-integrated verification, file-level locks, server-authoritative trust integration with auto-apply pause-on-sensitive, 10-step impl order. Steps 5 (prompt template) and 6 (diff application) require Opus review. Sonnet/Gemini can do everything else.
+- 2026-05-03 | PRO-01 | Opus 4.7 | spec ready | Full architectural spec at `PRO-01_DELIBERATION_ROUND_SPEC.md`. Prompt design, redaction algorithm, synthesis reformulation, three trigger modes, data model migration, 10-step impl order. Tagged Opus-only for prompt + synthesis work; Sonnet can do migration/UI/wiring.
+- 2026-05-03 | SEC-02 | Opus 4.7 | spec ready | Full implementation spec authored at `SEC-02_TRUST_MODEL_SPEC.md`. All open questions from master plan resolved. Ready for Sonnet to implement after `SEC-01` ships.
+- 2026-05-03 | PLAN | Opus 4.7 | created | Initial implementation plan written to `IMPLEMENTATION_PLAN.md`. State doc updated with two newly-flagged security blockers.
+- 2026-05-03 | SEC-01 | Sonnet 4.6 | verified | Rewrote splitShellPipeline: &&/||/; recognized as segment separators (quote/escape aware), single & always rejected, isWindows now actually used. Dead emptySegment var removed. approved-shell.ts pre-existing placeholder fixed. 26/26 node:test tests pass. maestroclaw build clean.
+

@@ -1,6 +1,6 @@
 /**
  * ThamosClaw Shell Kernel - Harvested from OpenClaw
- * 
+ *
  * Provides robust shell command parsing and analysis to ensure safe execution
  * across both Windows and Posix environments.
  */
@@ -17,9 +17,11 @@ export interface ShellCommandAnalysis {
 }
 
 const DISALLOWED_TOKENS = new Set([">", "<", "`", "\n", "\r", "(", ")"]);
+
+// On Windows, additionally block cmd.exe/PowerShell metacharacters.
+// Note: & is handled separately as always-disallowed (background jobs).
+// &&, ||, ;, | are handled as segment separators before individual char checks.
 const WINDOWS_UNSUPPORTED_TOKENS = new Set([
-  "&",
-  "|",
   "<",
   ">",
   "^",
@@ -41,14 +43,21 @@ function isShellCommentStart(source: string, index: number): boolean {
 
 /**
  * Splits a command string into pipeline segments while respecting quotes and escapes.
+ *
+ * Recognized segment separators: |, &&, ||, ;
+ * Single & (background job) is always rejected.
+ * Quote-aware: separators inside single/double quotes or escaped do NOT split.
+ * Backslashes are preserved in raw segments so splitArgs() can handle escape semantics.
  */
-function splitShellPipeline(command: string): { ok: boolean; reason?: string; segments: string[] } {
+function splitShellPipeline(
+  command: string,
+  isWindows: boolean,
+): { ok: boolean; reason?: string; segments: string[] } {
   const segments: string[] = [];
   let buf = "";
   let inSingle = false;
   let inDouble = false;
   let escaped = false;
-  let emptySegment = false;
 
   const pushPart = () => {
     const trimmed = buf.trim();
@@ -92,18 +101,40 @@ function splitShellPipeline(command: string): { ok: boolean; reason?: string; se
     }
     if (isShellCommentStart(command, i)) break;
 
-    if (ch === "|") {
-      emptySegment = true;
+    // Two-char segment separators (must be checked before single-char)
+    if (ch === "&" && next === "&") {
+      pushPart();
+      i++;
+      continue;
+    }
+    if (ch === "|" && next === "|") {
+      pushPart();
+      i++;
+      continue;
+    }
+
+    // Single-char segment separators
+    if (ch === "|" || ch === ";") {
       pushPart();
       continue;
     }
 
-    if (DISALLOWED_TOKENS.has(ch)) {
+    // Single & (background job) is always disallowed
+    if (ch === "&") {
+      return {
+        ok: false,
+        reason: "unsupported shell token: & (background jobs are not allowed)",
+        segments: [],
+      };
+    }
+
+    // Platform-specific disallowed tokens
+    const disallowed = isWindows ? WINDOWS_UNSUPPORTED_TOKENS : DISALLOWED_TOKENS;
+    if (disallowed.has(ch)) {
       return { ok: false, reason: `unsupported shell token: ${ch}`, segments: [] };
     }
 
     buf += ch;
-    emptySegment = false;
   }
 
   if (escaped || inSingle || inDouble) {
@@ -158,23 +189,28 @@ function splitArgs(command: string): string[] {
 
 /**
  * Main entry point for command analysis.
+ * Returns structured segments for each command in a pipeline.
+ * The caller is responsible for allowlist-checking each segment's argv[0].
  */
-export function analyzeShellCommand(command: string, platform: string = process.platform): ShellCommandAnalysis {
+export function analyzeShellCommand(
+  command: string,
+  platform: string = process.platform,
+): ShellCommandAnalysis {
   const isWindows = platform === "win32";
   const trimmed = command.trim();
-  
+
   if (!trimmed) {
     return { ok: false, reason: "empty command", segments: [] };
   }
 
-  const pipeline = splitShellPipeline(trimmed);
+  const pipeline = splitShellPipeline(trimmed, isWindows);
   if (!pipeline.ok) {
     return { ok: false, reason: pipeline.reason, segments: [] };
   }
 
-  const segments: ShellCommandSegment[] = pipeline.segments.map(raw => ({
+  const segments: ShellCommandSegment[] = pipeline.segments.map((raw) => ({
     raw,
-    argv: splitArgs(raw)
+    argv: splitArgs(raw),
   }));
 
   if (segments.length === 0) {

@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
+| Active blockers | **SEC-02 client-authoritative trust: frontend `TRUSTED_COMMANDS` regex decides approval requirement and backend honors it — forged frontend can skip approval gate (audited 2026-05-03);** GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-05-01 (MaestroClaw hardening/alignment Phases A-B: token rotation + large-artifact/session-scope fixes); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
 | Active locks | None |
@@ -147,6 +147,7 @@ Legacy (unused): agent_skills, flags
 | Capability | Verified |
 |------------|----------|
 | GitHub OAuth authorize + token exchange path exists in code | 2026-04-12 (code verified) |
+| | Shell analyzer correctly segments &&, ||, ; (SEC-01 — injection guard) | 2026-05-03 |
 | GitHub repo listing (all visibility levels, paginated up to 1000) | *(unverified)* |
 | GitHub repo creation (requires Administration:write on App) | 2026-04-12 |
 | 14 protected edge functions redeployed with shared in-function auth (`verify_jwt = false`) | 2026-04-12 |
@@ -304,7 +305,112 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
-### 2026-05-01 — GitHub Copilot (GPT-5.4) — Workspace bootstrap hotfix
+### 2026-05-03 — Opus 4.7 — PRO-02 iteration loop primitive spec
+
+**What was done**:
+1. Authored `PRO-02_ITERATION_LOOP_SPEC.md` — full architectural spec for the iteration loop primitive that closes the gap between one-shot execute and full build mode. The primitive enables tight read→propose→apply→verify loops, the daily-driver workflow that Cursor/Claude Code own and Maestro currently lacks.
+2. Designed a four-table data model (`iteration_loops`, `iteration_steps`, `iteration_controls`, `iteration_locks`) with append-only audit semantics, RLS, and explicit termination reasons.
+3. Specified the per-step state machine (pending→reading_files→proposing_diff→awaiting_approval→applying→verifying→terminal) with explicit failure-mode handling for: infinite loops, scope creep, concurrent edit conflicts, verification false positives, and unrecoverable mid-loop state.
+4. Designed the per-step prompt template — JSON-output contract with `give_up` signal, file hashes embedded for stale-base detection, prior-step memory built into prompt rather than relying on per-loop persistent context.
+5. Specified diff application semantics: unified-diff format applied via `git apply --check` then `git apply`, with per-step git checkpoints enabling per-step rollback on verification failure. Per-step commits (squashable at loop end) preserve restart-resilience.
+6. Specified file-level locking via `iteration_locks` to prevent two loops or a build from racing on the same files. Locks auto-expire as a Phase B safety so a dead Claw doesn't permanently block.
+7. Integrated with SEC-02 server-authoritative trust: loop creation is gated on sensitive paths and verification command classification; auto-apply pauses per-step when diffs touch sensitive files even if loop-level auto_apply is on.
+8. Designed UX: structured-form composer for desktop, natural-language fallback for mobile, IterationCard with collapsible per-step rows, inline approval panel, three terminal-state visual treatments.
+9. Drove the loop on the MaestroClaw worker (not edge function) because edge timeouts cap at ~50s and verification commands alone can run 30-60s. Frontend gets live updates via Realtime subscription.
+10. Specified 10-step implementation order with explicit Opus-review checkpoints on steps 5 (prompt) and 6 (diff apply) — the two places this primitive succeeds or fails.
+
+**Files touched**: `PRO-02_ITERATION_LOOP_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Loop driver is the local Claw, not an edge function — only architecture that doesn't bottleneck on Supabase Edge timeouts for multi-step verification flows.
+- Per-step git commits (atomic, squashable) instead of in-memory rollback — more correct and restart-resilient. Trade-off: noisier history; mitigation: end-of-loop squash button, default ON for ≤5 steps.
+- `git apply` over edit-and-write — built-in hunk validation, native diff format usable in UI, well-supported.
+- Append-only `iteration_controls` table for user interrupts (pause/abort/edit_goal/approve_diff) instead of mutating loop rows directly — preserves order under racing intents and provides audit.
+- Auto-apply is a UX convenience that NEVER bypasses sensitive-path approval — sensitive files always require human-in-loop even with auto_apply on. The escalation is per-step, not just per-loop.
+- Stateless agent perspective — runner builds prompt fresh each step from DB. Allows kill-Claw-mid-loop recovery without orphan state.
+- v1 single-agent per loop. Multi-agent deliberation on diffs (PRO-01 + PRO-02 integration) is a v1.2 feature once both have shipped independently — keep PRO-02 scope tight.
+- New file creation allowed if path globs into `scope_paths`. Lock acquired mid-loop for new paths.
+- Mobile fallback to single-textarea natural-language goal entry; concierge parses goal/scope/verification — desktop keeps structured form.
+
+**What didn't work**:
+- This pass is spec-only. No migration, runner, edge function, or UI shipped. Implementation pending.
+- Prompt template JSON contract is grounded in design reasoning, NOT yet validated against real Claude Code outputs. Step 5 of the implementation order is explicitly "test prompt against real model first; tune before continuing." Until that happens, the JSON contract is a hypothesis.
+- Bouncer-on-iteration-diff integration is stubbed for v1.1 — added the data model hooks but no implementation.
+- DIFF-01 cost rollup integration for iteration step costs is flagged as a follow-up; loop steps will produce response rows but the cost rollup spec needs an update to count iteration tokens separately.
+- Did not address the case where user is on a protected branch (e.g., main) at loop start — flagged as Open Question 4 with a recommendation but not decided.
+
+### 2026-05-03 — Opus 4.7 — PRO-01 deliberation round spec
+
+**What was done**:
+1. Authored `PRO-01_DELIBERATION_ROUND_SPEC.md` — complete architectural design for inter-agent deliberation between Round 1 broadcast and synthesis. The design converts the Council from "panel of consultants giving parallel monologues" to "board of directors pushing back on each other."
+2. Designed the deliberation prompt template with three structured questions (objection / agreement / self-critique), JSON-output contract, and redaction algorithm (responses re-labeled as "Voice A/B/C" to reduce brand bias before being shown to other agents).
+3. Designed the deliberation-aware synthesis prompt that PRESERVES tension instead of blending it — output includes `consensus`, `trade_offs`, `acknowledged_weaknesses`, `unresolved_tensions`, and `recommendation`. This is the differentiating output no other AI tool produces today.
+4. Specified three trigger modes: manual toggle in composer, concierge-suggested post-R1 triage (Haiku-fast), and auto-trigger for high-stakes prompts (`pre_build`/`design` with 3+ active agents).
+5. Specified data model changes (`responses.kind`, `responses.deliberation_targets`, `responses.deliberation_pushbacks`, `rounds.deliberation_enabled`) and a 10-step ship-order that lets each step deploy independently.
+6. Surfaced and decided three non-obvious failure modes the implementation must handle: brand bias (redaction), echo collapse (objection-eliciting prompts), and synthesis drift (tension-preserving synthesis prompt).
+
+**Files touched**: `PRO-01_DELIBERATION_ROUND_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- One deliberation round in v1, not multi-round — diminishing returns past R2.
+- JSON output, not free-form prose — required for UI rendering and synthesis ingestion.
+- Three questions specifically (objection / agreement / self-critique) — tested mentally against echo-collapse and consensus-flattening failure modes.
+- Style-leakage redaction is partial in v1 (only attribution stripped, writing style preserved) — v2 adds neutral-voice rewriting if needed.
+- Auto-trigger (Mode 3) defaults OFF for new users with explicit onboarding opt-in — auto-cost surprises are bad UX.
+- Skip deliberation when fewer than 3 agents are active — 2-voice deliberation collapses to a 1-on-1 critique with different dynamics.
+- Tagged Opus-only for prompt + synthesis work; Sonnet can do migration, UI, and wiring without senior review. If implementing entirely on Sonnet, must stop after step 2 (edge function) and validate prompt outputs on real test data before continuing.
+
+**What didn't work**:
+- This pass is spec-only. No edge function, migration, or component code shipped. Sonnet/Opus implementation pending.
+- Visualization of the pushback graph (network of agree/disagree across agents) is sketched but deferred to v2 — would be a powerful visual but out of scope for the first ship.
+- Did not run a live mental test of the prompt template against real model outputs — the prompt design is grounded in reasoning about failure modes, not empirical eval. First implementation step should run the prompt against real responses and tune.
+
+### 2026-05-03 — Opus 4.7 — SEC-02 trust model migration spec
+
+**What was done**:
+1. Authored `SEC-02_TRUST_MODEL_SPEC.md` — full implementation spec for migrating trust classification from frontend-authoritative to server-authoritative, with HMAC approval tokens and a five-layer defense-in-depth model.
+2. Resolved all open questions from the master plan's SEC-02 task (registry location, token format, TTL, custom user lists, race conditions, env-var failure mode).
+3. Documented the explicit migration order, acceptance criteria, and curl-based live verification steps so Sonnet can implement without further architectural decisions.
+4. Clarified the distinction between Registry A (server trust classifier — UX policy) and Registry B (Claw kernel binary allowlist — security floor) so future agents do not conflate them.
+
+**Files touched**: `SEC-02_TRUST_MODEL_SPEC.md` (new), `MAESTRO_STATE.md`
+
+**Decisions made**:
+- HMAC stateless tokens over DB-stored approvals — cheaper, simpler, acceptable for 5-min TTL.
+- 5-minute approval TTL with env-var override for tuning — fails closed if `APPROVAL_TOKEN_SECRET` missing.
+- Frontend regex predictor (`predictCommandTrust`) and server regex classifier (`classifyCommand`) deliberately kept as parallel sources — couples deploys less and the frontend is never authoritative.
+- Single-PR deploy required (frontend + edge function); contract change is breaking.
+- Per-user trust customization explicitly deferred to SEC-02b; v1 ships static global registry.
+- Non-shell adapters (claude_code etc.) explicitly out of scope for SEC-02 — they have separate approval semantics already.
+
+**What didn't work**:
+- This pass produced spec-only deliverables. Implementation, deployment, and live curl-based forge tests are still pending — Sonnet's job per the implementation plan.
+- The follow-up SEC-02b (user-customizable allowlists) and SEC-02c (LLM intent parser security) are flagged but not specced.
+
+### 2026-05-03 — Opus 4.7 — Implementation plan + audit
+
+**What was done**:
+1. Performed a full audit of the codebase: web app, MaestroClaw worker, ThamosClaw kernel files (`shell-analyzer.ts`, `incident-service.ts`, `pty-shell.ts`), and the unified UX phases 0-10.
+2. Identified two previously-unflagged active security blockers: (a) `splitShellPipeline` does not treat `&&`, `;`, or `||` as separators, allowing single-segment injection past the binary allowlist; (b) trust classification is client-authoritative — frontend `TRUSTED_COMMANDS` regex decides approval requirement and backend honors the flag.
+3. Identified additional gaps: orb component (`EmptyStage.tsx`) is fully implemented but orphaned (not rendered in `ClawMode`); `pty_shell` adapter is registered but no routing path selects it; `IncidentService` class is implemented but never instantiated; `gemini_cli` adapter exists but state doc still claims "3 MaestroClaw agents."
+4. Authored `IMPLEMENTATION_PLAN.md` — 17 self-contained, agent-ready task blocks across four phases (security/reliability → conversational UX → differentiation → product moment) plus three tech-debt parallel tracks. Each block includes recommended agent (Sonnet/Opus/GPT-5.5/Gemini), file paths, current state, target state, acceptance criteria, verification steps, dependencies, and open questions.
+5. Authored `IMPLEMENTATION_PLAN_STATUS.md` — append-only tracking ledger so any agent can see what's claimed/in-progress/verified without re-reading the plan.
+6. Updated `Active blockers` row in this state doc to surface the two newly-identified security blockers.
+
+**Files touched**: `IMPLEMENTATION_PLAN.md` (new), `IMPLEMENTATION_PLAN_STATUS.md` (new), `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Sonnet 4.6 is the default workhorse for implementation work; Opus reserved for security-model design, new product primitives, and multi-system tradeoffs.
+- Phase 1 (Security & Reliability) sequenced first because two of the four items (`SEC-01`, `SEC-02`) close active vulnerabilities.
+- Browser smoke testing is now a hard verification gate; compile-only verification ("typecheck + build clean") is documented as the failure mode of the prior 30 days and explicitly insufficient.
+- The trust classifier registry (UX policy) and kernel binary allowlist (security floor) are kept as separate sources of truth — different purposes, different failure modes.
+- Inter-agent deliberation round (`PRO-01`) is the highest-leverage product differentiator and tagged Opus-only to prevent scope drift during implementation design.
+
+**What didn't work**:
+- The audit relied on reading code, the state doc, and `smoketestaudit.md`, not on running a live browser session against the deployed app. Some "Verified" rows in this state doc may already be stale despite their dates.
+- Confirmation of `REL-01` (GPT OSS phantom agent root cause) was not attempted — the implementation plan task for it is investigation-first.
+
+
 
 **What was done**:
 1. Identified a startup deadlock introduced by the shell refactor: `WorkspacePage.tsx` gated on `state.workspace`, but the `useWorkspace()` hook that seeds `workspace` was no longer mounted anywhere before that gate.
@@ -1614,11 +1720,39 @@ Ran `npm run typecheck` clean. Deployed `architect`. Committed and pushed `41fa2
 
 ---
 
+### 2026-05-03 — Gemini CLI — Atelier UI Implementation + ThamosClaw Kernel Sync
+
+**What was done**:
+1. **Resynchronized with GitHub**: Discarded local diversions and hard-reset to `origin/main` to ingest the massive "Unified UX" sprint (Phases 0-10) and the "ThamosClaw Kernel" upgrade (OpenClaw shell analysis, PTY adapter, and security allowlisting).
+2. **Implemented "Atelier" Visual Direction**: 
+   - Overhauled `src/index.css` with the "Void" design tokens: warm-black surfaces (`--void-0` through `--void-4`), true-gold (ember) accents, and parchment-toned typography.
+   - Brought over atmospheric layers (`void-bg`, `void-grain`, `void-vignette`) for the boardroom aesthetic.
+   - Created `src/components/reveal/Orb.tsx`: A standalone, state-aware orb component supporting multiple sizes (`sm`, `md`, `lg`) and dynamic glow/pulse animations.
+   - Created `src/components/reveal/BoardroomStage.tsx`: A new empty-thread renderer that visualizes the "Council Table" with agents seated in a semicircle, utilizing the new `Orb` at the head of the table.
+   - Integrated `BoardroomStage` into `ClawMode.tsx` as the default empty state for Concierge threads.
+3. **Fixed Build Blockers**:
+   - Resolved a `ReferenceError: BoardroomStage is not defined` caused by a missing import in `ClawMode.tsx`.
+   - Resolved a Cloudflare build failure: `Could not resolve "./Orb" from "src/components/reveal/BoardroomStage.tsx"` by creating the missing `Orb.tsx` component file.
+4. **Validated Deployment**: Pushed all changes to GitHub; verified the kernel sync and UI overhaul are live.
+
+**Files touched**: `src/index.css`, `src/components/reveal/ClawMode.tsx`, `src/components/reveal/BoardroomStage.tsx` (new), `src/components/reveal/Orb.tsx` (new), `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Adopted the "Atelier" prototype from `.michael/m4 (1)` as the primary visual language for the Unified UX.
+- Treat the GitHub repository as the absolute source of truth for all codebases; all local diverged fixes were discarded in favor of the remote's ThamosClaw Kernel.
+- Extracted `Orb` into a standalone component instead of rendering it inline in `EmptyStage.tsx` to allow reuse in the header and boardroom.
+
+**What didn't work**:
+- Initial push to GitHub had a missing component file (`Orb.tsx`) and a missing import, causing a blank screen on the live environment. Fixed in a follow-up commit.
+- Did not yet migrate the "Advisor Strip" or the sidebar grouping from the Atelier mockup; these are sequenced for the next phase.
+
 ## Open Questions
 
 - Should github-create-repo show a better error when Administration:write permission is missing?
 - Is the build broadcast prompt (currently hardcoded in BuildWorkspace) good enough, or should it come from the concierge `pre_build_complete` output?
 - Do we need a re-broadcast mechanism if agent responses have no file_manifest?
+
+
 
 
 

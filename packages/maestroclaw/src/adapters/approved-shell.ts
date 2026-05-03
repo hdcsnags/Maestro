@@ -3,13 +3,13 @@ import type { Adapter, AdapterResult } from "./types.js";
 import { analyzeShellCommand } from "../lib/kernel/shell-analyzer.js";
 
 const TRUSTED_COMMANDS = new Set([
-  "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat", 
+  "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat",
   "grep", "find", "whoami", "hostname", "ipconfig", "ifconfig", "ping", "nmap"
 ]);
 
 /**
  * Approved Shell adapter — runs shell commands in a controlled subprocess.
- * Now hardened with the ThamosClaw Kernel for deep command analysis.
+ * Hardened with the ThamosClaw Kernel for deep command analysis.
  */
 export class ApprovedShellAdapter implements Adapter {
   name = "approved_shell";
@@ -38,10 +38,10 @@ export class ApprovedShellAdapter implements Adapter {
     for (const segment of analysis.segments) {
       const binary = segment.argv[0]?.toLowerCase();
       if (!binary || !TRUSTED_COMMANDS.has(binary)) {
-        return { 
-          success: false, 
-          output: "", 
-          error: `Security Violation: Binary '${binary}' is not on the workstation allowlist.` 
+        return {
+          success: false,
+          output: "",
+          error: `Security Violation: Binary '${binary}' is not on the workstation allowlist.`,
         };
       }
     }
@@ -52,11 +52,10 @@ export class ApprovedShellAdapter implements Adapter {
       const child = exec(command, {
         cwd: workDir,
         timeout: timeoutMs,
-        maxBuffer: 1024 * 1024, // 1MB output buffer
+        maxBuffer: 1024 * 1024,
         env: { ...process.env },
       }, (error, stdout, stderr) => {
-... (rest remains same) ...
-          // Timeout or signal kill
+        if (error) {
           if (error.killed) {
             resolve({
               success: false,
@@ -65,7 +64,6 @@ export class ApprovedShellAdapter implements Adapter {
             });
             return;
           }
-
           resolve({
             success: false,
             output: stdout || "",
@@ -81,7 +79,6 @@ export class ApprovedShellAdapter implements Adapter {
         });
       });
 
-      // Safety: force kill if still running past timeout + buffer
       setTimeout(() => {
         if (!child.killed) {
           child.kill("SIGKILL");
