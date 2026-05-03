@@ -8,8 +8,8 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-05-01 (MaestroClaw hardening/alignment Phases A-B: token rotation + large-artifact/session-scope fixes); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
+| Active blockers | **SEC-02 implementation merged but `executor-api` NOT yet redeployed and `APPROVAL_TOKEN_SECRET` not yet set in Supabase project — server-authoritative trust gate is code-ready but not live;** GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
+| Last verified deploy | `executor-api` deployed 2026-05-03 (SEC-02: HMAC approval tokens, pty_shell gating, APPROVAL_TOKEN_SECRET set); previously deployed 2026-05-01 (token rotation + large-artifact fixes); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
@@ -305,6 +305,63 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-03 — Opus 4.7 — LIVE-01 concierge build coordinator spec
+
+**What was done**:
+1. Authored `LIVE_CONCIERGE_COORDINATOR_SPEC.md` — full architectural spec for the live concierge build coordinator. Promoted from "Remaining Non-Audited Risks" to a real spec. Closes `smoketestaudit.md` item #7. The product-feel change that converts the Council from "panel that adjourns when work starts" to "coordinator continuously present during build."
+2. Designed event-driven architecture: build state changes (task succeeded/failed, lane completed, milestone, provider degraded, etc.) trigger a `build-coordinator` edge function. The function reads current state, calls Haiku 4.5 with structured prompt + trigger context, decides via JSON contract (`should_speak`, `tone`, `message`, `suggested_action`).
+3. Specified 16 trigger types with priority ordering (build.started/completed, task.succeeded/failed.recoverable/failed.terminal/slow, lane.completed/degraded, milestone.50pct/80pct, reroute.cost_escalation, bouncer.started/completed, provider.degraded/down, heartbeat.idle).
+4. Rate limit: max 1 coordinator message per 30s except `action_required` tone (cost escalations, terminal failures, lane degradations bypass the gate).
+5. Cost management: per-build hard cap at `$0.10` default (Haiku-only, ~$0.001/call). Empirical expectation: $0.004-$0.015/build; cap triggers only on adversarial scenarios. User configurable in TrustDrawer.
+6. Designed the coordinator prompt — calm 1-3 sentence voice, specific numbers over vague phrases, never alarms about auto-recovered failures, JSON output forces explicit speak/no-speak decision.
+7. Designed UI: `ConciergeLiveCard` renders inline in BuildRunwayCard with tone-based styling (info / warning / action_required / celebration). Coordinator presence indicator pulses subtly during active build. Suggested actions wire through to existing handlers (RerouteApprovalCard reused for reroute_approval suggested_action).
+8. Specified integration points with DIFF-04 (provider fallback feeds health context + reroute triggers), Bouncer (transition narration), and explicitly DEFERRED PRO-01 deliberation integration to v1.1 to keep scope tight.
+9. Designed `coordinator_invocations` audit table for telemetry/tuning — captures every LLM call with input/output tokens, cost, decision, message, rationale.
+10. Specified 12-step implementation order with Opus-review checkpoint on step 3 (prompt template). Documented the v1 limitation that frontend-only triggering misses events when browser is closed; v1.1 will add DB-trigger-driven coordination via a `coordinator_pending_triggers` queue.
+
+**Files touched**: `LIVE_CONCIERGE_COORDINATOR_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Edge function (not always-on worker) — stateless, scales naturally, fits Supabase model. Trade-off accepted: when browser is closed, triggers stop firing in v1.
+- Haiku 4.5 fixed for all coordinator calls — frequency × latency × cost makes Sonnet/Opus impractical. Speed (1-2s) and price (~$0.001) are required.
+- Hardcoded triggers + LLM-decides framing (hybrid) — pure LLM ("evaluate everything constantly") is wasteful; pure hardcoded misses contextual judgment. The hybrid keeps cost predictable while letting voice be natural.
+- JSON output with explicit `should_speak: false` short-circuit — forces the LLM to be a real gate, not a default-speak generator. Empty messages would mean visible empty bubbles.
+- First-person voice ("I'm pausing") not third-person ("Coordinator paused") — the Council has personalities; Concierge has a voice. Third-person breaks the metaphor.
+- Per-build budget (not per-session) — sessions can run multiple builds; cumulative cap would silence later builds unfairly.
+- Rate limit bypass for `action_required` only — emergencies must get through; routine event storms get throttled.
+- Suggested actions reuse existing handlers (RerouteApprovalCard, etc.) — no duplicate action logic.
+- Disabled by default? No, enabled by default. The coordinator IS the product-feel change; opt-out via TrustDrawer.
+- DB-trigger queue deferred to v1.1 — frontend-driven is good enough for "user is watching the build" which is the most common case.
+- Voice consistency across builds (per-repo memory references) requires DIFF-02; deferred.
+
+**What didn't work**:
+- Spec only. No edge function, prompt template, or UI shipped. Implementation pending.
+- Browser-closed scenario explicitly flagged as v1 limitation — frontend triggers stop when tab is closed, so coordinator misses events. Acceptable for v1 since user-watching-build is the dominant case.
+- ETA prediction ("2 min remaining") is in an example but explicitly NOT specified for v1 — needs latency-tracking infrastructure that doesn't exist yet.
+- Multi-build coordination (user runs 3 parallel builds) deferred — multi-build itself is rare enough to not block v1.
+- The voice characteristics ("calm, specific, action-oriented") are grounded in product reasoning but have NOT been validated against real Haiku output. Step 3 of the implementation order is "validate prompt against real model before continuing UI integration." Prompt voice is hypothesis until tested.
+
+### 2026-05-03 — Sonnet 4.6 — SEC-02 trust model migration (verified, code-ready, deploy pending)
+
+**What was done** (cross-reference; Sonnet's session is primary record):
+1. Implemented HMAC approval token flow end-to-end per `SEC-02_TRUST_MODEL_SPEC.md`.
+2. New files: `supabase/functions/_shared/trusted-commands.ts` (Layer 2 server-authoritative classifier), `supabase/functions/_shared/approval-tokens.ts` (HMAC issuance/validation with 5-min TTL), `src/lib/trustHints.ts` (Layer 1 frontend prediction, UX hints only — never authoritative).
+3. `executor-api` submit handler now: first shell submit returns `{pending_approval, approval_token}` without creating any DB row; re-submit with valid token (HMAC-validated, command-bound, TTL-enforced) creates an approved job. `pty_shell` adapter is gated alongside `approved_shell`.
+4. Frontend: `pendingExecution` state extended to support both `approvalToken` (new flow) and `jobId` (legacy queued-job fallback). `approveWithToken()` added to `useThreads.ts`. `ExecutionApprovalCard` handles both paths transparently.
+5. `TRUSTED_COMMANDS`, `classifyCommandTrust`, and `EXECUTION_INTENT_PROMPT` removed from `src/types/index.ts` and relocated to `src/lib/trustHints.ts` as predictive UX layer only (per spec — frontend never authoritative).
+6. Legacy `approve` endpoint retained for backward compatibility with manually-created queued jobs that may exist in the database.
+7. Build passes (typecheck + build clean). Rubber-duck check covered all 6 security angles (client bypass, forge, replay across commands, TTL replay, missing secret env var, legacy endpoint abuse).
+
+**Still required to ship live (deploy step pending)**:
+- `supabase functions deploy executor-api`
+- Set `APPROVAL_TOKEN_SECRET` (32+ random bytes hex) in Supabase project secrets
+- Frontend redeploy
+- Live curl-based forge tests per spec verification section
+
+**Impact**: Once deployed, the SEC-02 active blocker is closed. The five-layer defense-in-depth model is live: frontend prediction (Layer 1) → server classification (Layer 2) → HMAC token validation (Layer 3) → kernel binary allowlist (Layer 4) → kernel pipeline analysis (Layer 5, shipped via SEC-01).
+
+**Verified**: Code-level — typecheck + build clean. Live verification pending deploy.
 
 ### 2026-05-03 — Opus 4.7 — Bouncer review profiles spec + agent onboarding brief
 
