@@ -1,12 +1,12 @@
-import { useState, useRef, useMemo, useEffect, useCallback, KeyboardEvent } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback, KeyboardEvent } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { supabase } from '../../lib/supabase';
 import {
-  AlertTriangle, Bot, ChevronDown, Hammer, MessageSquare, Music, Radio,
-  RefreshCw, Send, Terminal, Zap,
+  AlertTriangle, Bot, ChevronDown, Hammer, MessageSquare, Radio,
+  RefreshCw, Zap,
 } from 'lucide-react';
 import { CONCIERGE_MODELS, ComposerIntent, SessionMode, Thread } from '../../types';
 import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
@@ -14,7 +14,7 @@ import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP }
 type ComposerVariant = 'workspace' | 'thread';
 
 interface Props {
-  variant?: ComposerVariant;
+  variant?: ComposerVariant; // Kept for legacy signature, but we only render one unified design now.
 }
 
 interface IntentConfig {
@@ -23,8 +23,6 @@ interface IntentConfig {
   Icon: typeof MessageSquare;
   color: string;
   bg: string;
-  border: string;
-  buttonText: string;
 }
 
 const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
@@ -32,37 +30,29 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
     label: 'Direct',
     consequence: 'Concierge replies in this thread',
     Icon: MessageSquare,
-    color: 'text-white/85',
-    bg: 'bg-gold/80',
-    border: 'border-gold/30',
-    buttonText: 'text-void',
+    color: 'var(--ember)',
+    bg: 'var(--ember-soft)',
   },
   broadcast: {
     label: 'Council',
     consequence: 'Broadcasts to active council agents',
     Icon: Radio,
-    color: 'text-white/80',
-    bg: 'bg-white/10',
-    border: 'border-white/15',
-    buttonText: 'text-white/90',
+    color: 'var(--gemini)',
+    bg: 'rgba(110, 143, 196, 0.15)', // gemini soft
   },
   execute: {
     label: 'Execute',
     consequence: 'Runs through the local executor',
     Icon: Zap,
-    color: 'text-signal-warn/95',
-    bg: 'bg-signal-warn/15',
-    border: 'border-signal-warn/25',
-    buttonText: 'text-signal-warn/95',
+    color: 'var(--warn)',
+    bg: 'rgba(201, 160, 96, 0.15)', // warn soft
   },
   build: {
     label: 'Build',
     consequence: 'Routes into the build flow',
     Icon: Hammer,
-    color: 'text-signal-ok/95',
-    bg: 'bg-signal-ok/15',
-    border: 'border-signal-ok/25',
-    buttonText: 'text-signal-ok/95',
+    color: 'var(--ok)',
+    bg: 'rgba(110, 168, 138, 0.15)', // ok soft
   },
 };
 
@@ -95,7 +85,6 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   const modelOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const routingBarRef = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const threadVariant = variant === 'thread';
   const activeAgents = state.agents.filter(a => a.is_active);
   const councilAgents = useMemo(
     () => activeAgents.filter(a => a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
@@ -106,11 +95,11 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
     [state.agents, state.focusedAgentId],
   );
   const latestRound = useMemo(
-    () => (state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null),
+    () => ((state.rounds?.length ?? 0) > 0 ? state.rounds[state.rounds.length - 1] : null),
     [state.rounds],
   );
   const latestResponses = useMemo(
-    () => (latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : []),
+    () => (latestRound ? (state.responses || []).filter(r => r.round_id === latestRound.id) : []),
     [latestRound, state.responses],
   );
 
@@ -121,9 +110,9 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   }, [state.activeSession?.id, state.activeSession?.mode]);
 
   useEffect(() => {
-    if (!threadVariant) return;
+    // Focus text area if we just opened the shell or thread changes
     textareaRef.current?.focus();
-  }, [threadVariant, state.clawView, state.activeThread?.id]);
+  }, [state.clawView, state.activeThread?.id]);
 
   useEffect(() => {
     if (!modelPickerOpen) return;
@@ -156,11 +145,8 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   const intentCfg = INTENT_CONFIG[composerIntent];
 
   const selectedAgents = useMemo(() => {
-    if (threadVariant) {
-      return composerIntent === 'broadcast' ? councilAgents : activeAgents;
-    }
-    return state.agents.filter(a => selectedIds.includes(a.id));
-  }, [threadVariant, composerIntent, councilAgents, activeAgents, state.agents, selectedIds]);
+    return composerIntent === 'broadcast' ? councilAgents : activeAgents;
+  }, [composerIntent, councilAgents, activeAgents]);
 
   const { costEstimate, premiumSelected } = useMemo(() => {
     const models = selectedAgents.map(a => a.model);
@@ -177,21 +163,21 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   const isBusy = state.isConciergeSending || state.isBroadcasting;
   const canSend = prompt.trim() && !isBusy && !capBlocks && !capNeedsAck;
 
-  const totalChars = state.responses.reduce((acc, r) => acc + r.content.length, 0);
+  const totalChars = (state.responses || []).reduce((acc, r) => acc + r.content.length, 0);
   const estimatedTokens = Math.round(totalChars / 4);
   const contextLimit = 128000;
   const fillPct = Math.min((estimatedTokens / contextLimit) * 100, 100);
   const fillColor = fillPct > 80 ? 'var(--risk)' : fillPct > 55 ? 'var(--warn)' : 'var(--ok)';
 
   const placeholder = state.clawView === 'focus' && focusedAgent
-    ? `Chat with ${focusedAgent.display_name || focusedAgent.name}...`
+    ? `Chat with ${focusedAgent.display_name || focusedAgent.name}…`
     : composerIntent === 'broadcast'
-      ? 'Ask the council...'
+      ? 'Ask the council…'
       : composerIntent === 'execute'
-        ? 'Describe a command to execute...'
+        ? 'Describe a command to execute…'
         : composerIntent === 'build'
-          ? 'Describe what you want to build...'
-          : 'Talk to Concierge...';
+          ? 'Describe what you want to build…'
+          : 'Talk to Concierge…';
 
   const clearPrompt = useCallback(() => {
     setPrompt('');
@@ -282,15 +268,13 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
       await addMessage(broadcastThread.id, 'user', text);
     }
 
-    const agentIds = threadVariant
-      ? councilAgents.map(a => a.id)
-      : (selectedIds.length > 0 ? selectedIds : activeAgents.map(a => a.id));
+    const agentIds = councilAgents.map(a => a.id);
 
     dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
     await broadcast(text, agentIds, sessionForBroadcast, { skipTriage: true });
   }, [
     prompt, state.isBroadcasting, state.activeSession, state.workspace, sessionMode, clearPrompt, createSession,
-    ensureConciergeThread, dispatch, addMessage, createThread, threadVariant, councilAgents, selectedIds, activeAgents, broadcast,
+    ensureConciergeThread, dispatch, addMessage, createThread, councilAgents, broadcast,
   ]);
 
   const handleExecute = useCallback(async () => {
@@ -392,219 +376,17 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   }, [dispatch]);
 
   const handleTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (threadVariant) {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        void handleSubmit();
-      }
-      return;
-    }
-
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSubmit();
     }
   };
 
-  const toggleAgent = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  if (threadVariant) {
-    return (
-      <div className="relative z-10 border-t border-white/[0.06] px-4 py-3">
-        {exceedsCap && (
-          <div
-            className="max-w-4xl mx-auto flex items-center gap-2 mb-2"
-            style={{
-              padding: '10px 14px',
-              borderRadius: '16px',
-              background: capBlocks ? 'rgba(224,90,90,0.08)' : 'rgba(224,169,74,0.08)',
-              border: `1px solid ${capBlocks ? 'rgba(224,90,90,0.22)' : 'rgba(224,169,74,0.22)'}`,
-              color: capBlocks ? 'var(--risk)' : 'var(--warn)',
-              fontSize: '12px',
-            }}
-          >
-            <AlertTriangle size={13} style={{ flexShrink: 0 }} />
-            <span style={{ flex: 1 }}>
-              {premiumSelected} premium slots active — {capBlocks
-                ? `switch to Elevated mode or reduce to ${PREMIUM_SLOT_CAP}`
-                : 'Elevated mode still requires explicit confirmation'}
-            </span>
-            {isElevated && (
-              <label className="flex items-center gap-1.5 cursor-pointer" style={{ flexShrink: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={elevatedCapAck}
-                  onChange={e => setElevatedCapAck(e.target.checked)}
-                  style={{ accentColor: 'var(--gold)', width: '13px', height: '13px' }}
-                />
-                <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' as const }}>
-                  Confirm
-                </span>
-              </label>
-            )}
-          </div>
-        )}
-
-        <div className="max-w-4xl mx-auto space-y-2">
-          <div className="flex items-center gap-2">
-            <div
-              role="radiogroup"
-              aria-label="Composer intent"
-              className="flex-1 flex items-center gap-1 rounded-xl bg-white/[0.03] border border-white/[0.07] p-1"
-            >
-              {routingKeys.map((intent, index) => {
-                const cfg = INTENT_CONFIG[intent];
-                const BarIcon = cfg.Icon;
-                const isActive = composerIntent === intent;
-                return (
-                  <button
-                    key={intent}
-                    ref={(el) => { routingBarRef.current[index] = el; }}
-                    role="radio"
-                    aria-checked={isActive}
-                    onClick={() => dispatch({ type: 'SET_COMPOSER_INTENT', payload: intent })}
-                    onKeyDown={(e) => handleRoutingKeyDown(e, index)}
-                    title={cfg.consequence}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium
-                               transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50
-                               ${isActive
-                                 ? `${cfg.bg} ${cfg.color} border ${cfg.border}`
-                                 : 'text-white/50 hover:text-white/75 hover:bg-white/[0.05]'}`}
-                  >
-                    <BarIcon size={12} />
-                    <span className="hidden sm:inline">{cfg.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div ref={pickerRef} className="relative flex-shrink-0">
-              <button
-                ref={modelButtonRef}
-                onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08]
-                           text-[11px] text-white/70 hover:text-white/85 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                aria-expanded={modelPickerOpen}
-                aria-haspopup="listbox"
-                aria-label="Select concierge model"
-              >
-                <Bot size={11} />
-                <span className="hidden sm:inline">{currentModelLabel}</span>
-                <ChevronDown size={11} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {modelPickerOpen && (
-                <div
-                  className="absolute right-0 bottom-full mb-2 w-56 rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden z-[60]"
-                  role="listbox"
-                  aria-label="Concierge model"
-                >
-                  {CONCIERGE_MODELS.map((m, index) => (
-                    <button
-                      key={m.id}
-                      ref={(element) => { modelOptionRefs.current[index] = element; }}
-                      onClick={() => handleModelSelect(m.id)}
-                      role="option"
-                      aria-selected={m.id === state.conciergeModel}
-                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/50
-                        ${m.id === state.conciergeModel
-                          ? 'bg-gold/10 text-gold'
-                          : 'text-white/60 hover:bg-white/5 hover:text-white/80'}`}
-                    >
-                      <div className="font-medium">{m.label}</div>
-                      <div className="text-xs opacity-50 mt-0.5">{m.provider}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="text-[10px] text-white/70 px-1">
-            {intentCfg.consequence}
-            {composerIntent === 'broadcast' && (
-              <span className="text-white/45 ml-2">
-                {councilAgents.length} active agent{councilAgents.length === 1 ? '' : 's'}
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleTextareaKeyDown}
-              placeholder={placeholder}
-              rows={1}
-              className={`flex-1 resize-none rounded-xl border px-4 py-3 text-sm text-white/90 placeholder:text-white/60
-                         focus:outline-none focus:ring-2 transition-all min-h-[44px] max-h-[200px]
-                         ${intentCfg.border} bg-white/[0.04] focus:ring-gold/40`}
-              style={{ height: 'auto', overflow: 'hidden' }}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = 'auto';
-                el.style.height = Math.min(el.scrollHeight, 200) + 'px';
-              }}
-            />
-
-            <button
-              onClick={() => { void handleSubmit(); }}
-              disabled={!canSend}
-              className={`flex items-center justify-center w-10 h-10 rounded-xl ${intentCfg.bg} ${intentCfg.buttonText}
-                         disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 hover:brightness-110
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50`}
-              aria-label={`${intentCfg.label} (Enter)`}
-              title={`${intentCfg.label} (Enter)`}
-            >
-              <intentCfg.Icon size={15} />
-            </button>
-
-            {latestRound && latestResponses.length > 0 && (
-              <button
-                onClick={() => { void handleSynthesize(); }}
-                disabled={state.isSynthesizing}
-                className="flex items-center gap-1.5 px-3 h-10 rounded-xl bg-white/[0.04] border border-white/[0.08]
-                           hover:bg-white/[0.08] text-white/70 hover:text-white/85
-                           disabled:opacity-30 disabled:cursor-not-allowed transition-all flex-shrink-0 text-xs
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                aria-label="Synthesize responses"
-                title="Synthesize responses"
-              >
-                <RefreshCw size={13} className={state.isSynthesizing ? 'animate-spin' : ''} />
-                <span className="hidden sm:inline">Synth</span>
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] text-white/45">
-              Enter to send, Shift+Enter for newline
-            </span>
-            <button
-              onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
-              className="text-[10px] text-gold/75 hover:text-gold transition-colors uppercase tracking-[0.18em]"
-            >
-              Configure roster
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <footer
-      className="absolute z-[28]"
-      style={{
-        left: '50%',
-        bottom: '28px',
-        transform: 'translateX(-50%)',
-        width: 'min(980px, calc(100vw - 44px))',
-      }}
-    >
+    <div style={{
+      position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+      width: 'min(760px, calc(100vw - 44px))', zIndex: 30,
+    }}>
       {exceedsCap && (
         <div
           className="flex items-center gap-2 mb-2"
@@ -639,70 +421,111 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
         </div>
       )}
 
-      <div
-        className="grid items-center gap-3"
-        style={{
-          gridTemplateColumns: '1fr auto',
-          padding: '10px 12px',
-          border: '1px solid rgba(255,255,255,0.07)',
-          borderRadius: '28px',
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.035))',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          boxShadow: '0 16px 60px rgba(0,0,0,0.34)',
-        }}
-      >
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <div
-              role="radiogroup"
-              aria-label="Composer intent"
-              className="flex-1 flex items-center gap-1 rounded-xl bg-white/[0.03] border border-white/[0.07] p-1"
-            >
-              {routingKeys.map((intent, index) => {
-                const cfg = INTENT_CONFIG[intent];
-                const BarIcon = cfg.Icon;
-                const isActive = composerIntent === intent;
-                return (
-                  <button
-                    key={intent}
-                    ref={(el) => { routingBarRef.current[index] = el; }}
-                    role="radio"
-                    aria-checked={isActive}
-                    onClick={() => dispatch({ type: 'SET_COMPOSER_INTENT', payload: intent })}
-                    onKeyDown={(e) => handleRoutingKeyDown(e, index)}
-                    title={cfg.consequence}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium
-                               transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50
-                               ${isActive
-                                 ? `${cfg.bg} ${cfg.color} border ${cfg.border}`
-                                 : 'text-white/50 hover:text-white/75 hover:bg-white/[0.05]'}`}
-                  >
-                    <BarIcon size={12} />
-                    <span>{cfg.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+      <div style={{
+        background: 'rgba(8,9,11,0.85)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid var(--edge-1)', borderRadius: 24,
+        boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        {/* Intent Tabs */}
+        <div style={{
+          display: 'flex', borderBottom: '1px solid var(--edge-0)',
+          background: 'rgba(255,255,255,0.015)',
+        }}>
+          {routingKeys.map((intent, index) => {
+            const cfg = INTENT_CONFIG[intent];
+            const BarIcon = cfg.Icon;
+            const isActive = composerIntent === intent;
+            return (
+              <button key={intent}
+                ref={(el) => { routingBarRef.current[index] = el; }}
+                onClick={() => dispatch({ type: 'SET_COMPOSER_INTENT', payload: intent })}
+                onKeyDown={(e) => handleRoutingKeyDown(e, index)}
+                style={{
+                  flex: 1, padding: '12px 0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                  fontFamily: 'var(--mono)', fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase',
+                  color: isActive ? cfg.color : 'var(--ink-3)',
+                  background: isActive ? cfg.bg : 'transparent',
+                  border: 'none', borderBottom: isActive ? `1px solid ${cfg.color}` : '1px solid transparent',
+                  cursor: 'pointer', transition: 'all 0.2s ease', outline: 'none'
+                }}>
+                <BarIcon size={12} />
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
 
-            <div ref={pickerRef} className="relative">
+        {/* Input Area */}
+        <div style={{ padding: '16px 20px 14px' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+            fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)',
+            letterSpacing: '0.1em',
+          }}>
+            <span style={{ color: intentCfg.color, textTransform: 'uppercase', letterSpacing: '0.18em' }}>
+              {intentCfg.label}
+            </span>
+            <span style={{ opacity: 0.5 }}>—</span>
+            <span>{intentCfg.consequence}</span>
+            {composerIntent === 'broadcast' && (
+              <>
+                <span style={{ opacity: 0.5 }}>·</span>
+                <span>{councilAgents.length} active agent{councilAgents.length === 1 ? '' : 's'}</span>
+              </>
+            )}
+          </div>
+          
+          <textarea
+            ref={textareaRef}
+            value={prompt}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+            }}
+            onKeyDown={handleTextareaKeyDown}
+            placeholder={placeholder}
+            disabled={state.isBroadcasting}
+            rows={1}
+            style={{
+              width: '100%', resize: 'none',
+              background: 'transparent', border: 'none', outline: 'none',
+              fontFamily: 'var(--serif)', fontSize: 16, fontWeight: 300,
+              color: 'var(--ink-0)', lineHeight: 1.5,
+              padding: '2px 0', minHeight: '24px', maxHeight: '200px'
+            }}
+          />
+
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginTop: 6,
+            paddingTop: 8, borderTop: '1px solid var(--edge-0)',
+          }}>
+            {/* Model Picker */}
+            <div ref={pickerRef} style={{ position: 'relative' }}>
               <button
                 ref={modelButtonRef}
                 onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08]
-                           text-[11px] text-white/70 hover:text-white/85 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                aria-expanded={modelPickerOpen}
-                aria-haspopup="listbox"
-                aria-label="Select concierge model"
-              >
-                <Bot size={11} />
-                <span className="hidden lg:inline">{currentModelLabel}</span>
-                <ChevronDown size={11} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
+                style={{
+                  padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                  border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
+                  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
+                  letterSpacing: '0.08em', textTransform: 'uppercase',
+                  display: 'flex', alignItems: 'center', gap: 4, outline: 'none'
+                }}>
+                {currentModelLabel} <ChevronDown size={10} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {modelPickerOpen && (
                 <div
-                  className="absolute right-0 bottom-full mb-2 w-56 rounded-lg bg-void-2 border border-white/10 shadow-xl overflow-hidden z-[60]"
+                  style={{
+                    position: 'absolute', bottom: '100%', left: 0, marginBottom: '8px',
+                    width: '224px', borderRadius: '12px', background: 'var(--void-2)',
+                    border: '1px solid var(--edge-1)', boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+                    overflow: 'hidden', zIndex: 60, display: 'flex', flexDirection: 'column'
+                  }}
                   role="listbox"
                   aria-label="Concierge model"
                 >
@@ -713,231 +536,73 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
                       onClick={() => handleModelSelect(m.id)}
                       role="option"
                       aria-selected={m.id === state.conciergeModel}
-                      className={`w-full text-left px-4 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/50
-                        ${m.id === state.conciergeModel
-                          ? 'bg-gold/10 text-gold'
-                          : 'text-white/60 hover:bg-white/5 hover:text-white/80'}`}
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '10px 16px',
+                        background: m.id === state.conciergeModel ? 'var(--ember-soft)' : 'transparent',
+                        color: m.id === state.conciergeModel ? 'var(--ember)' : 'var(--ink-1)',
+                        border: 'none', outline: 'none', cursor: 'pointer',
+                        transition: 'background 0.2s ease',
+                      }}
                     >
-                      <div className="font-medium">{m.label}</div>
-                      <div className="text-xs opacity-50 mt-0.5">{m.provider}</div>
+                      <div style={{ fontWeight: 500, fontSize: '13px' }}>{m.label}</div>
+                      <div style={{ fontSize: '11px', opacity: 0.5, marginTop: '2px' }}>{m.provider}</div>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="text-[10px] text-white/70 px-1">
-            {intentCfg.consequence}
-          </div>
+            <button 
+              onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
+              style={{
+                padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
+                fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
+                letterSpacing: '0.08em', textTransform: 'uppercase', outline: 'none'
+              }}>
+              Roster · {activeAgents.length}
+            </button>
 
-          <div className="flex items-start gap-3">
-            <div className="flex-1 flex flex-col">
-              <textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={(e) => {
-                  setPrompt(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-                }}
-                onKeyDown={handleTextareaKeyDown}
-                disabled={state.isBroadcasting}
-                rows={1}
-                placeholder={placeholder}
-                style={{
-                  width: '100%',
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  color: 'var(--text)',
-                  fontFamily: 'inherit',
-                  fontSize: '16px',
-                  lineHeight: 1.45,
-                  resize: 'none',
-                  minHeight: '28px',
-                  maxHeight: '120px',
-                  padding: '6px 10px',
-                }}
-              />
-              <div className="flex items-center gap-2 px-2.5 pb-1">
-                {activeAgents.map(agent => (
-                  <button
-                    key={agent.id}
-                    onClick={() => toggleAgent(agent.id)}
-                    title={agent.name}
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      border: selectedIds.includes(agent.id) ? `1.5px solid ${agent.color}` : '1.5px solid rgba(255,255,255,0.12)',
-                      background: selectedIds.includes(agent.id) ? `${agent.color}15` : 'transparent',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                      transition: 'all 150ms',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '5px',
-                        height: '5px',
-                        borderRadius: '50%',
-                        background: selectedIds.includes(agent.id) ? agent.color : 'transparent',
-                        boxShadow: selectedIds.includes(agent.id) ? `0 0 6px ${agent.color}` : 'none',
-                      }}
-                    />
-                  </button>
-                ))}
-                <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', marginLeft: '2px' }}>
-                  {selectedIds.length}/{activeAgents.length}
-                </span>
-
-                {selectedIds.length > 0 && (
-                  <>
-                    <div style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
-                    <span
-                      className="font-mono-dm"
-                      title="Estimated input cost (local calculation, not billed)"
-                      style={{
-                        fontSize: '9px',
-                        color: costEstimate.premiumCount > 0 ? 'var(--gold)' : 'var(--text-dim)',
-                        letterSpacing: '0.06em',
-                      }}
-                    >
-                      {formatCostRange(costEstimate)} across {costEstimate.total} {costEstimate.total === 1 ? 'agent' : 'agents'}
-                      {costEstimate.freeCount > 0 && costEstimate.premiumCount > 0 && (
-                        <span style={{ color: 'var(--ok)', marginLeft: '4px' }}>· {costEstimate.freeCount} free</span>
-                      )}
-                    </span>
-                  </>
-                )}
-
-                {estimatedTokens > 0 && (
-                  <>
-                    <div style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.08)', margin: '0 4px' }} />
-                    <div className="flex items-center gap-1.5">
-                      <div
-                        style={{
-                          width: '40px',
-                          height: '3px',
-                          borderRadius: '2px',
-                          background: 'rgba(255,255,255,0.06)',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <div style={{ width: `${fillPct}%`, height: '100%', borderRadius: '2px', background: fillColor, transition: 'width 0.5s ease' }} />
-                      </div>
-                      <span className="font-mono-dm" style={{ fontSize: '8px', color: 'var(--text-dim)', letterSpacing: '0.06em' }}>
-                        {(estimatedTokens / 1000).toFixed(1)}k
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <div
-                className="flex items-center"
-                style={{
-                  padding: '3px',
-                  borderRadius: '999px',
-                  border: '1px solid rgba(255,255,255,0.07)',
-                  background: 'rgba(255,255,255,0.02)',
-                }}
-              >
-                {(['ask', 'build'] as SessionMode[]).map(mode => {
-                  const active = sessionMode === mode;
-                  return (
-                    <button
-                      key={mode}
-                      onClick={() => { void handleSessionModeChange(mode); }}
-                      style={{
-                        height: '28px',
-                        padding: '0 12px',
-                        borderRadius: '999px',
-                        border: 'none',
-                        background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
-                        color: active ? 'var(--gold)' : 'var(--text-dim)',
-                        fontSize: '11px',
-                        letterSpacing: '0.06em',
-                        textTransform: 'capitalize' as const,
-                        cursor: 'pointer',
-                        fontWeight: active ? 500 : 400,
-                        transition: 'all 0.15s ease',
-                      }}
-                      title={`${mode.charAt(0).toUpperCase() + mode.slice(1)} session`}
-                    >
-                      {mode}
-                    </button>
-                  );
-                })}
-              </div>
-
+            {latestRound && latestResponses.length > 0 && (
               <button
-                className="reveal-pill"
-                onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
-                style={{ height: '42px', fontSize: '13px' }}
-              >
-                <Music size={14} />
-                Roster
-              </button>
-
-              <button
-                className="reveal-pill"
-                onClick={() => { void ensureThreadContext(); }}
+                onClick={() => { void handleSynthesize(); }}
+                disabled={state.isSynthesizing}
                 style={{
-                  height: '42px',
-                  fontSize: '13px',
-                  background: state.activeThread ? 'rgba(201,168,76,0.14)' : undefined,
-                  color: state.activeThread ? 'var(--gold)' : undefined,
-                }}
-              >
-                <Terminal size={14} />
-                Thread
+                  padding: '4px 10px', borderRadius: 6, cursor: state.isSynthesizing ? 'default' : 'pointer',
+                  border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
+                  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
+                  letterSpacing: '0.08em', textTransform: 'uppercase',
+                  opacity: state.isSynthesizing ? 0.5 : 1, outline: 'none',
+                  display: 'flex', alignItems: 'center', gap: 4
+                }}>
+                <RefreshCw size={10} className={state.isSynthesizing ? 'animate-spin' : ''} />
+                Synth
               </button>
+            )}
 
-              <button
-                onClick={() => { void handleSubmit(); }}
-                disabled={!canSend}
-                style={{
-                  height: '42px',
-                  minWidth: '42px',
-                  padding: '0 18px',
-                  borderRadius: '999px',
-                  border: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  fontSize: '13px',
-                  letterSpacing: '0.02em',
-                  whiteSpace: 'nowrap' as const,
-                  cursor: canSend ? 'pointer' : 'default',
-                  background: canSend
-                    ? 'linear-gradient(180deg, rgba(255,255,255,0.98), rgba(235,237,241,0.96))'
-                    : 'rgba(255,255,255,0.06)',
-                  color: canSend ? '#111' : 'var(--text-dim)',
-                  boxShadow: canSend ? '0 18px 40px rgba(255,255,255,0.08)' : 'none',
-                  transition: 'all 0.2s ease',
-                }}
-              >
-                <Send size={14} />
-                Send
-              </button>
-            </div>
+            <div style={{ flex: 1 }} />
+            
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
+              {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'} ↵
+            </span>
+            
+            <button 
+              onClick={() => { void handleSubmit(); }}
+              disabled={!canSend}
+              style={{
+                padding: '6px 18px', borderRadius: 999,
+                background: canSend ? intentCfg.color : 'var(--surf-2)', 
+                color: canSend ? 'var(--void-0)' : 'var(--ink-3)',
+                fontSize: 12, fontWeight: 500, cursor: canSend ? 'pointer' : 'default',
+                boxShadow: canSend ? `0 0 18px ${intentCfg.bg}` : 'none',
+                border: 'none', outline: 'none', transition: 'all 0.2s ease',
+                fontFamily: 'var(--sans)'
+              }}>
+              Send
+            </button>
           </div>
         </div>
       </div>
-
-      <div className="flex items-center justify-center mt-1.5">
-        <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', letterSpacing: '0.08em', opacity: 0.6 }}>
-          {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'} + Enter to send
-        </span>
-      </div>
-    </footer>
+    </div>
   );
 }

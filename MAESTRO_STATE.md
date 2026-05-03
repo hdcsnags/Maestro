@@ -1917,6 +1917,21 @@ Ran `npm run typecheck` clean. Deployed `architect`. Committed and pushed `41fa2
 - Initial push to GitHub had a missing component file (`Orb.tsx`) and a missing import, causing a blank screen on the live environment. Fixed in a follow-up commit.
 - Did not yet migrate the "Advisor Strip" or the sidebar grouping from the Atelier mockup; these are sequenced for the next phase.
 
+### 2026-05-03 — Gemini CLI — Unified UX Phase 1 (Atelier Composer)
+
+**What was done**:
+1. **Refactored RevealComposer.tsx**: Completely rewrote the rendering logic of `src/components/reveal/RevealComposer.tsx` to match the "Atelier" design direction from `.michael/m4 (1)`.
+2. **Integrated Routing Bar**: Merged the segmented intent tabs (Direct, Council, Execute, Build) directly into the top of the composer block.
+3. **Refined Action Layout**: Consolidated the Concierge model picker, roster configuration button, and Send button into a clean, flush bottom row.
+4. **Updated Intent Colors**: Mapped the `INTENT_CONFIG` colors and backgrounds to the new "Void" design tokens (`--ember`, `--gemini`, `--warn`, `--ok`) to ensure consequence labels and active states match the high-fidelity mockups.
+5. **Verified Build**: Ran `npm run build` to confirm the rewrite introduced no type errors.
+
+**Files touched**: `src/components/reveal/RevealComposer.tsx`
+
+**Decisions made**:
+- Removed the split `variant="workspace"` vs `variant="thread"` rendering paths, as `ClawMode` is now the only shell. The component now returns a single, unified "floating block" design.
+- Hardcoded the new design tokens directly into the `INTENT_CONFIG` to tightly couple the logical intent with its visual consequence.
+
 ## Open Questions
 
 - Should github-create-repo show a better error when Administration:write permission is missing?
