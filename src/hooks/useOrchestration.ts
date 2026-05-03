@@ -533,7 +533,16 @@ export function useOrchestration() {
         mode: broadcastMode,
       });
 
-      const targetAgents = state.agents.filter(a => selectedAgentIds.includes(a.id));
+      // Claw agents are executor-only — they cannot participate in cloud broadcast.
+      const targetAgents = state.agents.filter(
+        a => selectedAgentIds.includes(a.id) && a.provider_group !== 'maestroclaw',
+      );
+      if (targetAgents.length === 0) {
+        console.warn('[Broadcast] No cloud-eligible agents in selection — aborting broadcast');
+        dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
+        dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+        return;
+      }
       const roundId = roundData.id as string;
 
       await Promise.all(

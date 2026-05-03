@@ -101,6 +101,11 @@ function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+/** openrouter_a agents (GPT-OSS, DeepSeek free, Llama free) consistently 504 or return stubs on build tasks. */
+function isBuilderEligible(agent: AgentRow): boolean {
+  return agent.provider_group !== "openrouter_a";
+}
+
 function scoreAgentForLane(agent: AgentRow, lane: SuggestedLane): number {
   const label = norm(lane.agent_name);
   const role = norm(agent.role);
@@ -152,19 +157,27 @@ function assignAgentToLane(
 
   // Locked builder IDs don't match any agents in the workspace (stale IDs or unapplied
   // migration). Fall back to the full pool rather than returning null — a null agent_id
-  // produces LANES_NOT_ASSIGNED on every build attempt.
+  // produces LANES_NOT_ASSIGNED on every build attempt. Exclude openrouter_a first.
   if (candidates.length === 0 && lockedBuilderIds.size > 0 && lane.role === "builder") {
-    candidates = agents;
+    candidates = agents.filter(isBuilderEligible);
+    if (candidates.length === 0) candidates = agents; // absolute last resort
   }
 
   if (candidates.length === 0) return null;
 
-  const exact = candidates.find(
+  // For builder lanes, only consider eligible candidates — openrouter_a models reliably
+  // 504 or return stubs and must not be phantom-assigned via exact-match.
+  const eligibleCandidates = lane.role === "builder"
+    ? candidates.filter(isBuilderEligible)
+    : candidates;
+  const searchPool = eligibleCandidates.length > 0 ? eligibleCandidates : candidates;
+
+  const exact = searchPool.find(
     (agent) => norm(agent.display_name) === norm(lane.agent_name) || norm(agent.name) === norm(lane.agent_name),
   );
   if (exact && !usedAgentIds.has(exact.id)) return exact;
 
-  const fuzzy = candidates
+  const fuzzy = searchPool
     .filter((agent) => !usedAgentIds.has(agent.id))
     .map((agent) => ({ agent, score: scoreAgentForLane(agent, lane) }))
     .sort((a, b) => b.score - a.score)[0];
@@ -173,7 +186,7 @@ function assignAgentToLane(
 
   // Last resort: for builder lanes never assign a free/weak model — they reliably 504 or
   // return stubs. Only use them if there is literally no other option.
-  const unused = candidates.filter((a) => !usedAgentIds.has(a.id));
+  const unused = searchPool.filter((a) => !usedAgentIds.has(a.id));
   if (lane.role === "builder") {
     const capable = unused.filter((a) => {
       const n = norm(`${a.display_name} ${a.name}`);
@@ -279,7 +292,10 @@ Deno.serve(async (req: Request) => {
           ...activeOrAllAgents.filter((agent) => !lockedBuilderIds.has(agent.id)),
         ]
       : activeOrAllAgents;
+    // Exclude openrouter_a agents from the LLM's buildable roster — they reliably 504
+    // on build tasks. They may still be assigned reviewer/read_only lanes if present.
     const agentRosterText = generalRoster
+      .filter((agent) => isBuilderEligible(agent))
       .map((agent) => `- ${agent.display_name} | role: ${agent.role} | provider_group: ${agent.provider_group}`)
       .join("\n");
     const lockedBuilderText = lockedBuilderRoster

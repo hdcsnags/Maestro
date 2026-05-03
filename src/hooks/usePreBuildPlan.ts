@@ -125,10 +125,11 @@ export function usePreBuildPlan(threadId: string) {
   );
   const builderCandidateAgents = useMemo(
     () => allAgents.filter((agent) =>
-      agent.is_active
-      || agent.provider_group === 'maestroclaw'
-      || connectedProviders.has(agent.provider)
-      || persistedBuilderIds.includes(agent.id),
+      agent.provider_group !== 'openrouter_a' && // ineligible as builders (reliably 504/stub on build tasks)
+      (agent.is_active
+        || agent.provider_group === 'maestroclaw'
+        || connectedProviders.has(agent.provider)
+        || persistedBuilderIds.includes(agent.id)),
     ).map((agent) => ({
       id: agent.id,
       name: agent.name,

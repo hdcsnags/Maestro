@@ -1121,6 +1121,23 @@ export function useBuildExecution() {
     // ── V3: Route based on execution backend ─────────────────────────
     const backend = resolveBackend(task);
 
+    // Guard: openrouter_a agents cannot execute cloud build tasks (reliably 504 or return stubs).
+    // This is defense-in-depth; the upstream architect fix prevents them from being assigned.
+    if (backend === 'edge' && agent.provider_group === 'openrouter_a') {
+      if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+        await updateTaskStatus(task.id, 'rerouted', {
+          rerouted_from: task.lane_owner,
+          lane_owner: task.fallback_owner,
+          failure_reason: `Ineligible build agent: ${agent.display_name} (openrouter_a) cannot execute cloud build tasks — rerouted to fallback`,
+        } as Partial<BuildTask>);
+        return false;
+      }
+      await updateTaskStatus(task.id, 'failed', {
+        failure_reason: `Ineligible build agent: "${agent.display_name}" (openrouter_a) cannot execute cloud build tasks. Re-run the architect to reassign lanes.`,
+      } as Partial<BuildTask>);
+      return false;
+    }
+
     if (backend === 'local') {
       try {
         return await dispatchTaskLocal(task);

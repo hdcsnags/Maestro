@@ -963,7 +963,9 @@ RULES:
         return `${b.agent_name}: ${count} files`;
       }).join(", ");
 
-      const lockedBuilderIds = (buildSpec as { locked_builder_ids?: string[] }).locked_builder_ids ?? [];
+      const lockedBuilderIds = Array.isArray((buildSpec as { primary_builder_agent_ids?: unknown }).primary_builder_agent_ids)
+        ? (buildSpec as { primary_builder_agent_ids: string[] }).primary_builder_agent_ids
+        : [];
 
       return new Response(
         JSON.stringify({
