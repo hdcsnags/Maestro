@@ -8,8 +8,8 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | **SEC-02 implementation merged but `executor-api` NOT yet redeployed and `APPROVAL_TOKEN_SECRET` not yet set in Supabase project — server-authoritative trust gate is code-ready but not live;** GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-05-03 (SEC-02: HMAC approval tokens, pty_shell gating, APPROVAL_TOKEN_SECRET set); previously deployed 2026-05-01 (token rotation + large-artifact fixes); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
+| Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
+| Last verified deploy | `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix, field-name fix); `executor-api` deployed 2026-05-03 (SEC-02: HMAC approval tokens, pty_shell gating, APPROVAL_TOKEN_SECRET set); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
 | Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
@@ -248,8 +248,8 @@ Legacy (unused): agent_skills, flags
 
 | Issue | Since | Owner |
 |-------|-------|-------|
-| **GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug | 2026-04-19 | Unassigned |
-| **Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" remains possible if local executors are manually activated in the legacy workspace; `ClawMode.tsx` now filters executors/`maestroclaw` out of chat broadcast | 2026-04-19 / verified 2026-04-20 (code) | Unassigned |
+| ~~**GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug~~ ✅ Fixed (2026-05-04, commit `c6ed517`): `isBuilderEligible()` predicate added; `openrouter_a` filtered from LLM roster text, candidate pool for builder lanes, stale-ID fallback, and Pre-Build candidate list; edge-path dispatch guard added; `architect` + `concierge` redeployed | 2026-04-19 | Done |
+| ~~**Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" error if local executors were in selectedAgentIds~~ ✅ Fixed (2026-05-04, commit `c6ed517`): `provider_group !== 'maestroclaw'` filter added in `useOrchestration.ts` broadcast; early-return guard added when no cloud-eligible agents remain | 2026-04-19 | Done |
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
 | **Maestro web build UI may not read Claw results correctly**: `pollExecutorJob` reads artifact_manifest but flow from Claw through to GitHub commit not yet end-to-end tested via the Pre-Build UI (only tested via direct DB job insertion) | 2026-04-20 | Unassigned |
 | ~~**Claw thread-first local build path still does not share one UI state model with BuildWorkspace**~~: ✅ Fixed in code — `sessionBuildState` in `MaestroContext` is now the shared source of truth for local session progress/runs/isRunning across both surfaces. | 2026-04-29 (`npx eslint src\hooks\useBuildExecution.ts src\components\reveal\ClawBuildSessionCard.tsx src\components\reveal\BuildWorkspace.tsx`, `npm run typecheck`, `npm run build`) | Done |
@@ -306,7 +306,32 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
-### 2026-05-03 — Opus 4.7 — LIVE-01 concierge build coordinator spec
+### 2026-05-04 — Claude Sonnet 4.6 — REL-01 phantom agent + legacy broadcast fix
+
+**What was done**:
+1. Fixed REL-01 (GPT-OSS phantom agent in build lanes). Root cause: `architect/index.ts` included all active agents in `agentRosterText` sent to the LLM, so the LLM could explicitly name "GPT-OSS 20B (free)" for a builder lane; exact-match path in `assignAgentToLane()` then returned it bypassing all score-based exclusions.
+2. Added `isBuilderEligible(agent)` predicate (`openrouter_a` excluded) to `architect/index.ts`.
+3. Filter `agentRosterText` to exclude `openrouter_a` — LLM never sees them as builder candidates.
+4. Changed `assignAgentToLane()` to filter candidates to `eligibleCandidates` before exact/fuzzy/last-resort for builder lanes.
+5. Fixed stale-ID fallback to prefer `isBuilderEligible` agents before falling back to full pool.
+6. Fixed `concierge/index.ts` field name mismatch: was reading `build_spec.locked_builder_ids`, changed to `build_spec.primary_builder_agent_ids` (matches what Pre-Build writes). Now `state.buildPlan.locked_builder_ids` is properly populated.
+7. Added `openrouter_a` exclusion to `usePreBuildPlan.ts` `builderCandidateAgents` — blocks selection at the source.
+8. Added edge-path dispatch guard in `useBuildExecution.ts`: if `backend === 'edge'` and agent is `openrouter_a`, reroute to `fallback_owner` or fail with clear message.
+9. Fixed legacy broadcast Claw leak in `useOrchestration.ts`: added `provider_group !== 'maestroclaw'` filter + early-return when no cloud-eligible agents remain after filtering.
+10. Deployed `architect` and `concierge` to Supabase project `hhlnadxbrdwxcxwfbvwh`.
+11. Committed + pushed to GitHub (commit `c6ed517`).
+
+**Files touched**: `supabase/functions/architect/index.ts`, `supabase/functions/concierge/index.ts`, `src/hooks/usePreBuildPlan.ts`, `src/hooks/useBuildExecution.ts`, `src/hooks/useOrchestration.ts`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Filter `openrouter_a` from agentRosterText entirely (not just annotated as non-builder) — if the LLM can't see them, it can't assign them. Simpler and more reliable than prompt-level instructions.
+- Shared `isBuilderEligible()` predicate applied at all 4 layers (LLM input, candidate filtering, stale fallback, dispatch guard) — prevents this class of issue from recurring as models or scoring logic changes.
+- Field name fix in concierge uses `Array.isArray()` check for safe handling of older/corrupt specs.
+- Dispatch guard targets edge path only (`backend === 'edge'`) — local Claw builds route through the same `dispatchTask` but must not be blocked.
+
+**What didn't work**: N/A — pre-existing typecheck errors in Gemini's WIP files (ClawMode, Orb, RevealComposer, etc.) already present before this session; not caused by this work.
+
+
 
 **What was done**:
 1. Authored `LIVE_CONCIERGE_COORDINATOR_SPEC.md` — full architectural spec for the live concierge build coordinator. Promoted from "Remaining Non-Audited Risks" to a real spec. Closes `smoketestaudit.md` item #7. The product-feel change that converts the Council from "panel that adjourns when work starts" to "coordinator continuously present during build."
@@ -1931,6 +1956,37 @@ Ran `npm run typecheck` clean. Deployed `architect`. Committed and pushed `41fa2
 **Decisions made**:
 - Removed the split `variant="workspace"` vs `variant="thread"` rendering paths, as `ClawMode` is now the only shell. The component now returns a single, unified "floating block" design.
 - Hardcoded the new design tokens directly into the `INTENT_CONFIG` to tightly couple the logical intent with its visual consequence.
+
+### 2026-05-03 — Gemini CLI — Unified UX (Atelier Topbar & Session Switcher)
+
+**What was done**:
+1. **Refactored RevealTopbar.tsx**: Brought in the "Atelier" design layout for the top header.
+   - Reduced padding and matched the glassmorphism backdrop filter to the mockup (`rgba(8,9,11,0.72)`).
+   - Embedded the `Orb` component directly next to the "Maestro" brand text.
+   - Refined the global system status chip to clearly display Concierge model, key count, and local executor readiness inline.
+   - Polished the right-side drawer toggle buttons (Roster, Trust, Vault) to match the unified icon and border styling.
+2. **Refactored SessionSwitcher.tsx**:
+   - Replaced the large session pill with the sleek, unified token-based session button showing `title · mode`.
+   - Updated the dropdown menu to utilize the new "Void" palette, with refined editing states and hover interactions.
+3. **Verified Build**: Ran `npm run build` to confirm the refactors are type-safe.
+4. **Pushed to GitHub**: Updates are live on the remote `main` branch.
+
+**Files touched**: `src/components/reveal/RevealTopbar.tsx`, `src/components/reveal/SessionSwitcher.tsx`, `MAESTRO_STATE.md`
+
+### 2026-05-03 — Gemini CLI — Unified UX (Advisor Strip)
+
+**What was done**:
+1. **Created `AdvisorStrip.tsx`**: Implemented the persistent, compressed-arc table from the Atelier design. This strip lives at the bottom of the main content area during active council floors (carousel and focus views).
+   - Seats are dynamically mapped in an upward arc, sorted alphabetically.
+   - Each seat utilizes the `SeatRing` component to display real-time status (`thinking` dashed-spin, `streaming` solid-pulse, `ready` solid-glow, or `spoken` dim).
+   - The center seat features the Conductor's orb, serving as the "Synthesize the room" button with dynamic sizing and animation states.
+2. **Integrated into `ClawMode.tsx`**:
+   - Replaced the old linear "quick-focus bar" with the new `AdvisorStrip`.
+   - Fixed the `RevealComposer` positioning by bringing it inside the relative flex column of the main content area, allowing it to correctly center relative to the `BoardroomStage` and `AdvisorStrip` regardless of sidebar width.
+3. **Verified Build**: Ran `npm run build` to confirm integration correctness.
+4. **Pushed to GitHub**: Updates are live on the remote `main` branch.
+
+**Files touched**: `src/components/reveal/AdvisorStrip.tsx` (new), `src/components/reveal/ClawMode.tsx`, `src/components/reveal/RevealComposer.tsx`, `MAESTRO_STATE.md`
 
 ## Open Questions
 
