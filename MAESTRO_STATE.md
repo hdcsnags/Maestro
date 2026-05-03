@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Primary branch | `main` |
-| Active blockers | **SEC-02 client-authoritative trust: frontend `TRUSTED_COMMANDS` regex decides approval requirement and backend honors it — forged frontend can skip approval gate (audited 2026-05-03);** GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
+| Active blockers | GPT OSS phantom agent fires during builds when not selected; legacy broadcast path can still include Claw agents; Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-05-01 (MaestroClaw hardening/alignment Phases A-B: token rotation + large-artifact/session-scope fixes); `orchestrate` redeployed 2026-04-17 (JSON parser rewrite + token limit 4096→16384 + truncation detection); `bouncer` redeployed 2026-04-16; `design` redeployed 2026-04-16 |
 | Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
 | Active locks | None |
@@ -147,7 +147,8 @@ Legacy (unused): agent_skills, flags
 | Capability | Verified |
 |------------|----------|
 | GitHub OAuth authorize + token exchange path exists in code | 2026-04-12 (code verified) |
-| | Shell analyzer correctly segments &&, ||, ; (SEC-01 — injection guard) | 2026-05-03 |
+| Shell analyzer correctly segments &&, ||, ; (SEC-01 — injection guard) | 2026-05-03 |
+| HMAC approval tokens for shell commands (SEC-02): server-authoritative, pty_shell gated, token not persisted to DB | 2026-05-09 |
 | GitHub repo listing (all visibility levels, paginated up to 1000) | *(unverified)* |
 | GitHub repo creation (requires Administration:write on App) | 2026-04-12 |
 | 14 protected edge functions redeployed with shared in-function auth (`verify_jwt = false`) | 2026-04-12 |
@@ -304,6 +305,119 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-03 — Opus 4.7 — Bouncer review profiles spec + agent onboarding brief
+
+**What was done**:
+1. Authored `AGENTS_ONBOARDING.md` — the canonical onboarding brief every new agent (Sonnet, Gemini, future Opus) reads when picking up work cold in this repo. Covers reading order (state doc → master plan → dedicated spec → status), task pickup flow, verification standards (browser smoke test required, not compile-only), status/state update format, when to stop and ask vs proceed, agent-specific strengths and pitfalls. Designed to solve the "fresh Sonnet session is confused by master plan alone" problem the Conductor flagged.
+2. Authored `BOUNCER_PROFILES_SPEC.md` — promoted from "Remaining Non-Audited Risks" to a full spec. Closes `smoketestaudit.md` item #10 (Bouncer should be intent-aware) and unblocks the Conductor's stated CTF/training-lab use case.
+3. Designed four review profiles: `production_app` (default — current behavior), `internal_demo` (downgrades pedagogical-class to informational), `training_lab` (suppresses pedagogical, keeps containment-critical), `security_ctf` (strict containment + suppressed pedagogical).
+4. Designed the **reclassification matrix**: 16 finding categories × 4 profiles → severity outcome. The matrix is deterministic (in code, not LLM-driven) and reviewable. Categories include sql_injection, xss, idor, csrf, jwt_weak, hardcoded_credential, path_traversal, command_injection, ssrf, open_admin_endpoint, public_bind, missing_cors, vulnerable_dependency, insecure_default, pii_exposure, container_escape.
+5. Designed the **containment-critical hard floor**: certain categories (pii_exposure, container_escape, public_bind on what should be loopback) are critical regardless of profile. Additionally, the LLM is prompted per-finding to declare whether it escapes the intended sandbox boundary; "yes" → containment_critical regardless of category/path/profile.
+6. Designed path-based pedagogical markers via `bouncer.config.json` (per repo) with `pedagogical_paths: string[]` glob list. Same finding category gets different reclassification depending on whether the path matches.
+7. Specified acknowledgment modal for `training_lab` and `security_ctf` selection — friction-by-design to prevent accidentally shipping a "training_lab" production app. Audit log entry on acknowledgment.
+8. Designed concierge integration: prompt keyword classifier suggests profile (e.g., "build me a CTF challenge for SQLi" → suggests `security_ctf`).
+9. Specified storage of BOTH raw and reclassified findings in `bouncer_events` for audit/forensic purposes — auditors need to know what was originally found AND what the profile suppressed.
+10. Specified 11-step implementation order with Opus-review checkpoint on step 3 (the matrix table) — getting that table wrong ships either too-loose or too-strict reviews.
+
+**Files touched**: `AGENTS_ONBOARDING.md` (new), `BOUNCER_PROFILES_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Both raw and reclassified findings stored — auditability requires the full chain ("user's profile suppressed X" must be distinguishable from "Bouncer didn't catch X").
+- Path-based pedagogical markers, NOT just per-profile reclassification — same project mixes pedagogical and production code; path scope is the correct granularity.
+- Deterministic matrix in code, NOT LLM-driven reclassification — auditable, version-controlled, consistent run-to-run.
+- LLM emits `containment_critical` boolean per finding for categories that COULD be either pedagogical or sandbox-escape (SQLi, command injection, path traversal, SSRF) — only the model has the code in front of it; matrix respects the LLM's containment flag as a hard floor.
+- Acknowledgment modal required for `training_lab` and `security_ctf` first time per session; `internal_demo` does NOT require acknowledgment (only downgrades to informational, no suppression).
+- Fall back to raw_severity when category isn't in the matrix — defense in depth; never silently bypass an unrecognized finding.
+- Concierge classification of profile-suggestion lives in `concierge` edge function as a small Haiku call, cached per session — cheap, transparent, user always overrides.
+- `bouncer.config.json` per-repo config wins over user account default; per-session selection wins over both — clear precedence, no surprises.
+- Open-source training-lab matrix transparency considered (publish matrix as JSON in repo) but deferred to v1.1.
+
+**What didn't work**:
+- Spec only. No migration, edge function changes, plan card, or BouncerCard updates shipped.
+- The matrix is grounded in security reasoning + the smoketest audit's category list; it has NOT been validated against real-world CTF or training-lab repos. Step 4 of implementation should test against a known-vulnerable fixture before shipping.
+- CTF flag-handling validation (where flag lives, retrievable from inside but not outside) explicitly deferred to a follow-up `BOUNCER_CTF_VALIDATION.md` spec.
+- Continuous-bouncer (mid-build observer mode, smoketest #5) is still unwritten — separate future spec.
+- Per-finding manual override ("user marks this single finding as expected") deferred to v1.1.
+
+### 2026-05-03 — Opus 4.7 — DIFF-04 provider fallback matrix spec
+
+**What was done**:
+1. Authored `DIFF-04_PROVIDER_FALLBACK_SPEC.md` — full architectural spec for structured provider health tracking and per-lane fallback chains. Closes the gap from `smoketestaudit.md` #4 (no structured fallback policy when builders fail).
+2. Designed a two-layer provider health model: in-memory `Map` for hot-path dispatch decisions (no DB round trip), DB-backed `provider_health` table for persistence across sessions and multi-tab consistency. The in-memory layer is authoritative within a session; the DB layer is reconciled on session start and updated periodically.
+3. Specified a 5-state state machine (`healthy`/`degraded`/`down`/`unknown`/`rate_limited`) with explicit transitions: 2 failures in 5 min → degraded; 3+ failures in 10 min → down; 3 successes → healthy; 429 with retry-after → rate_limited; 1 success after probe → degraded (recovery path).
+4. Specified failure attribution: HTTP 5xx, 429, 401/403, network/timeout, truncation count as failures. HTTP 400 with model-specific error and 404 on free models do NOT count (they're user-input or model-availability issues, not provider health).
+5. Designed per-lane fallback chains via a canonical lookup table (`CANONICAL_FALLBACKS` in `src/lib/providerFallbacks.ts`): primary + ordered fallbacks + emergency free model. Each agent in `AGENT_DEFAULTS` gets a curated chain.
+6. Designed health-adjusted reordering at dispatch time: filter out `down` and active `rate_limited`, then prefer healthy > unknown > degraded.
+7. Specified pre-build proactive probe via new edge function `provider-health-probe`: 5-token "Reply with OK" request to each unique model in lane assignments, ~$0.0001 per probe per model. Cached 5 min to avoid wasteful re-probes within the same build flow.
+8. Specified mid-build reactive reroute with cost-aware approval gate: cost_delta ≤ 0 → auto-apply; 0 < delta ≤ user_threshold (default $1) → auto-apply with notice; delta > threshold → pause, render `RerouteApprovalCard` system event, continue on user approve.
+9. Designed UI surfaces: BuilderRosterCard health dots with expandable fallback chain visualization; new TrustDrawer Health tab with manual probe/recovery controls and threshold setting; RerouteApprovalCard for cost-gated mid-build approval.
+10. Specified 10-step implementation order with explicit Opus-review checkpoint on step 6 (failure classification table — wrong constants here either annoy users with false positives or fail to detect real outages).
+
+**Files touched**: `DIFF-04_PROVIDER_FALLBACK_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Two-layer health (memory + DB), not single-layer — hot-path dispatch can't afford DB round trips per task; DB persistence required for cross-session/cross-tab consistency.
+- Concierge-driven probe (only at build time), NOT background monitor — burns API calls only when needed; first build of session has 5s overhead surfaced as "Probing providers..." plan card state.
+- Failure-attribution conservative (single failures stay healthy; pattern of 2+ in window = degraded) — single failures are noisy network blips, real outages produce patterns.
+- Granularity is `provider:model`, not just `provider` — OpenRouter routes same model id through different upstream providers; this captures actual rate-limit boundaries.
+- `down` is sticky-ish (cleared by successful probe, manual reset, or 1-hour decay to `unknown`) — avoids "I refreshed and the state is wrong" while preventing permanent stuck-down.
+- Emergency model is explicit field, NOT just last fallback entry — UI renders it differently (greyed out "free fallback") and cost gate signals "you're now using the emergency model."
+- Cost threshold is global per-user (default $1), NOT per-build — defer per-build override to v2; first prove the global threshold works.
+- Custom user fallback chains explicitly deferred to v1.1 — first prove canonical defaults work for 90% of cases.
+- Claw / executor health stays in existing `executors` table, NOT in `provider_health` — separate concerns; cloud-provider health is the scope here.
+- Probe via 5-token request, NOT HEAD — most LLM APIs don't expose true health endpoints; tiny round trip is the cheapest reliable proxy.
+
+**What didn't work**:
+- Spec only. No migration, edge function, fallback logic, or UI shipped. Implementation pending.
+- The failure-attribution thresholds (2-in-5-min for degraded, 3-in-10-min for down) are first-pass values from reasoning about noise floors. Real telemetry from first week of shipping will tune these. Constants exposed as named constants for easy tuning.
+- Did not specify cross-user shared health dashboards (privacy concern: one user's rate-limit signal could leak to other users). Skipped.
+- Did not integrate with PRO-01 deliberation rounds — interesting future feature ("Council recommends Opus over emergency for this lane because…") but adds latency and complexity. Deferred.
+
+### 2026-05-03 — Opus 4.7 — SEC-04 IncidentService wiring spec
+
+**What was done**:
+1. Authored `SEC-04_INCIDENT_SERVICE_SPEC.md` — full implementation spec for wiring the unused `IncidentService` class and replacing its broken fallback (`targetJobId = "system_node_event"` would fail at executor-api validation).
+2. Designed a first-class `executor_incidents` table (NOT piggybacking on `executor_job_events`) with 6 categories (kernel_violation, security_violation, auth_violation, scope_violation, system_error, manual), 4 severities, RLS scoping, ack/ack_by columns for user acknowledgment, JSONB metadata for category-specific details.
+3. Designed a dedicated `executor-api?action=report_incident` endpoint with executor-token auth and explicit field validation. Replaces the broken piggyback on `report_event`.
+4. Rewrote `IncidentService.report` API to be network-failure-resilient: HTTP errors and network errors are caught and logged but never thrown — kernel must not break on reporting failure.
+5. Wired the service into runtime via module-level setter/getter pattern in `executor.ts` (`setIncidentService`/`getIncidentService`) — keeps adapter signatures clean since adapters are factory-instantiated.
+6. Specified incident reporting from both kernel adapters (`approved-shell.ts`, `pty-shell.ts`) on every rejection path: kernel violations report at severity `high`; security violations (binary not allowlisted) at severity `critical`. Metadata includes the rejected command, binary, segment, and full segment list.
+7. Designed UI: new `SecurityPanel.tsx` rendered inside TrustDrawer Security tab with severity filter, last-30-days fetch, Realtime subscription for live incident push, expandable metadata, acknowledge button. New `useUnackIncidents` hook drives a red dot on `StatusChip` for unacknowledged criticals in the last 24h.
+8. Specified 10-step implementation order. Sonnet can do all 10 steps.
+
+**Files touched**: `SEC-04_INCIDENT_SERVICE_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Dedicated `executor_incidents` table, NOT a column on `executor_job_events` — incidents are first-class user-visible artifacts with their own UI, retention, and ack semantics; job events are debug telemetry.
+- Module-level `getIncidentService()` accessor, NOT constructor injection — adapters are factory-instantiated without args; ripple of constructor changes through every adapter would be invasive. Pragmatic, testable (set null in tests).
+- `await` reports inside `try/catch` — fire-and-forget would silently lose reports on slow connections; await ensures send before return; catch ensures kernel never crashes on report failure.
+- Severity matrix: `critical` for security_violation (kernel hard floor), `high` for kernel_violation (analyzer rejected pipeline; less alarming because conservative), `medium` reserved for future scope/auth violations, `low` for system errors.
+- 90-day retention — hard delete via scheduled job, but the cron edge function ships in v1.1 (out of scope here). v1 incidents accumulate; reasonable users see <100 over months.
+- Incidents also write to `audit_events` (kernel-rejected commands get both `executor_incidents` and `audit('command_rejected_by_kernel')`) — incidents are user-facing, audit is global.
+
+**What didn't work**:
+- Spec only. No migration, service rewrite, adapter wiring, or UI shipped.
+- Email/push notification on critical incidents flagged for v1.1.
+- "Mark as false positive" feedback loop for tuning the kernel allowlist deferred to v1.2 — needs incident volume to know if false positives are a real pattern.
+- Cross-executor / team visibility deferred — Maestro is single-user today; revisit when workspace sharing ships.
+- Did not implement the auto-purge cron job — flagged as a v1.1 follow-up.
+
+### 2026-05-03 — Sonnet 4.6 — SEC-01 shell analyzer hardening (verified, shipped)
+
+**What was done** (logged here for cross-reference; Sonnet's session is the primary record):
+1. Rewrote `splitShellPipeline()` in `packages/maestroclaw/src/lib/kernel/shell-analyzer.ts` so `&&`, `||`, and `;` are recognized as segment separators (previously only `|` was).
+2. Added quote/escape awareness — separators inside `"..."`, `'...'`, or escaped (`\;`) do NOT split.
+3. Wired the `isWindows` parameter into the splitter so the Windows token set actually applies on Windows. Previously dead code.
+4. Single `&` (background-job) is now always rejected as disallowed — backgrounding from LLM-generated context is almost always undesired.
+5. Removed dead `emptySegment` variable.
+6. Pre-existing placeholder corruption in `approved-shell.ts` also fixed.
+7. Added 26 unit tests covering all the edge cases (`git status; rm`, `git status && rm`, `git status || rm`, `echo "a;b"`, `echo 'a&&b'`, `echo a\;b`, etc.). All 26 pass.
+8. `npm --prefix packages\maestroclaw run build` clean.
+
+**Impact**: The kernel injection vector identified in the 2026-05-03 audit is closed. `git status; rm -rf .` now decomposes into 2 segments; the second segment's binary (`rm`) is checked against the allowlist and rejected. Active blocker `SEC-01` removed from the Read This First table.
+
+**Verified**: typecheck + build clean + 26/26 unit tests pass.
 
 ### 2026-05-03 — Opus 4.7 — PRO-02 iteration loop primitive spec
 
