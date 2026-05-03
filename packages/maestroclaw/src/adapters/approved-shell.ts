@@ -1,12 +1,15 @@
 import { exec } from "child_process";
 import type { Adapter, AdapterResult } from "./types.js";
+import { analyzeShellCommand } from "../lib/kernel/shell-analyzer.js";
+
+const TRUSTED_COMMANDS = new Set([
+  "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat", 
+  "grep", "find", "whoami", "hostname", "ipconfig", "ifconfig", "ping", "nmap"
+]);
 
 /**
  * Approved Shell adapter — runs shell commands in a controlled subprocess.
- * Used for trusted and user-approved commands (git, npm, ls, etc.).
- * 
- * Security: The frontend classifies commands as trusted/approval-required
- * before they reach this adapter. This adapter just executes what it's given.
+ * Now hardened with the ThamosClaw Kernel for deep command analysis.
  */
 export class ApprovedShellAdapter implements Adapter {
   name = "approved_shell";
@@ -25,7 +28,25 @@ export class ApprovedShellAdapter implements Adapter {
       return { success: false, output: "", error: "Empty command" };
     }
 
-    console.log(`  🐚 approved_shell: running "${command}" in ${workDir}`);
+    // 1. Analyze command via Kernel
+    const analysis = analyzeShellCommand(command);
+    if (!analysis.ok) {
+      return { success: false, output: "", error: `Kernel Violation: ${analysis.reason}` };
+    }
+
+    // 2. Security: Validate every segment against allowlist
+    for (const segment of analysis.segments) {
+      const binary = segment.argv[0]?.toLowerCase();
+      if (!binary || !TRUSTED_COMMANDS.has(binary)) {
+        return { 
+          success: false, 
+          output: "", 
+          error: `Security Violation: Binary '${binary}' is not on the workstation allowlist.` 
+        };
+      }
+    }
+
+    console.log(`  🐚 approved_shell: validated & running "${command}" in ${workDir}`);
 
     return new Promise((resolve) => {
       const child = exec(command, {
@@ -34,7 +55,7 @@ export class ApprovedShellAdapter implements Adapter {
         maxBuffer: 1024 * 1024, // 1MB output buffer
         env: { ...process.env },
       }, (error, stdout, stderr) => {
-        if (error) {
+... (rest remains same) ...
           // Timeout or signal kill
           if (error.killed) {
             resolve({
