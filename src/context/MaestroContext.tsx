@@ -59,7 +59,7 @@ export interface MaestroState {
   focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
-  pendingExecution: { jobId: string; intent: ExecutionIntent; threadId: string } | null;
+  pendingExecution: { jobId?: string; approvalToken?: string; intent: ExecutionIntent; threadId: string } | null;
   buildDrawerExpanded: boolean;
   clawBuildSession: ClawBuildSessionState | null;
   sessionBuildState: SessionBuildState;
@@ -100,7 +100,7 @@ type Action =
   | { type: 'SET_EXECUTOR_JOBS'; payload: ExecutorJob[] }
   | { type: 'ADD_EXECUTOR_JOB'; payload: ExecutorJob }
   | { type: 'UPDATE_EXECUTOR_JOB'; payload: ExecutorJob }
-  | { type: 'SET_PENDING_EXECUTION'; payload: { jobId: string; intent: ExecutionIntent; threadId: string } | null }
+  | { type: 'SET_PENDING_EXECUTION'; payload: { jobId?: string; approvalToken?: string; intent: ExecutionIntent; threadId: string } | null }
   | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }

@@ -4,7 +4,8 @@ import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
 import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse } from '../types';
-import { classifyCommandTrust, EXECUTION_INTENT_PROMPT, CONCIERGE_MODELS } from '../types';
+import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
+import { CONCIERGE_MODELS } from '../types';
 
 interface OrchestrateResult {
   content?: string;
@@ -904,25 +905,49 @@ export function useThreads() {
     return null;
   }, [state.activeSession, state.providerConnections, ensureAuth, getConciergeCandidates]);
 
-  // Submit an execution job to the executor-api edge function
+  // Submit an execution job to the executor-api edge function.
+  // Returns the created job, a pending-approval signal (HMAC token flow), or null on error.
   const submitExecutionJob = useCallback(async (
     intent: ExecutionIntent,
     threadId: string,
-  ): Promise<ExecutorJob | null> => {
+    approvalToken?: string,
+  ): Promise<ExecutorJob | { pendingApproval: true; approvalToken: string } | null> => {
     if (!user || !state.activeSession) return null;
 
     try {
       const prompt = intent.command || `${intent.action}: ${JSON.stringify(intent.params)}`;
 
-      const result = await callExecutorApi<{ job: ExecutorJob }>('submit', {
+      type SubmitResponse =
+        | { job: ExecutorJob }
+        | { pending_approval: true; approval_token: string };
+
+      const result = await callExecutorApi<SubmitResponse>('submit', {
         prompt,
         adapter: intent.adapter,
         job_type: intent.action,
         session_id: state.activeSession.id,
         timeout_seconds: 120,
+        ...(approvalToken ? { approval_token: approvalToken } : {}),
       });
 
-      if (result.job) {
+      // Server returned a pending-approval signal (HMAC token flow, no DB job yet).
+      if ('pending_approval' in result && result.pending_approval) {
+        await addSystemEvent(threadId, {
+          kind: 'execution_approval',
+          intent,
+          system_event: {
+            tone: 'approval',
+            title: 'Approval required',
+            body: intent.description,
+            command: intent.command || intent.action,
+            adapter: intent.adapter,
+            trust: intent.trust,
+          },
+        });
+        return { pendingApproval: true, approvalToken: result.approval_token };
+      }
+
+      if ('job' in result && result.job) {
         dispatch({ type: 'ADD_EXECUTOR_JOB', payload: result.job });
 
         const requiresApproval = result.job.approval_required && result.job.status === 'queued';
@@ -955,7 +980,7 @@ export function useThreads() {
             });
       }
 
-      return result.job;
+      return 'job' in result ? result.job : null;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       await addSystemEvent(threadId, {
@@ -1009,7 +1034,51 @@ export function useThreads() {
     }
   }, [callExecutorApi, addSystemEvent, dispatch]);
 
-  // Poll a job's status and post updates to the thread
+  // Approve a pending-approval command using a HMAC token (SEC-02 token path).
+  // Resubmits the original intent with the approval_token; server validates and creates the job approved.
+  const approveWithToken = useCallback(async (
+    approvalToken: string,
+    intent: ExecutionIntent,
+    threadId: string,
+  ): Promise<ExecutorJob | null> => {
+    try {
+      const submitResult = await submitExecutionJob(intent, threadId, approvalToken);
+      if (!submitResult) return null;
+
+      if ('pendingApproval' in submitResult) {
+        // Should not happen: server should never return pending_approval for a token resubmit.
+        await addSystemEvent(threadId, {
+          kind: 'error_retry',
+          system_event: {
+            tone: 'error',
+            title: 'Approval error',
+            body: 'Unexpected pending_approval response. Please retry the command.',
+          },
+        });
+        return null;
+      }
+
+      dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+      return submitResult as ExecutorJob;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const isExpired = errorMessage.includes('403') &&
+        (errorMessage.includes('expired') || errorMessage.includes('mismatch'));
+
+      dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: isExpired ? 'Approval expired' : 'Approval failed',
+          body: isExpired
+            ? 'The approval window has passed. Please resubmit the command.'
+            : errorMessage,
+        },
+      });
+      return null;
+    }
+  }, [submitExecutionJob, addSystemEvent, dispatch]);
   const pollJobStatus = useCallback(async (
     jobId: string,
     threadId: string,
@@ -1146,12 +1215,22 @@ export function useThreads() {
       });
 
       // Submit the job
-      const job = await submitExecutionJob(intent, threadId);
-      if (!job) return;
+      const submitResult = await submitExecutionJob(intent, threadId);
+      if (!submitResult) return;
 
-      // If it needs approval, stop here — UI will show approve button
+      // HMAC token flow: server issued a pending-approval token, no DB job yet.
+      if ('pendingApproval' in submitResult && submitResult.pendingApproval) {
+        dispatch({
+          type: 'SET_PENDING_EXECUTION',
+          payload: { approvalToken: submitResult.approvalToken, intent, threadId },
+        });
+        return;
+      }
+
+      const job = submitResult as ExecutorJob;
+
+      // Legacy queued-job flow: server created a queued job (APPROVAL_TOKEN_SECRET not set).
       if (job.approval_required && job.status === 'queued') {
-        // Store the pending job info so the UI can render an approval card
         dispatch({ type: 'SET_PENDING_EXECUTION', payload: { jobId: job.id, intent, threadId } });
         return;
       }
@@ -1364,6 +1443,7 @@ export function useThreads() {
     parseExecutionIntent,
     submitExecutionJob,
     approveExecutionJob,
+    approveWithToken,
     pollJobStatus,
     executeFromChat,
     buildFromChat,

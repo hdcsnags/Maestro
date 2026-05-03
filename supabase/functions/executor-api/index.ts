@@ -3,6 +3,14 @@ import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { readJsonBody, readOptionalJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { hasUnsafeSyntax, isTrustedShellCommand } from "../_shared/trusted-commands.ts";
+import {
+  commandHash,
+  generateApprovalToken,
+  isApprovalTokenConfigured,
+  makeTokenPayload,
+  validateApprovalToken,
+} from "../_shared/approval-tokens.ts";
 
 function jsonResponse(corsHeaders: Record<string, string>, data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -84,25 +92,7 @@ async function candidateTokenHashes(token: string): Promise<string[]> {
   return Array.from(hashes);
 }
 
-const TRUSTED_APPROVED_SHELL_COMMANDS: RegExp[] = [
-  /^git\s+status$/,
-  /^git\s+status\s+--short$/,
-  /^git\s+status\s+-sb$/,
-  /^git\s+branch$/,
-  /^git\s+branch\s+--show-current$/,
-  /^git\s+diff$/,
-  /^git\s+diff\s+--stat$/,
-  /^git\s+log\s+--oneline$/,
-  /^git\s+log\s+--oneline\s+-\d+$/,
-  /^npm\s+list$/,
-  /^npm\s+outdated$/,
-  /^node\s+--version$/,
-  /^gh\s+repo\s+view$/,
-  /^gh\s+issue\s+list$/,
-  /^gh\s+pr\s+list$/,
-];
 
-const UNSAFE_APPROVED_SHELL_PATTERN = /[;&|><`$%()]/;
 const GITHUB_REPO_URL_PATTERN =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/;
 const GIT_BRANCH_PATTERN = /^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]{1,200}$/;
@@ -196,14 +186,6 @@ async function reclaimStaleJobs(
   }
 }
 
-function hasUnsafeApprovedShellSyntax(command: string): boolean {
-  return /[\r\n]/.test(command) || UNSAFE_APPROVED_SHELL_PATTERN.test(command);
-}
-
-function isTrustedApprovedShellCommand(command: string): boolean {
-  return TRUSTED_APPROVED_SHELL_COMMANDS.some((pattern) => pattern.test(command));
-}
-
 function validateRepoContext(repoUrl: string | null, branch: string | null): string | null {
   if (!repoUrl && branch) {
     return "branch requires repo_url";
@@ -221,17 +203,18 @@ function getApprovalPolicy(
   adapter: string,
   prompt: string,
 ): { approvalRequired: boolean; rejectionReason?: string } {
-  if (adapter !== "approved_shell") {
+  const shellAdapters = new Set(["approved_shell", "pty_shell"]);
+  if (!shellAdapters.has(adapter)) {
     return { approvalRequired: false };
   }
-  if (hasUnsafeApprovedShellSyntax(prompt)) {
+  if (hasUnsafeSyntax(prompt)) {
     return {
       approvalRequired: true,
-      rejectionReason: "approved_shell commands cannot contain shell metacharacters or newlines",
+      rejectionReason: "shell commands cannot contain shell metacharacters or newlines",
     };
   }
   return {
-    approvalRequired: !isTrustedApprovedShellCommand(prompt),
+    approvalRequired: !isTrustedShellCommand(prompt),
   };
 }
 
@@ -623,6 +606,8 @@ Deno.serve(async (req: Request) => {
     // ── SUBMIT ────────────────────────────────────────────────
     // POST ?action=submit  body: { prompt, adapter?, job_type?, session_id?, ... }
     // Creates a new job. Auto-approves if approval_required=false.
+    // For shell adapters requiring approval: returns { pending_approval: true, approval_token }
+    // when APPROVAL_TOKEN_SECRET is set. Re-submit with approval_token to create the job.
     if (req.method === "POST" && action === "submit") {
       const bodyResult = await readJsonBody<{
         prompt?: string;
@@ -636,6 +621,7 @@ Deno.serve(async (req: Request) => {
         timeout_seconds?: number;
         build_task_id?: string | null;
         context_bundle?: unknown;
+        approval_token?: string;
       }>(req, corsHeaders, {
         maxBytes: EXECUTOR_API_BODY_LIMITS.submit,
         label: "Executor submit body",
@@ -654,6 +640,7 @@ Deno.serve(async (req: Request) => {
         timeout_seconds,
         build_task_id,
         context_bundle,
+        approval_token,
       } = body;
 
       const promptText = typeof prompt === "string" ? prompt.trim() : "";
@@ -700,7 +687,54 @@ Deno.serve(async (req: Request) => {
         return err(approvalPolicy.rejectionReason);
       }
 
-      const approvalRequired = approvalPolicy.approvalRequired;
+      let approvalRequired = approvalPolicy.approvalRequired;
+      const incomingToken =
+        typeof approval_token === "string" && approval_token.trim().length > 0
+          ? approval_token.trim()
+          : null;
+
+      // Token-based approval path (Layer 2 HMAC).
+      // Only active when APPROVAL_TOKEN_SECRET is configured; otherwise falls back to queued-job path.
+      if (approvalRequired && isApprovalTokenConfigured()) {
+        if (!incomingToken) {
+          // First submit: generate token and return without creating a DB job.
+          const hash = await commandHash(promptText);
+          const payload = makeTokenPayload(userId, hash, adapterName);
+          const token = await generateApprovalToken(payload);
+          console.log(
+            `[executor-api] approval_token issued for user=${userId} adapter=${adapterName}`,
+          );
+          return json({ pending_approval: true, approval_token: token });
+        }
+
+        // Re-submit with token: validate before creating job.
+        const validation = await validateApprovalToken(incomingToken);
+        if (!validation.valid) {
+          console.warn(
+            `[executor-api] token validation failed reason=${validation.reason} user=${userId} adapter=${adapterName}`,
+          );
+          return json({ error: validation.reason }, 403);
+        }
+
+        const expectedHash = await commandHash(promptText);
+        if (
+          validation.payload.command_hash !== expectedHash ||
+          validation.payload.adapter !== adapterName ||
+          validation.payload.user_id !== userId
+        ) {
+          console.warn(
+            `[executor-api] token context mismatch user=${userId} adapter=${adapterName}`,
+          );
+          return json({ error: "mismatch" }, 403);
+        }
+
+        // Token valid — mark as approved and fall through to job creation.
+        approvalRequired = false;
+        console.log(
+          `[executor-api] token-approved command user=${userId} adapter=${adapterName}`,
+        );
+      }
+
       const now = new Date().toISOString();
       const status = approvalRequired ? "queued" : "approved";
 

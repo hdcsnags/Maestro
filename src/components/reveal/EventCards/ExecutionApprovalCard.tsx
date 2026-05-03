@@ -5,12 +5,40 @@ import type { ThreadMessage } from '../../../types';
 
 export default function ExecutionApprovalCard({ message }: { message: ThreadMessage }) {
   const { state, dispatch } = useMaestro();
-  const { approveExecutionJob, pollJobStatus, addMessage, loadThreadMessages } = useThreads();
+  const { approveExecutionJob, approveWithToken, pollJobStatus, addMessage, loadThreadMessages } = useThreads();
   const event = message.metadata.system_event;
   const jobId = typeof message.metadata.job_id === 'string' ? message.metadata.job_id : null;
 
+  // Check if this card's pending state matches the current active approval.
+  const pending = state.pendingExecution?.threadId === message.thread_id
+    ? state.pendingExecution
+    : null;
+  const tokenApproval = pending?.approvalToken && pending?.intent ? pending : null;
+
   const handleApprove = async () => {
+    if (tokenApproval) {
+      // HMAC token path: resubmit with the token to create an approved job.
+      const job = await approveWithToken(
+        tokenApproval.approvalToken!,
+        tokenApproval.intent,
+        message.thread_id,
+      );
+      if (!job) return;
+
+      let attempts = 0;
+      const maxAttempts = 30;
+      while (attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        attempts += 1;
+        const updated = await pollJobStatus(job.id, message.thread_id);
+        if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
+      }
+      await loadThreadMessages(message.thread_id);
+      return;
+    }
+
     if (!jobId) return;
+    // Legacy queued-job path.
     await approveExecutionJob(jobId, message.thread_id);
     dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
 
@@ -34,7 +62,7 @@ export default function ExecutionApprovalCard({ message }: { message: ThreadMess
         body: 'The command was not sent to the executor.',
       },
     });
-    if (state.pendingExecution?.jobId === jobId) {
+    if (state.pendingExecution?.threadId === message.thread_id) {
       dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
     }
     await loadThreadMessages(message.thread_id);
