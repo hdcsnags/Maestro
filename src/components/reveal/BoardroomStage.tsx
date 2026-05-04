@@ -11,16 +11,11 @@ export function BoardroomStage() {
 
   // Map agents to positions around a semi-circle
   const seats = agents.map((agent, i) => {
-    const total = agents.length || 1; // prevent divide by zero
+    const total = agents.length || 1;
     const angle = total === 1 ? -90 : -160 + (i * (140 / (total - 1)));
     const rad = (angle * Math.PI) / 180;
     const radius = 220;
-    
-    // Assign a color based on role or fallback
-    const color = agent.role === 'Critic' ? 'var(--kimi)' : 
-                  agent.role === 'Builder' ? 'var(--gpt)' : 
-                  agent.role === 'Researcher' ? 'var(--gemini)' : 
-                  agent.provider_group === 'maestroclaw' ? 'var(--qwen)' : 'var(--claude)';
+    const color = agent.color || 'var(--claude)';
 
     return { 
       ...agent, 
@@ -36,7 +31,7 @@ export function BoardroomStage() {
       flex: 1, display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
       padding: '20px 32px', position: 'relative', zIndex: 2,
-      overflow: 'auto',
+      overflow: 'hidden',
     }}>
       <div style={{
         fontFamily: 'var(--mono)', fontSize: 9,
@@ -62,7 +57,7 @@ export function BoardroomStage() {
       </p>
 
       {/* ────────── Boardroom table (empty state) ────────── */}
-      <div style={{ position: 'relative', width: 560, height: 360, margin: '0 auto' }}>
+      <div style={{ position: 'relative', width: 560, height: 360, margin: '0 auto', flexShrink: 0, overflow: 'hidden' }}>
         {/* Table Surface */}
         <div style={{
           position: 'absolute', left: '50%', top: '60%',

@@ -56,6 +56,7 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
         {/* New thread button */}
         <button 
           onClick={handleNewThread}
+          className="hover:bg-[var(--surf-1)] hover:text-[var(--ink-1)] hover:border-[var(--edge-3)]"
           style={{
             width: '100%', display: 'flex', alignItems: 'center', gap: 8,
             padding: '8px 10px', marginBottom: 16,
@@ -63,16 +64,6 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
             color: 'var(--ink-2)', fontSize: 12,
             background: 'transparent', cursor: 'pointer',
             transition: 'all 0.2s ease', outline: 'none'
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLElement).style.background = 'var(--surf-1)';
-            (e.currentTarget as HTMLElement).style.color = 'var(--ink-1)';
-            (e.currentTarget as HTMLElement).style.borderColor = 'var(--edge-3)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLElement).style.background = 'transparent';
-            (e.currentTarget as HTMLElement).style.color = 'var(--ink-2)';
-            (e.currentTarget as HTMLElement).style.borderColor = 'var(--edge-2)';
           }}
         >
           <Plus size={14} />
@@ -118,6 +109,7 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
                   <div 
                     key={t.id} 
                     onClick={() => onThreadClick(t)}
+                    className={isActive ? '' : 'hover:bg-[var(--surf-1)]'}
                     style={{
                       padding: '8px 10px',
                       borderRadius: 6,
@@ -129,18 +121,6 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
                       cursor: 'pointer',
                       display: 'flex', alignItems: 'center', gap: 8,
                       transition: 'all 0.15s ease'
-                    }}
-                    onMouseEnter={e => {
-                      if (!isActive) {
-                        (e.currentTarget as HTMLElement).style.background = 'var(--surf-1)';
-                        (e.currentTarget as HTMLElement).style.color = 'var(--ink-1)';
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!isActive) {
-                        (e.currentTarget as HTMLElement).style.background = 'transparent';
-                        (e.currentTarget as HTMLElement).style.color = 'var(--ink-2)';
-                      }
                     }}
                   >
                     {t.type === 'direct' && agent ? (

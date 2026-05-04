@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { Session } from '../../types';
-import { Plus, Check, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Check, Pencil, Trash2, X } from 'lucide-react';
 
 export default function SessionSwitcher() {
   const { state } = useMaestro();
@@ -11,6 +11,7 @@ export default function SessionSwitcher() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -20,6 +21,7 @@ export default function SessionSwitcher() {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
         setEditingId(null);
+        setConfirmDeleteId(null);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -63,10 +65,11 @@ export default function SessionSwitcher() {
 
   const handleDelete = async (session: Session) => {
     if (activeSessions.length <= 1) return;
-    const ok = window.confirm(
-      `Delete "${session.title}"?\n\nThis permanently removes all rounds, responses, and syntheses in this session. This cannot be undone.`
-    );
-    if (!ok) return;
+    if (confirmDeleteId !== session.id) {
+      setConfirmDeleteId(session.id);
+      return;
+    }
+    setConfirmDeleteId(null);
     await deleteSession(session.id);
   };
 
@@ -202,23 +205,49 @@ export default function SessionSwitcher() {
                       <Pencil size={11} />
                     </button>
                     {activeSessions.length > 1 && (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          handleDelete(session);
-                        }}
-                        title="Delete session"
-                        style={{
-                          background: 'none', border: 'none', color: 'var(--ink-3)',
-                          cursor: 'pointer', padding: 4, borderRadius: 6,
-                          display: 'flex', alignItems: 'center', flexShrink: 0,
-                          transition: 'color 0.15s ease', outline: 'none'
-                        }}
-                        onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = 'var(--risk)')}
-                        onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = 'var(--ink-3)')}
-                      >
-                        <Trash2 size={11} />
-                      </button>
+                      confirmDeleteId === session.id ? (
+                        <>
+                          <button
+                            onClick={e => { e.stopPropagation(); handleDelete(session); }}
+                            style={{
+                              background: 'none', border: 'none', color: 'var(--risk)',
+                              cursor: 'pointer', padding: '2px 6px', borderRadius: 6,
+                              fontSize: 10, fontFamily: 'var(--mono)', letterSpacing: '0.05em',
+                              flexShrink: 0, outline: 'none',
+                            }}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                            style={{
+                              background: 'none', border: 'none', color: 'var(--ink-3)',
+                              cursor: 'pointer', padding: 4, borderRadius: 6,
+                              display: 'flex', alignItems: 'center', flexShrink: 0, outline: 'none',
+                            }}
+                          >
+                            <X size={11} />
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            handleDelete(session);
+                          }}
+                          title="Delete session"
+                          style={{
+                            background: 'none', border: 'none', color: 'var(--ink-3)',
+                            cursor: 'pointer', padding: 4, borderRadius: 6,
+                            display: 'flex', alignItems: 'center', flexShrink: 0,
+                            transition: 'color 0.15s ease', outline: 'none'
+                          }}
+                          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = 'var(--risk)')}
+                          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = 'var(--ink-3)')}
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      )
                     )}
                   </>
                 )}

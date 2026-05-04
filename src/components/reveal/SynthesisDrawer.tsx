@@ -139,9 +139,9 @@ export default function SynthesisDrawer() {
         <div className="flex flex-col gap-3">
           {hasContradictions && (
             <div className="flex flex-col gap-2">
-              {contradictions.map((c, i) => (
+              {contradictions.map((c) => (
                 <div
-                  key={i}
+                  key={c.topic}
                   className="rounded-xl p-3"
                   style={{ background: 'rgba(224,169,74,0.06)', border: '1px solid rgba(224,169,74,0.18)' }}
                 >
@@ -153,7 +153,7 @@ export default function SynthesisDrawer() {
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {c.agents.slice(0, 3).map((agent, j) => (
-                      <div key={j} className="flex items-center gap-1.5">
+                      <div key={agent.name} className="flex items-center gap-1.5">
                         {j > 0 && <span style={{ color: 'var(--text-dim)', fontSize: '10px' }}>vs</span>}
                         <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: agent.color, boxShadow: `0 0 4px ${agent.color}` }} />
                         <span className="font-mono-dm" style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{agent.name}</span>

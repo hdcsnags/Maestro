@@ -8,9 +8,9 @@ export default function PrOpenedCard({ message }: { message: ThreadMessage }) {
   const skippedFiles = event?.skipped_files ?? [];
 
   return (
-    <div className="mx-1 my-0.5 rounded-xl border border-agent-kimi/20 bg-agent-kimi/10 px-4 py-3 text-ink-1">
+    <div className="mx-1 my-0.5 rounded-xl border border-gold/20 bg-gold/[0.06] px-4 py-3 text-ink-1">
       <div className="flex items-center gap-2 font-mono-dm text-[10px] uppercase tracking-[0.14em] text-ink-2">
-        <GitBranch size={12} className="text-agent-kimi" />
+        <GitBranch size={12} className="text-gold" />
         {event?.title ?? 'Pull request ready'}
       </div>
       {event?.body && (
@@ -35,7 +35,7 @@ export default function PrOpenedCard({ message }: { message: ThreadMessage }) {
               href={url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-2 text-sm text-purple-100 hover:text-white"
+              className="flex items-center gap-2 text-sm text-ink-1 hover:text-ink-0"
             >
               <ExternalLink size={13} />
               Open PR {prUrls.length > 1 ? index + 1 : ''}

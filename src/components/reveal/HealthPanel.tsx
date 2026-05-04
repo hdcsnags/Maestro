@@ -22,11 +22,23 @@ const PROVIDER_DISPLAY: Record<string, string> = {
   openai:     'OpenAI',
   google:     'Google',
   openrouter: 'OpenRouter',
+  moonshot:   'Moonshot',
+  qwen:       'Qwen',
 };
 
 export default function HealthPanel() {
   const { state } = useMaestro();
-  const { providerHealth } = state;
+  const { providerHealth, workspace } = state;
+
+  if (!workspace) {
+    return (
+      <div className="flex flex-col gap-2">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="h-10 rounded-xl animate-pulse bg-void-2" />
+        ))}
+      </div>
+    );
+  }
 
   if (providerHealth.length === 0) {
     return (

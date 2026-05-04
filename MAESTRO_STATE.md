@@ -308,6 +308,45 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-05-04 — Opus 4.7 — SANDBOX-01 sandbox sequence spec + DIFF-02 repo memory spec
+
+**What was done**:
+1. Returned to a Phase 3 nearly closed (DIFF-03 + DIFF-04 verified overnight by Sonnet — six-feature rotation including REL-01 and SEC-04). DIFF-02 is the only Phase 3 task without a dedicated spec; closed that gap. Also wrote the sandbox spec referenced in the Conductor's vision ("later on I can sandbox the claw's environment more, maybe even spin up a docker container for it to live in").
+2. Authored `DIFF-02_REPO_MEMORY_SPEC.md` — per-(user, repo) markdown memory blob, ~8KB cap, auto-load on session start (prepended to concierge prompt), auto-update on build/bouncer/archive (Haiku summarization), TrustDrawer Memory tab with view/edit/refresh/forget. Closes the audit finding about cold-start friction across sessions.
+3. Designed the markdown memory structure with 7 suggested sections (Summary, Stack, Architecture Decisions, Sensitive Files, Patterns Conductor Prefers, Recent Sessions, Known Pitfalls). Summarizer enforces structure; markdown is canonical; structured `metadata` jsonb is derived for fast UI access.
+4. Designed the cap-enforcement path: when summarize would exceed 8KB, retry with stricter compression prompt; if still over, truncate Recent Sessions section. Hard cap respected to keep concierge prompt growth bounded (~30-50% increase, acceptable).
+5. Authored `SANDBOX_SEQUENCE_SPEC.md` — three-phase sandbox roadmap with Phase 1 implementable now and Phases 2-3 sketched for forward compatibility.
+6. Designed Phase 1 (process-level isolation): per-job workspace under `<claw_root>/workspaces/<job_id>-<rand>/`, env scrubbing (positive allowlist + denylist regex `(_TOKEN|_SECRET|_KEY|_PASSWORD|_PRIVATE)$` plus explicit denylist of known providers), restricted PATH (only allowlisted binary directories), HOME redirect to workspace dir to prevent leakage of `~/.gitconfig` / `~/.claude.json` / `~/.npmrc` credentials, workspace size monitor.
+7. Designed adapter signature change: new `AdapterRunContext` parameter carries `workspace_dir`, `restricted_env`, `resource_limits`, `job_id`. Breaking internal API change (mechanical migration across 7 adapters in one PR) but cleanly future-proof.
+8. Designed forward-compatible capability advertising for sandbox: `capabilities.sandbox: { phase: 1|2|3, process_isolation, container_isolation, persistent_container, env_scrubbed, resource_limits }`. Phase 2 (Docker) extends without breaking Phase 1; Phase 3 (persistent containers) is a larger architectural shift documented for future planning.
+9. Sketched Phase 2 (container per job): Docker base image curation, `--network=none` default, opt-in network policy, cgroup-based hard memory/CPU caps. Sketched Phase 3 (persistent dev containers): user-bound, file-system state preserved across sessions, multi-user shared executors viable. Both as separate future specs.
+10. Updated tracking files.
+
+**Files touched**: `DIFF-02_REPO_MEMORY_SPEC.md` (new), `SANDBOX_SEQUENCE_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- DIFF-02: Memory is per-(user, repo), composite PK. Privacy-correct (RLS) and prevents cross-project pollination.
+- DIFF-02: 8KB cap with summarizer-driven compression. Empirical balance — fits in any provider's window without latency cost.
+- DIFF-02: Haiku for summarization (~$0.002/call). Cheap enough for every-session-close trigger.
+- DIFF-02: Structured `metadata` jsonb is DERIVED from markdown content; markdown is canonical. UI can render fast paths without parsing markdown.
+- DIFF-02: Memory loads at session start; concierge sees it as a separated section in system prompt (not blended with current-session context).
+- DIFF-02: User manual edit allows up to 16KB (auto-summarizer compresses on next trigger). Manual edit is authoritative.
+- SANDBOX: Three-phase sequence ships independently. Phase 1 alone provides meaningful security (env scrubbing, workspace isolation, PATH restriction, HOME redirect) without Docker.
+- SANDBOX: Env handling uses allowlist as primary mechanism (fail-closed) + denylist regex as belt-and-suspenders.
+- SANDBOX: HOME redirect to workspace prevents credential file leakage (`.gitconfig`, `.claude.json`, `.npmrc`). Trade-off: tools needing user config don't see it; v1.1 adds curated config-seeding.
+- SANDBOX: Workspace size monitor + existing timeout are the v1 resource limits. Hard memory/CPU caps wait for Phase 2 (Docker cgroups). Don't over-engineer Phase 1 with platform-specific `setrlimit` ports.
+- SANDBOX: Per-job workspaces (NOT per-session) because parallel job execution must isolate from each other; per-session isolation lives at the loop level (PRO-02) not the job level.
+- SANDBOX: Adapter signature change is breaking-internal but trivially mechanical; one PR migrates all 7 adapters together. No external SDK to consider.
+- SANDBOX: Capability advertising forward-compatible — `sandbox.phase` field lets future jobs require Phase 2 isolation via `required_capabilities.sandbox.container_isolation: true` (composes with MULTIEXEC-01).
+
+**What didn't work**:
+- Specs only. No memory implementation, no sandbox implementation. Both pending Sonnet.
+- The memory summarize prompt is grounded in design reasoning but NOT validated against multi-session fixture data. Step 3 of DIFF-02 impl order says "test against 5+ updates compounding before merge" — until tested, the prompt is hypothesis. Worst case: memory drifts incoherent over many sessions.
+- The env denylist regex `(_TOKEN|_SECRET|_KEY|_PASSWORD|_PRIVATE)$` catches most patterns but isn't exhaustive. Some provider naming will slip through. Allowlist remains the primary mechanism. Periodic audit recommended as new providers are added.
+- The 100MB workspace size cap is a guess. May be too small for builds with large lock files / dist dirs. Bumping to 500MB default in step 2; user-configurable.
+- Did NOT validate Sonnet's DIFF-03 implementation choice ("two-call architect" + "additive enrichment with graceful fallback for uncovered files" instead of strict validate-and-fail per spec). Pragmatic call but the token-reduction goal needs measurement post-deploy. Flag for live verification when next build runs.
+- Phase 2 / Phase 3 sandbox are sketched not specced. Each will be its own ~600-line spec when prioritized.
+
 ### 2026-05-04 — Claude Sonnet 4.6 — DIFF-04 provider fallback matrix implementation
 
 **What was done**:

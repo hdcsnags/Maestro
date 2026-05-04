@@ -20,11 +20,17 @@ export default function FileManifestCard({ message }: { message: ThreadMessage }
           {writtenFiles.slice(0, 8).map((path) => (
             <div key={path} className="font-mono text-signal-ok/90">{path}</div>
           ))}
+          {writtenFiles.length > 8 && (
+            <div className="font-mono text-ink-3">+{writtenFiles.length - 8} more</div>
+          )}
           {skippedFiles.slice(0, 4).map((entry) => (
             <div key={`${entry.path}-${entry.reason}`} className="font-mono text-gold/80">
               {entry.path} — {entry.reason}
             </div>
           ))}
+          {skippedFiles.length > 4 && (
+            <div className="font-mono text-ink-3">+{skippedFiles.length - 4} more skipped</div>
+          )}
         </div>
       )}
     </div>
