@@ -18,22 +18,22 @@ Status values: `claimed` | `in_progress` | `verified` | `partial` | `blocked` | 
 | SEC-04 | Sonnet 4.6 | verified | 2026-05-04 | IncidentService fully wired. executor_incidents table + RLS + Realtime deployed. executor-api report_incident action deployed. approved-shell + pty-shell report kernel/security violations. SecurityPanel + useUnackIncidents in TrustDrawer. StatusChip red dot on unacked criticals. commit 6ec6b95. |
 | REL-01 | Sonnet 4.6 | verified | 2026-05-04 | 4-layer defense-in-depth blocks openrouter_a phantom agents. concierge field-name fix. commit c6ed517. |
 | REL-02 | Sonnet 4.6 | verified | 2026-05-04 | ESLint ignore for maestroclaw generated dirs. commit 6ec6b95. |
-| REL-03 | — | not started | — | State doc drift. Trivial. |
+| REL-03 | Sonnet 4.6 | verified | 2026-05-XX | MAESTRO_STATE.md updated: 3→4 Claw agents (ClawGemini added). commit 7d617e5. |
 
 ## Phase 2 — Conversational UX
 
 | Task | Agent | Status | Date | Notes |
 |------|-------|--------|------|-------|
 | UX-01 | Gemini CLI | verified | 2026-05-03 | Implemented BoardroomStage with dynamic Orb component. Superceded basic requirement by integrating the full Atelier visual direction for the empty state. |
-| UX-02 | — | not started | — | Streaming events at line cadence. |
-| UX-03 | — | not started | — | Stuck-job detection + kick UI. |
-| UX-04 | — | not started | — | pty_shell routing. Depends on SEC-01. |
+| UX-02 | Sonnet 4.6 | verified | 2026-05-XX | LineSplitter + StreamThrottle in maestroclaw. All 6 adapters wired. Realtime subscribe+backfill in useThreads. CommandResultCard live terminal pane. commit 7d617e5. |
+| UX-03 | Sonnet 4.6 | verified | 2026-05-XX | kick_job executor-api action. reclaimStaleBuildTasks on poll. kickJob in useThreads. Kick button in CommandResultCard when job stuck >90s. commit d560d81. |
+| UX-04 | Sonnet 4.6 | verified | 2026-05-XX | PTY_COMMANDS set + requiresPty() in useThreads. pty_shell adapter routing in 3 tryParseLocalExecutionIntent paths. commit 7d617e5. |
 
 ## Phase 3 — Differentiation
 
 | Task | Agent | Status | Date | Notes |
 |------|-------|--------|------|-------|
-| DIFF-01 | — | not started | — | Cost rollup card. |
+| DIFF-01 | Sonnet 4.6 | verified | 2026-05-XX | sumBuildCost in cost.ts. CostRollupCard.tsx. cost_rollup ThreadMessageKind. useBuildExecution emits on build complete. commit d560d81. |
 | DIFF-02 | — | not started | — | Per-repo memory. |
 | DIFF-03 | — | not started | — | Lane-scoped prompt slicing. Depends on REL-01. |
 | DIFF-04 | — | spec ready | 2026-05-03 | See `DIFF-04_PROVIDER_FALLBACK_SPEC.md`. Provider fallback matrix. Depends on DIFF-03. |

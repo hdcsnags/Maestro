@@ -9,7 +9,7 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-05-04 (SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
+| Last verified deploy | `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
 | Unapplied migrations | None (20260504000000_executor_incidents.sql applied 2026-05-04) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
@@ -305,6 +305,31 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-XX — Claude Sonnet 4.6 — UX-03 kick UI + DIFF-01 cost rollup card
+
+**What was done**:
+1. **executor-api: `kick_job` action** — new user-JWT-authenticated POST `?action=kick_job` that resets a stuck `queued/claimed/running` job back to `approved`. Validates ownership via `requested_by = userId`. Logs `status_change` event to `executor_job_events`. Deployed to Supabase.
+2. **executor-api: `reclaimStaleBuildTasks()`** — helper that resets `build_tasks` stuck in `dispatched/running` for >120s back to `pending`. Called on every executor `poll` alongside the existing `reclaimStaleJobs()`. Uses service-role admin client (bypasses RLS).
+3. **`useThreads.ts`: `kickJob(jobId, threadId)`** — async callback wrapping the `kick_job` API call. Dispatches `UPDATE_EXECUTOR_JOB` to context and emits a `execution_status` thread message on success, `error_retry` on failure. Exposed from hook return.
+4. **`CommandResultCard.tsx`: Kick button** — `isStuck` detection: `KICKABLE_STATUSES` && `updated_at` >90s ago (using `useMemo`). Shows an amber warning banner with a "Kick" button calling `kickJob(jobId, state.activeThread.id)`. Imports `useThreads` directly (avoids prop-threading through `MessageBubble`).
+5. **DIFF-01: `sumBuildCost(tasks)` in `cost.ts`** — estimates build cost from `prompt_slice` (input proxy) and `result_content` length (output proxy), using mid-tier model pricing. Returns `{ totalEstimate, filesWritten, filesFailed, filesSkipped }`.
+6. **DIFF-01: `CostRollupCard.tsx`** — new event card: gold-tinted build-complete summary showing `~$X.XX` estimate and file counts.
+7. **DIFF-01: `cost_rollup` in `ThreadMessageKind`** — new type variant wired in `SystemEventCard.tsx`.
+8. **DIFF-01: Build completion detector in `useBuildExecution.ts`** — `useEffect` watches `isRunning` flag; when it flips from `true` to `false` and `total > 0`, emits a `cost_rollup` thread message to `state.clawBuildSession.threadId` via Supabase insert.
+9. Committed + pushed (commit `d560d81`). `executor-api` deployed to Supabase.
+
+**Files touched**: `supabase/functions/executor-api/index.ts`, `src/hooks/useThreads.ts`, `src/components/reveal/EventCards/CommandResultCard.tsx`, `src/lib/cost.ts`, `src/types/index.ts`, `src/components/reveal/EventCards/CostRollupCard.tsx` (new), `src/components/reveal/EventCards/SystemEventCard.tsx`, `src/hooks/useBuildExecution.ts`, `MAESTRO_STATE.md`, `IMPLEMENTATION_PLAN_STATUS.md`
+
+**Decisions made**:
+- `kickJob` uses `state.activeThread?.id` from context inside `CommandResultCard` rather than threading `threadId` as a prop through `MessageBubble` — avoids prop drilling through 3 layers for a seldom-used feature.
+- `reclaimStaleBuildTasks()` doesn't filter by `userId` (admin client skips RLS) — `build_tasks` ownership is through session→workspace join, not a flat column; global reclaim of stale entries is safe for a single-tenant deployment.
+- Cost rollup uses prompt/result character counts not actual token counts — exact counts aren't stored per build_task, so this is an estimate. Clearly marked "estimate" in card UI.
+- Build completion `useEffect` uses a `buildWasRunningRef` to fire exactly once per build run, not on every render where progress might have the "all done" ratio.
+
+**What didn't work / notes**:
+- Pre-existing 25 TS errors in Gemini WIP files unchanged; no new errors from this session.
+- `thread_messages` table not in `database.types.ts` (generated types) — used `(supabase as any).from('thread_messages')` cast as the least invasive workaround.
 
 ### 2026-05-04 — Opus 4.7 — Continuous Bouncer spec + deploy runbook
 
