@@ -104,6 +104,7 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
   const [scopeOverride, setScopeOverride] = useState(session.suggestedScope || '**');
   const [planLoading, setPlanLoading] = useState(false);
   const [planError, setPlanError] = useState('');
+  const [retryNonce, setRetryNonce] = useState(0);
   const [pushResult, setPushResult] = useState<PushResultState>(createEmptyPushState());
 
   const currentSession = state.activeSession;
@@ -234,10 +235,11 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
     setScopeOverride(session.suggestedScope || '**');
     setPushResult(createEmptyPushState());
     setPlanError('');
+    setRetryNonce(0);
   }, [session.threadId, session.suggestedScope]);
 
   useEffect(() => {
-    if (!currentSession || normalizedBuildPlan || planLoading) return;
+    if (!currentSession || normalizedBuildPlan) return;
     let cancelled = false;
     setPlanLoading(true);
     setPlanError('');
@@ -256,7 +258,7 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
     });
 
     return () => { cancelled = true; };
-  }, [currentSession, normalizedBuildPlan, planLoading, dispatch]);
+  }, [currentSession?.id, normalizedBuildPlan, retryNonce, dispatch]);
 
   useEffect(() => {
     if (!currentSession || usesSessionBuild || buildExec.tasks.length > 0) return;
@@ -438,9 +440,18 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
             </div>
           )}
           {planError && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl border border-signal-risk/20 bg-signal-risk/8 px-3 py-2 text-sm text-signal-risk/85">
-              <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-              <span>{planError}</span>
+            <div className="mt-3 space-y-2">
+              <div className="flex items-start gap-2 rounded-xl border border-signal-risk/20 bg-signal-risk/8 px-3 py-2 text-sm text-signal-risk/85">
+                <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                <span>{planError}</span>
+              </div>
+              <button
+                onClick={() => setRetryNonce(n => n + 1)}
+                className="reveal-pill"
+                style={{ height: '30px', fontSize: '11px', padding: '0 12px' }}
+              >
+                Retry plan
+              </button>
             </div>
           )}
         </section>
