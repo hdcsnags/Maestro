@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix, field-name fix); `executor-api` deployed 2026-05-03 (SEC-02: HMAC approval tokens, pty_shell gating, APPROVAL_TOKEN_SECRET set); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
-| Unapplied migrations | None verified 2026-05-01 (`20260501183500_enable_realtime_build_progress.sql`, `20260501191500_allow_retry_executor_events.sql` pushed) |
+| Last verified deploy | `executor-api` deployed 2026-05-04 (SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
+| Unapplied migrations | None (20260504000000_executor_incidents.sql applied 2026-05-04) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -306,7 +306,36 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
-### 2026-05-04 — Claude Sonnet 4.6 — REL-01 phantom agent + legacy broadcast fix
+### 2026-05-04 — Claude Sonnet 4.6 — SEC-04 IncidentService end-to-end
+
+**What was done**:
+1. Created migration `20260504000000_executor_incidents.sql`: `executor_incidents` table with RLS (owner-scoped), indexes on user+recency+severity, and Realtime publication. Applied via `npx supabase db push`.
+2. Added `IncidentSeverity`, `IncidentCategory`, `ExecutorIncident` types to `src/types/index.ts`.
+3. Added `report_incident` action to `executor-api/index.ts`: authenticates via executor token (same as all other executor actions), validates severity/category/title/message, inserts row with `owner_user_id` from executor record.
+4. Rewrote `packages/maestroclaw/src/lib/kernel/incident-service.ts`: removed broken `reportEvent("system_node_event")` fallback, added `report()` method POSTing to `executor-api?action=report_incident`, errors fully swallowed.
+5. Added `setIncidentService()` / `getIncidentService()` to `executor.ts` as module-level accessor.
+6. Wired `IncidentService` instantiation in `index.ts` at boot.
+7. `approved-shell.ts` and `pty-shell.ts`: kernel violations → `severity: high, category: kernel_violation`; security violations → `severity: critical, category: security_violation`. Non-blocking.
+8. Created `src/hooks/useUnackIncidents.ts`: Realtime subscription on `executor_incidents`, 24h window, exposes `incidents[]` + `unackCritical` count. Uses `useAuth()` for userId.
+9. Created `src/components/reveal/SecurityPanel.tsx`: incident list with severity filter, badges, per-row expand/acknowledge, empty state.
+10. Added "Security Incidents" section to `TrustDrawer.tsx` below Run Timeline.
+11. `StatusChip.tsx`: pulsing red dot with unack count when `unackCritical > 0`, opens TrustDrawer on click.
+12. Deployed `executor-api` to Supabase `hhlnadxbrdwxcxwfbvwh`.
+13. Committed + pushed to GitHub (commit `6ec6b95`).
+
+**Files touched**: `supabase/migrations/20260504000000_executor_incidents.sql`, `src/types/index.ts`, `supabase/functions/executor-api/index.ts`, `packages/maestroclaw/src/lib/kernel/incident-service.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/index.ts`, `packages/maestroclaw/src/adapters/approved-shell.ts`, `packages/maestroclaw/src/adapters/pty-shell.ts`, `src/hooks/useUnackIncidents.ts`, `src/components/reveal/SecurityPanel.tsx`, `src/components/reveal/TrustDrawer.tsx`, `src/components/reveal/StatusChip.tsx`, `MAESTRO_STATE.md`, `IMPLEMENTATION_PLAN_STATUS.md`
+
+**Decisions made**:
+- `report_incident` uses executor token auth (not user JWT) — executor already has the token, no new credential needed. Owner mapped via `executor.owner_user_id`.
+- IncidentService errors are fully swallowed — incident reporting must never crash the executor.
+- `useUnackIncidents` uses `useAuth()` directly (not MaestroState) — auth state is not held in MaestroState.
+- SecurityPanel is a flat section in TrustDrawer (not a separate tab) — TrustDrawer has no existing tab system, adding one would be over-engineering.
+
+**What didn't work / notes**:
+- git stash@{0} held all edits due to prior session leaving the repo in a dirty-stash state. Required `git stash pop` + conflict resolution on Gemini's EventCards/PlanCards files (kept HEAD versions).
+- 26 pre-existing TS errors in Gemini's files (ClawMode, AtelierSidebar, BoardroomStage, Orb, RevealComposer, RevealTopbar, SessionSwitcher) — not caused by this session's changes.
+
+
 
 **What was done**:
 1. Fixed REL-01 (GPT-OSS phantom agent in build lanes). Root cause: `architect/index.ts` included all active agents in `agentRosterText` sent to the LLM, so the LLM could explicitly name "GPT-OSS 20B (free)" for a builder lane; exact-match path in `assignAgentToLane()` then returned it bypassing all score-based exclusions.

@@ -15,9 +15,9 @@ Status values: `claimed` | `in_progress` | `verified` | `partial` | `blocked` | 
 | SEC-02 | Sonnet 4.6 | verified | 2026-05-09 | HMAC token path: first submit returns {pending_approval, approval_token}; re-submit with token creates approved job. pty_shell gated alongside approved_shell. Falls back to legacy queued-job path when APPROVAL_TOKEN_SECRET unset. Requires APPROVAL_TOKEN_SECRET in Supabase project secrets + redeploy executor-api. |
 | SEC-01 | Sonnet 4.6 | verified | 2026-05-03 | shell-analyzer.ts rewritten: &&/||/; are now segment separators, single & is disallowed, isWindows wired through. approved-shell.ts placeholder corruption also fixed. 26/26 tests pass. maestroclaw build clean. |
 | SEC-03 | — | not started | — | IP allowlist. Parallel. |
-| SEC-04 | — | spec ready | 2026-05-03 | See `SEC-04_INCIDENT_SERVICE_SPEC.md`. Wire IncidentService end-to-end. Depends on SEC-01 (✅ done). |
-| REL-01 | — | not started | — | GPT OSS phantom agent. Active blocker per MAESTRO_STATE. |
-| REL-02 | — | not started | — | ESLint ignore. Trivial. |
+| SEC-04 | Sonnet 4.6 | verified | 2026-05-04 | IncidentService fully wired. executor_incidents table + RLS + Realtime deployed. executor-api report_incident action deployed. approved-shell + pty-shell report kernel/security violations. SecurityPanel + useUnackIncidents in TrustDrawer. StatusChip red dot on unacked criticals. commit 6ec6b95. |
+| REL-01 | Sonnet 4.6 | verified | 2026-05-04 | 4-layer defense-in-depth blocks openrouter_a phantom agents. concierge field-name fix. commit c6ed517. |
+| REL-02 | Sonnet 4.6 | verified | 2026-05-04 | ESLint ignore for maestroclaw generated dirs. commit 6ec6b95. |
 | REL-03 | — | not started | — | State doc drift. Trivial. |
 
 ## Phase 2 — Conversational UX
