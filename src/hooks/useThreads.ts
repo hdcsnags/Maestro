@@ -1197,6 +1197,25 @@ export function useThreads() {
     return job;
   }, [addSystemEvent, dispatch]);
 
+  const kickJob = useCallback(async (jobId: string, threadId: string): Promise<void> => {
+    try {
+      await callExecutorApi('kick_job', { job_id: jobId });
+      dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: { id: jobId, status: 'approved' } as ExecutorJob });
+      await addSystemEvent(threadId, {
+        kind: 'execution_status',
+        job_id: jobId,
+        system_event: { tone: 'execute', title: 'Job kicked', body: 'Reset to approved — executor will pick it up on next poll.' },
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addSystemEvent(threadId, {
+        kind: 'error_retry',
+        job_id: jobId,
+        system_event: { tone: 'error', title: 'Kick failed', body: errorMessage },
+      });
+    }
+  }, [callExecutorApi, addSystemEvent, dispatch]);
+
   // Full execute flow: parse → approve/auto → submit → poll
   const executeFromChat = useCallback(async (
     threadId: string,
@@ -1529,5 +1548,6 @@ export function useThreads() {
     compareResponses,
     extractDecision,
     askFollowUp,
+    kickJob,
   };
 }

@@ -105,3 +105,44 @@ export function formatCostRange(estimate: CostEstimate): string {
 
 // P12 — Premium slot cap
 export const PREMIUM_SLOT_CAP = 3;
+
+// Build cost rollup: estimate cost of a completed build based on prompt lengths.
+// Since we don't have actual token counts, we use prompt_slice as input proxy
+// and a fixed output estimate per task (avg 800 tokens).
+export interface BuildCostRollup {
+  totalEstimate: number;
+  filesWritten: number;
+  filesFailed: number;
+  filesSkipped: number;
+}
+
+export function sumBuildCost(tasks: Array<{
+  status: string;
+  prompt_slice?: string | null;
+  result_content?: string | null;
+  lane_owner?: string | null;
+}>): BuildCostRollup {
+  let totalEstimate = 0;
+  let filesWritten = 0;
+  let filesFailed = 0;
+  let filesSkipped = 0;
+
+  for (const task of tasks) {
+    if (task.status === 'completed') {
+      filesWritten++;
+      const inputChars = (task.prompt_slice ?? '').length;
+      const outputChars = (task.result_content ?? '').length;
+      const inputTokens = Math.ceil(inputChars / 4);
+      const outputTokens = Math.ceil(outputChars / 4);
+      // Default to a mid-tier model price since we don't track per-task model
+      totalEstimate += (inputTokens * 3.0) / 1_000_000
+                     + (outputTokens * 15.0) / 1_000_000;
+    } else if (task.status === 'failed') {
+      filesFailed++;
+    } else if (task.status === 'skipped' || task.status === 'rerouted') {
+      filesSkipped++;
+    }
+  }
+
+  return { totalEstimate, filesWritten, filesFailed, filesSkipped };
+}

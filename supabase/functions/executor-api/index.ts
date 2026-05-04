@@ -187,6 +187,20 @@ async function reclaimStaleJobs(
   }
 }
 
+async function reclaimStaleBuildTasks(
+  adminClient: ReturnType<typeof createClient>,
+  _userId: string,
+) {
+  // Reset build_tasks stuck in dispatched/running for >120 seconds back to pending.
+  // Service-role client bypasses RLS; tasks are scoped by session→workspace ownership implicitly.
+  const cutoff = new Date(Date.now() - 120_000).toISOString();
+  await adminClient
+    .from("build_tasks")
+    .update({ status: "pending", updated_at: new Date().toISOString() })
+    .in("status", ["dispatched", "running"])
+    .lt("updated_at", cutoff);
+}
+
 function validateRepoContext(repoUrl: string | null, branch: string | null): string | null {
   if (!repoUrl && branch) {
     return "branch requires repo_url";
@@ -290,6 +304,7 @@ Deno.serve(async (req: Request) => {
       const executor = await validateExecutorToken(req, adminClient, corsHeaders);
       if (executor instanceof Response) return executor;
       await reclaimStaleJobs(adminClient, executor.owner_user_id);
+      await reclaimStaleBuildTasks(adminClient, executor.owner_user_id);
       const now = new Date().toISOString();
       const capabilities = normalizeExecutorCapabilities(executor.capabilities);
 
@@ -797,6 +812,48 @@ Deno.serve(async (req: Request) => {
       if (!job) return err("Job not found or not in queued state", 404);
 
       return json({ job });
+    }
+
+    // ── KICK_JOB ──────────────────────────────────────────────
+    // POST ?action=kick_job  body: { job_id }
+    // User-initiated reset of a stuck queued/claimed/running job back to approved.
+    if (req.method === "POST" && action === "kick_job") {
+      const bodyResult = await readJsonBody<{ job_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.approve,
+        label: "Kick job body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+      const { job_id } = body;
+      if (!job_id) return err("job_id is required");
+
+      const now = new Date().toISOString();
+      const { data: job, error: kickErr } = await adminClient
+        .from("executor_jobs")
+        .update({
+          status: "approved",
+          executor_id: null,
+          claimed_at: null,
+          started_at: null,
+          lease_expires_at: null,
+          updated_at: now,
+        })
+        .eq("id", job_id)
+        .eq("requested_by", userId)
+        .in("status", ["queued", "claimed", "running"])
+        .select("id, status")
+        .maybeSingle();
+
+      if (kickErr) return err(kickErr.message, 500);
+      if (!job) return err("Job not found or not in a kickable state", 404);
+
+      await adminClient.from("executor_job_events").insert({
+        job_id,
+        event_type: "status_change",
+        payload: { status: "approved", reason: "user_kick", kicked_by: userId, kicked_at: now },
+      });
+
+      return json({ ok: true, job_id });
     }
 
     // ── REPORT_INCIDENT ───────────────────────────────────────

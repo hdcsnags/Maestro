@@ -1,5 +1,6 @@
 import type { ThreadMessage } from '../../../types';
 import CommandResultCard from './CommandResultCard';
+import CostRollupCard from './CostRollupCard';
 import ErrorRetryCard from './ErrorRetryCard';
 import ExecutionApprovalCard from './ExecutionApprovalCard';
 import FileManifestCard from './FileManifestCard';
@@ -20,6 +21,8 @@ export default function SystemEventCard({ message }: { message: ThreadMessage })
     case 'execution_status':
     case 'build_status':
       return <CommandResultCard message={message} />;
+    case 'cost_rollup':
+      return <CostRollupCard message={message} />;
     case 'info':
     default:
       return <InfoCard message={message} />;

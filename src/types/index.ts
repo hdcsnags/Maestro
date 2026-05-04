@@ -97,6 +97,7 @@ export type ThreadMessageKind =
   | 'pr_opened'
   | 'file_manifest'
   | 'error_retry'
+  | 'cost_rollup'
   | 'info';
 
 export interface ThreadSystemEvent {

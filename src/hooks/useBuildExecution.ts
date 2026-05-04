@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
+import { sumBuildCost } from '../lib/cost';
 import {
   applyArtifactPayloadToBuffer,
   cancelBuildSessionJob,
@@ -226,6 +227,48 @@ export function useBuildExecution() {
   useEffect(() => {
     jobOutputsRef.current = jobOutputs;
   }, [jobOutputs]);
+
+  // Emit a cost_rollup thread message when a task-queue build completes.
+  // Fires once per build completion: when isRunning flips to false and total > 0.
+  const buildWasRunningRef = useRef(false);
+  useEffect(() => {
+    if (isRunning) {
+      buildWasRunningRef.current = true;
+      return;
+    }
+    if (!buildWasRunningRef.current) return;
+    buildWasRunningRef.current = false;
+
+    const { total } = progress;
+    if (total === 0) return;
+
+    const threadId = state.clawBuildSession?.threadId;
+    if (!threadId) return;
+
+    const rollup = sumBuildCost(tasksRef.current);
+    const body = `${rollup.filesWritten}/${total} files written` +
+      (rollup.filesFailed > 0 ? ` · ${rollup.filesFailed} failed` : '') +
+      (rollup.filesSkipped > 0 ? ` · ${rollup.filesSkipped} skipped` : '');
+    const msgContent = `Build finished · ${body}`;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('thread_messages').insert({
+      thread_id: threadId,
+      role: 'system',
+      content: msgContent,
+      metadata: {
+        kind: 'cost_rollup',
+        cost_rollup: {
+          totalEstimate: rollup.totalEstimate,
+          filesWritten: rollup.filesWritten,
+          filesFailed: rollup.filesFailed,
+          filesSkipped: rollup.filesSkipped,
+        },
+      },
+    }).then(({ error }: { error: { message: string } | null }) => {
+      if (error) console.error('[useBuildExecution] cost_rollup insert error', error);
+    });
+  }, [isRunning, progress, state.clawBuildSession?.threadId]);
 
   const setSessionProgress = useCallback((payload: SessionBuildProgress) => {
     sessionProgressRef.current = payload;
