@@ -36,7 +36,7 @@ Status values: `claimed` | `in_progress` | `verified` | `partial` | `blocked` | 
 | DIFF-01 | Sonnet 4.6 | verified | 2026-05-XX | sumBuildCost in cost.ts. CostRollupCard.tsx. cost_rollup ThreadMessageKind. useBuildExecution emits on build complete. commit d560d81. |
 | DIFF-02 | — | not started | — | Per-repo memory. |
 | DIFF-03 | Sonnet 4.6 | verified | 2026-05-04 | Two-call architect (Haiku plan call), `_shared/builder-prompt.ts` renderBuilderSystemPrompt, concierge additive enrichment from architect_plan. prompt_slice stays plain text. Migration + deploy. commit d44f4a4. |
-| DIFF-04 | — | spec ready | 2026-05-03 | See `DIFF-04_PROVIDER_FALLBACK_SPEC.md`. Provider fallback matrix. Depends on DIFF-03. |
+| DIFF-04 | Sonnet 4.6 | verified | 2026-05-04 | provider_health table + RLS. CANONICAL_FALLBACKS. providerHealth.ts state machine (5 states, classifyFailure, selectModel, computeCostDelta, reroute waiter registry). useProviderHealth hook (DB load, observeSuccess/observeFailure, 5s write-back). useBuildExecution health-aware edge dispatch. RerouteApprovalCard (cost-gated, 3-button). HealthPanel in TrustDrawer. Health dots in BuilderRosterCard. Migration applied to remote. commit 94ff46b. |
 
 ## Phase 4 — Product Moment
 

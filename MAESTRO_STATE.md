@@ -10,7 +10,7 @@
 | Primary branch | `main` |
 | Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (DIFF-03: two-call structured plan + lane-scoped prompt enrichment); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
-| Unapplied migrations | None (20260504010000_architect_plan.sql applied 2026-05-04) |
+| Unapplied migrations | None (20260504020000_provider_health.sql applied 2026-05-04) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -307,6 +307,39 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-04 — Claude Sonnet 4.6 — DIFF-04 provider fallback matrix implementation
+
+**What was done**:
+1. **Migration `20260504020000_provider_health.sql`**: `provider_health` table (PK: `user_id, provider_id`), RLS SELECT/INSERT/UPDATE for owner, index on `(user_id, updated_at)`; `build_tasks.fallback_chain jsonb` column for future use. Applied to Supabase remote.
+2. **`src/lib/providerFallbacks.ts`**: `CANONICAL_FALLBACKS` lookup (14 model entries), `buildFallbackChain(model)` function. `FallbackChain` imported from `../types`.
+3. **`supabase/functions/_shared/providerFallbacks.ts`**: Deno-compatible mirror — types inlined, no `src/` imports.
+4. **`src/lib/providerHealth.ts`**: State machine pure lib. `modelToProviderKey` (claude→anthropic, gpt/o1/o3→openai, gemini→google, rest→openrouter). `healthRank`, `classifyFailure` (maps error message patterns to `FailureClass`), `updateHealth` (2 failures→degraded, 3→down, 3 successes→healthy), `selectModel` (skip excludeModels, skip disconnected, skip down, skip rate_limited until reset, try emergency). `computeCostDelta` (prompt chars / 4 input tokens + 800 output tokens, uses `getModelPricing`). Module-level `registerRerouteHandler` / `resolveReroute` singleton.
+5. **`src/hooks/useProviderHealth.ts`**: Loads `provider_health` rows on mount, dispatches `SET_PROVIDER_HEALTH`. `observeSuccess`/`observeFailure` update in-memory map + schedule 5s debounced write-back. `awaitRerouteDecision(build_task_id)` returns a Promise that resolves via reroute handler; 5-min timeout auto-resolves to `'emergency'`. `abortAllWaiters()` resolves all pending with `'skip'` on build abort.
+6. **`src/types/index.ts`**: Added `ProviderHealthState`, `ProviderHealthRecord`, `FallbackChain`, `FailureClass`, `RerouteDecision`, `RerouteApprovalMetadata`. Extended `BuildTask` with `fallback_chain?`, `ThreadMessageKind` with `'reroute_approval'`, `ThreadMessageMetadata` with `reroute_approval?`.
+7. **`src/context/MaestroContext.tsx`**: `providerHealth: ProviderHealthRecord[]` field in state, `SET_PROVIDER_HEALTH` action in union + reducer case.
+8. **`src/components/reveal/EventCards/RerouteApprovalCard.tsx`**: Cost-gated approval card. Shows file path, from→to model, cost delta. Three buttons: Approve, Use Emergency, Skip Lane. Disables after decision. Calls `resolveReroute(build_task_id, decision)`.
+9. **`src/components/reveal/HealthPanel.tsx`**: Read-only panel for TrustDrawer. Lists all tracked providers with colored state dots and failure counts.
+10. **`src/components/reveal/EventCards/SystemEventCard.tsx`**: Added `case 'reroute_approval'` → `<RerouteApprovalCard>`.
+11. **`src/components/reveal/PlanCards/BuilderRosterCard.tsx`**: Health dot (1.5px colored circle) next to provider label per builder slot; reads `state.providerHealth` from MaestroContext.
+12. **`src/components/reveal/TrustDrawer.tsx`**: Added `<HealthPanel />` section below Security Incidents.
+13. **`src/hooks/useBuildExecution.ts`**: Composes `useProviderHealth()`. Edge dispatch now: builds `FallbackChain` via `buildFallbackChain(agent.model)`, calls `selectModel()` with `connectedProviders` + `excludeModels` set, uses selected model+provider for `orchestrate` call. On success: `observeSuccess`. On error: `observeFailure` + `classifyFailure`. Cost gate: if delta > $1 and active thread exists, inserts `reroute_approval` card, awaits user decision (5-min timeout → emergency). `abort()` now calls `abortAllWaiters()`.
+
+**Files touched**: `supabase/migrations/20260504020000_provider_health.sql`, `src/lib/providerFallbacks.ts`, `supabase/functions/_shared/providerFallbacks.ts`, `src/lib/providerHealth.ts`, `src/hooks/useProviderHealth.ts`, `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/components/reveal/EventCards/RerouteApprovalCard.tsx`, `src/components/reveal/HealthPanel.tsx`, `src/components/reveal/EventCards/SystemEventCard.tsx`, `src/components/reveal/PlanCards/BuilderRosterCard.tsx`, `src/components/reveal/TrustDrawer.tsx`, `src/hooks/useBuildExecution.ts`
+
+**Decisions made**:
+- Health map keyed by provider (not model) to avoid multi-model provider identity conflicts.
+- Fallback chain built at dispatch time (not by concierge) — concierge doesn't have model info without an extra join.
+- Module-level reroute handler singleton is safe — only one build runs at a time.
+- `build_tasks.fallback_chain` column added for future use (concierge-side chain building); not populated by client yet.
+- `(supabase as any)` for `provider_health` + `thread_messages` tables not yet in `database.types.ts` — correct pattern for untyped tables.
+
+**What didn't work / notes**:
+- No browser smoke test — typecheck + build only. First real validation will be the next build run.
+- `build_tasks.fallback_chain` not written by client dispatch yet (just the DB column exists); will be populated when concierge adds chain-building.
+- `provider_health` table is not yet in `database.types.ts` — regenerate types after schema stabilizes.
+
+**Commit**: `94ff46b`
 
 ### 2026-05-04 — Codex GPT-5 — Claw frontend shell stabilization
 
