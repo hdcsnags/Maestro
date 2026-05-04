@@ -4,6 +4,11 @@ import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
+import {
+  type ArchitectPlan,
+  getCrossLaneExports,
+  renderBuilderSystemPrompt,
+} from "../_shared/builder-prompt.ts";
 type Phase = "post_round1" | "post_round2" | "design" | "pre_build" | "post_build" | "pre_build_complete" | "build_chat" | "decompose_tasks";
 type Intent = "simple_ask" | "product_build" | "ui_heavy" | "existing_repo_change" | "new_project";
 type DesignMode = "none" | "lite" | "standard" | "exploration";
@@ -644,7 +649,7 @@ Generate the build plan.`;
     if (body.phase === "decompose_tasks") {
       const { data: sessionData } = await adminClient
         .from("sessions")
-        .select("architect_md, title, build_spec")
+        .select("architect_md, title, build_spec, architect_plan")
         .eq("id", body.session_id)
         .maybeSingle();
 
@@ -652,6 +657,14 @@ Generate the build plan.`;
       const projectTitle = (sessionData as { title?: string } | null)?.title ?? "Untitled";
       const buildSpec = (sessionData as { build_spec?: Record<string, unknown> } | null)?.build_spec ?? {};
       const requestedBuildPrompt = getRequestedBuildPrompt(buildSpec);
+      // DIFF-03: structured plan from architect second call (null for legacy sessions → legacy path)
+      const rawArchitectPlan = (sessionData as { architect_plan?: unknown } | null)?.architect_plan ?? null;
+      const architectPlan: ArchitectPlan | null = (
+        rawArchitectPlan &&
+        typeof rawArchitectPlan === "object" &&
+        (rawArchitectPlan as Record<string, unknown>).schema_version === 1 &&
+        Array.isArray((rawArchitectPlan as Record<string, unknown>).lanes)
+      ) ? rawArchitectPlan as ArchitectPlan : null;
 
       const { data: laneData } = await adminClient
         .from("build_lanes")
@@ -704,6 +717,7 @@ Generate the build plan.`;
         dependencies: string[];
         prompt_slice: string;
         priority: number; // lower = build first
+        is_structured_prompt: boolean; // true = prompt_slice is already fully rendered
       }
 
       // Determine fallback for each builder (a builder from a different provider)
@@ -765,6 +779,7 @@ Generate the build plan.`;
             dependencies: [],
             prompt_slice: "",
             priority,
+            is_structured_prompt: false,
           });
         }
       }
@@ -793,6 +808,7 @@ Generate the build plan.`;
             dependencies: [],
             prompt_slice: "",
             priority: filePriority(filePath),
+            is_structured_prompt: false,
           });
         }
       }
@@ -819,6 +835,7 @@ Generate the build plan.`;
             dependencies: [],
             prompt_slice: "",
             priority: filePriority(filePath),
+            is_structured_prompt: false,
           });
         }
       }
@@ -914,7 +931,54 @@ Return JSON only:
         task.prompt_slice = `Build file: ${task.file_path}\nThis file is part of the "${dirHint}" module in project "${projectTitle}". Write the COMPLETE file content — no placeholders, no truncation. File type: .${ext}. Follow the project architecture from ARCHITECT.md.${requestedBuildPrompt ? ` Prioritize this requested focus when it applies to this file: ${truncateRequestedBuildPrompt(requestedBuildPrompt, 180)}` : ""}`;
       }
 
-      // Build the per-task system prompt wrapper
+      // DIFF-03: Structured prompt enrichment ─────────────────────────────────
+      // If architect_plan is present, build a per-file lookup from file_subtree,
+      // then render self-contained lane-scoped prompts for files that are covered.
+      // Files not in any lane's file_subtree keep the existing instruction text.
+      // The parsed ARCHITECT.md file list (allFiles) remains the canonical source
+      // of truth — this is additive enrichment only.
+      if (architectPlan) {
+        // Build lookup: normalised file path → {planLane, fileNode}
+        type FileEntry = {
+          planLane: ArchitectPlan["lanes"][number];
+          description: string | undefined;
+        };
+        const structuredFileMap = new Map<string, FileEntry>();
+        for (const planLane of architectPlan.lanes) {
+          for (const node of planLane.slice?.file_subtree ?? []) {
+            if (node.kind === "file" && typeof node.path === "string") {
+              // Normalise: strip leading "./" if present
+              const key = node.path.replace(/^\.\//, "");
+              structuredFileMap.set(key, { planLane, description: node.description });
+            }
+          }
+        }
+
+        for (const task of tasks) {
+          const key = task.file_path.replace(/^\.\//, "");
+          const entry = structuredFileMap.get(key);
+          if (!entry) continue; // no structured data → keep existing instruction text
+
+          const { planLane } = entry;
+          const crossExports = getCrossLaneExports(architectPlan, planLane);
+          const slice = {
+            shared_context: architectPlan.shared_context,
+            lane_slice: planLane.slice,
+            cross_lane_exports: crossExports,
+            target_file: task.file_path,
+            task_instruction: task.prompt_slice, // base instruction becomes task description
+          };
+
+          task.prompt_slice = renderBuilderSystemPrompt(slice);
+          task.is_structured_prompt = true;
+        }
+
+        const structuredCount = tasks.filter((t) => t.is_structured_prompt).length;
+        console.log(`[concierge] DIFF-03: ${structuredCount}/${tasks.length} tasks enriched with structured plan`);
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
+      // Build the per-task system prompt wrapper (used for legacy/non-structured tasks only)
       const taskPromptPrefix = `BUILD TASK MODE — building "${projectTitle}".
 You are generating EXACTLY ONE file. Return JSON only:
 {
@@ -940,7 +1004,10 @@ RULES:
         status: "queued" as const,
         retry_count: 0,
         max_retries: 2,
-        prompt_slice: `${taskPromptPrefix}\n\nFILE TO BUILD: ${t.file_path}\n\n${t.prompt_slice}`,
+        // Structured prompts are already fully rendered; legacy tasks get the prefix wrapper.
+        prompt_slice: t.is_structured_prompt
+          ? t.prompt_slice
+          : `${taskPromptPrefix}\n\nFILE TO BUILD: ${t.file_path}\n\n${t.prompt_slice}`,
       }));
 
       const { error: insertError } = await adminClient
@@ -974,6 +1041,7 @@ RULES:
           total_files: allFiles.length,
           builder_summary: builderSummary,
           used_llm_slices: usedLlmSlices,
+          structured_prompt_count: tasks.filter((t) => t.is_structured_prompt).length,
           tasks: tasks.map((t) => ({
             task_id: t.task_id,
             file_path: t.file_path,
@@ -983,6 +1051,7 @@ RULES:
             dependencies: t.dependencies,
             priority: t.priority,
             status: "queued",
+            is_structured_prompt: t.is_structured_prompt,
           })),
           locked_builder_ids: lockedBuilderIds,
         }),

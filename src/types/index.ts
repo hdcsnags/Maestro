@@ -302,6 +302,67 @@ export interface SuggestedLane {
   role: BuildLaneRole;
 }
 
+// ── DIFF-03: Lane-scoped prompt slicing ─────────────────────────────────────
+
+export interface FileTreeNode {
+  path: string;
+  kind: 'file' | 'dir';
+  description?: string;
+}
+
+export interface LaneApiExport {
+  symbol: string;
+  kind: 'function' | 'class' | 'interface' | 'type' | 'constant' | 'enum';
+  signature: string;
+  source_file: string;
+  description: string;
+}
+
+export interface LaneApiImport {
+  symbol: string;
+  from_lane: string;
+  reason: string;
+}
+
+export interface ArchitectLaneSlice {
+  file_subtree: FileTreeNode[];
+  risk_notes: string[];
+  description: string;
+  design_notes?: string;
+}
+
+export interface ArchitectLane {
+  agent_id: string;
+  agent_name: string;
+  role: BuildLaneRole;
+  lane_paths: string[];
+  slice: ArchitectLaneSlice;
+  exports: LaneApiExport[];
+  imports: LaneApiImport[];
+}
+
+export interface ArchitectPlan {
+  schema_version: 1;
+  shared_context: {
+    project_summary: string;
+    build_intent: string;
+    security_constraints: string[];
+    do_not_touch: string[];
+    manifest_rules: string;
+  };
+  lanes: ArchitectLane[];
+}
+
+export interface BuildTaskPromptSlice {
+  shared_context: ArchitectPlan['shared_context'];
+  lane_slice: ArchitectLaneSlice;
+  cross_lane_exports: LaneApiExport[];
+  target_file: string;
+  task_instruction: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+
 export interface IntakeSummary {
   stack: string[];
   architecture_notes: string;

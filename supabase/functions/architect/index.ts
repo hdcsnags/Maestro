@@ -424,12 +424,115 @@ ${decisionsText || "(no concierge decisions yet)"}`;
       );
     }
 
+    // DIFF-03: Second call — derive structured architect_plan from the generated
+    // ARCHITECT.md + lane assignments. Uses Haiku (cheap, fast) since it's just
+    // structuring information that already exists. Failure is non-fatal: the build
+    // continues with the legacy monolithic prompt path.
+    let architectPlanGenerated = false;
+    if (lanesAssigned && suggestedLanes.length > 0) {
+      try {
+        const { data: freshLanes } = await supabase
+          .from("build_lanes")
+          .select("agent_id, agent_name, lane_paths, role")
+          .eq("session_id", body.session_id);
+
+        if (freshLanes && freshLanes.length > 0) {
+          type FreshLane = { agent_id: string | null; agent_name: string; lane_paths: string[]; role: string };
+          const laneTable = (freshLanes as FreshLane[])
+            .map((l) => `  ${l.agent_name} | ${l.lane_paths.join(", ")} | ${l.role}`)
+            .join("\n");
+
+          const PLAN_SYSTEM = `You are a build planner. Given an ARCHITECT.md and lane assignments, produce a structured build plan JSON.
+Return ONLY valid JSON — no markdown fences, no preamble.
+
+Schema:
+{
+  "schema_version": 1,
+  "shared_context": {
+    "project_summary": "<1-2 sentences>",
+    "build_intent": "<what the build achieves>",
+    "security_constraints": ["<global constraint>"],
+    "do_not_touch": ["<path or pattern>"],
+    "manifest_rules": "Return JSON only: { \\"path\\": \\"<file path>\\", \\"content\\": \\"<COMPLETE content>\\", \\"operation\\": \\"create\\" }. NEVER use // ... existing code ... or placeholders."
+  },
+  "lanes": [
+    {
+      "agent_id": "<from lane assignments>",
+      "agent_name": "<from lane assignments>",
+      "role": "builder",
+      "lane_paths": ["<glob>"],
+      "slice": {
+        "description": "<what this lane owns, 1 sentence>",
+        "file_subtree": [
+          {"path": "src/api/auth.ts", "kind": "file", "description": "<1 sentence>"}
+        ],
+        "risk_notes": ["<specific risk for this lane>"],
+        "design_notes": "<optional design guidance>"
+      },
+      "exports": [
+        {"symbol": "verifyToken", "kind": "function", "signature": "verifyToken(token: string): Promise<User>", "source_file": "src/api/auth.ts", "description": "<1 sentence>"}
+      ],
+      "imports": [
+        {"symbol": "UserSchema", "from_lane": "<other lane agent_name>", "reason": "<why needed>"}
+      ]
+    }
+  ]
+}
+
+Rules:
+- Include ALL lanes from the assignments (builders and reviewers).
+- For builder lanes: populate file_subtree with real files from the File Structure section under this lane's globs.
+- For reviewer lanes: file_subtree may be empty.
+- exports/imports must reflect real cross-lane dependencies. Use empty arrays if none.
+- Keep all descriptions concise (1 sentence).`;
+
+          const planUserMsg = `ARCHITECT.MD:\n${architectMd.slice(0, 8000)}\n\nLANE ASSIGNMENTS:\n${laneTable}\n\nProduce the structured build plan JSON.`;
+
+          const planRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": anthropicKey,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5",
+              max_tokens: 4096,
+              system: PLAN_SYSTEM,
+              messages: [{ role: "user", content: planUserMsg }],
+            }),
+          });
+
+          if (planRes.ok) {
+            const planData = await planRes.json();
+            const planRaw: string = planData?.content?.[0]?.text ?? "";
+            const fenced = planRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const planText = fenced ? fenced[1].trim() : planRaw.trim();
+            const jsonMatch = planText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (parsed.schema_version === 1 && Array.isArray(parsed.lanes) && parsed.lanes.length > 0) {
+                await supabase
+                  .from("sessions")
+                  .update({ architect_plan: parsed } as never)
+                  .eq("id", body.session_id);
+                architectPlanGenerated = true;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[architect] structured plan call failed, build will use legacy prompt path", String(e));
+      }
+    }
+
     return new Response(
       JSON.stringify({
         architect_md: architectMd,
         suggested_lanes: suggestedLanes,
         lanes_assigned: lanesAssigned,
         build_spec_locked: lanesAssigned,
+        architect_plan_generated: architectPlanGenerated,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

@@ -306,6 +306,82 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-05-04 — Opus 4.7 — MULTIEXEC-01 multi-executor routing spec
+
+**What was done**:
+1. Authored `MULTI_EXECUTOR_ROUTING_SPEC.md` — closes the Conductor's stated vision of working/building/executing "anywhere." Promoted from "Remaining Non-Audited Risks" to a real spec. The last big architectural piece on the Opus plate before the open-ended product moments (PRO-01, PRO-02, BOUNCER-02, LIVE-01) start landing.
+2. Designed capability advertising — extended Claw heartbeat sends `interactive_pty`, `gpu`, `git_installed`, `current_load`, `labels`, `max_concurrent_jobs` alongside existing fields. Capabilities are advertised, not configured server-side.
+3. Designed required-capability declaration on jobs — `JobRequiredCapabilities` is jsonb with optional `adapters`, `interactive_pty`, `gpu`, `git_installed`, `platform`, `labels`. Frontend specifies what the job needs; selection happens server-side.
+4. Designed a scored selection algorithm — sticky (highest priority) > default > recency 60% + inverse load 40%. Filter by capability match + online status (last_seen < 90s). Returns preferred_executor_id with reason for audit.
+5. Designed pull-based dispatch with smarter WHERE clause — preferred executor sees jobs immediately; other capable executors see them after 30-second grace period. Implemented as `available_to_others_at` timestamp on the job. New `meets_required_capabilities` Postgres function does the capability filter in-DB so poll latency stays low.
+6. Designed sticky session pattern — first successful claim sets `sessions.sticky_executor_id`. Subsequent jobs in the session prefer that executor. Sticky clears on 5-min offline (long enough to absorb meetings/coffee breaks; short enough to fail-forward when machine is genuinely down). Per-session not per-user — different sessions can stick to different machines simultaneously.
+7. Designed UI: TrustDrawer Executors panel with status dots, labels, default selector, rotate-token controls. StatusChip extended to show current sticky/auto/offline routing target. Per-job ExecutorRoutingChip on CommandResultCard, BuildRunwayCard, IterationCard. Sticky-offline banner. ExecutorRoutingChip shows "preferred missed; X took it" when fallback claimed.
+8. Specified 12-step implementation order with Opus-review checkpoints on step 2 (selection function correctness) and step 5 (poll query performance — runs on every Claw poll cycle).
+9. Designed backwards compat: existing single-executor users have zero behavior change (their one executor wins every selection automatically). Existing executor_jobs rows with null preferred_executor_id are claimable by any capable executor (legacy behavior preserved). Old Claw workers still register via legacy heartbeat shape; absence of new fields means they don't get selected for jobs requiring those capabilities — natural upgrade pressure without breakage.
+10. Updated tracking files.
+
+**Files touched**: `MULTI_EXECUTOR_ROUTING_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Pull-based dispatch with WHERE-clause filtering, NOT centralized scheduler — keeps existing architecture; avoids leader election and race conditions.
+- Selection happens at submit time (edge function), NOT in the Claw — Claw still pulls; the edge function just tags the job with a preference.
+- 30-second grace period — typical poll interval is 3-5s, so preferred executor gets 6-10 chances. Long enough to absorb network blips; short enough that fallback feels responsive.
+- Recency 60% / Load 40% — recency is "user is here" signal (primary); load is tiebreaker (secondary). Tunable.
+- Sticky at session level, NOT user level — different sessions can simultaneously stick to different machines.
+- Sticky 5-min offline grace — covers normal user breaks; clears on real outages.
+- `current_load` lives in capabilities jsonb (volatile) rather than a separate column — overwritten each heartbeat naturally.
+- `is_default` is zero-or-one (UNIQUE INDEX with WHERE filter) — users may not designate one; that's fine.
+- Cloud-only Claw nodes use the same model — labeled (`zone: 'cloud-us-east'`) and selected via `required_capabilities.labels`. No special-casing.
+- Per-lane executor pinning for distributed builds explicitly DEFERRED to v2 — v1 sticks an entire build to one machine, simpler file-system semantics.
+- Per-job manual executor override in composer DEFERRED to v1.1 — power users can pin via StatusChip.
+- GPU-required jobs with no GPU executor — fail clearly with error message (NOT queue indefinitely). v1.1 could add "wait for first GPU executor" mode.
+- Auto-discovery of executors on local network DEFERRED to v2.
+
+**What didn't work**:
+- Spec only. No migration, capability advertising update, selection logic, or UI shipped. Implementation pending.
+- Did NOT validate the scoring weights (60% recency / 40% load) against simulated scenarios — first-pass values from product reasoning. Tune via real telemetry post-deploy.
+- The poll query performance is critical (runs on every Claw poll cycle from every user's every executor) but I have not run `EXPLAIN ANALYZE` against a populated DB. Step 5 of impl order says "use EXPLAIN ANALYZE before shipping" — non-negotiable.
+- Did not address bandwidth/cost-aware routing (route to cheap-network node when uploading large artifacts). Out of scope; v2.
+- Did not spec a UI for "Last 10 routing decisions" debug view — flagged as v1.1 since data already lives in audit_events.
+- Did not work through cross-organization or hosted-Claw business model implications — out of scope for engineering spec.
+- Did not validate that the 5-minute sticky-offline grace is the right number — if real-world data shows it's too short or long, single-constant tune.
+
+### 2026-05-04 — Opus 4.7 — DIFF-03 lane-scoped prompt slicing spec
+
+**What was done**:
+1. Returned to find Phase 1 fully closed (7/7) and Phase 2 fully closed (4/4) thanks to Sonnet's six-feature shipping rotation (UX-02 streaming, UX-03 kick UI, UX-04 pty routing, DIFF-01 cost rollup, REL-03 state drift) plus Gemini's UX-01 with full Atelier visual integration. Phase 3 has DIFF-01 done.
+2. Sonnet asked which to pick up next: DIFF-03 (lane-scoped slicing) or DIFF-04 (provider fallback). Per DIFF-04's spec, DIFF-04 depends on DIFF-03 — picking DIFF-04 first would mean re-doing prompt construction twice. **Recommendation: DIFF-03 next.**
+3. Authored `DIFF-03_LANE_SLICING_SPEC.md` — full architectural spec for lane-scoped prompt slicing. Closes `smoketestaudit.md` items #1 (overstuffed builder prompts) and #2 (stale failure context bleed). Highest-leverage build-quality fix available.
+4. Designed the `architect_plan` JSON shape: shared_context (small, ~1k tokens, every builder sees this) + per-lane slices (file_subtree, risk_notes, design_notes, description) + lane API contracts (exports/imports — minimal cross-lane references with TypeScript signatures, NOT implementations).
+5. Designed the slicing flow: architect generates plan once → concierge.decompose_tasks consumes plan and produces per-task BuildTaskPromptSlice → orchestrate.build_task renders via shared `_shared/builder-prompt.ts` template. This means concierge and orchestrate produce identical prompts (no drift).
+6. Designed the cross-lane API model: each lane declares `exports` (what it exposes) and `imports` (what it consumes). Lane B's prompt includes Lane A's exports for symbols B imports — but NOT A's full code. Like reading a colleague's signature instead of their implementation.
+7. Designed backwards compat: sessions without `architect_plan` fall back to legacy monolithic path with audit warning. orchestrate detects shape on prompt_slice read.
+8. Designed the `MAESTRO_BUILD_PROMPT_DEBUG=1` env flag plus `build_prompt_logs` table for prompt inspection during tuning. Critical for verifying slicing actually works in production.
+9. Specified validation: architect must produce non-overlapping `lane_paths`; lane imports must reference symbols some other lane exports; single retry on failure then surface error (don't silently fall back to legacy if architect IS the slicing).
+10. Calculated expected token reduction: 60-75% per builder (legacy ~10-15k tokens, sliced ~3-5k tokens). Architect's own prompt grows ~10-20% (now emits structured JSON alongside ARCHITECT.md). Net: significantly cheaper builds.
+11. Specified 10-step implementation order. Two Opus-review checkpoints: step 3 (architect prompt — defines slicing quality for every build) and step 4 (cross-lane validation logic).
+
+**Files touched**: `DIFF-03_LANE_SLICING_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Architect emits structured `build_plan` JSON alongside ARCHITECT.md (preserved for human review). Two artifacts for two audiences.
+- Slicing happens at architect level, ONCE, not re-derived per task. Concierge and orchestrate consume; they don't re-think.
+- Cross-lane refs are signature-level only (LaneApiExport: symbol/kind/signature/source_file/description). Builders see colleagues' API, not implementation.
+- Hard fail when architect's plan validation fails (single retry, then error). Do NOT silently fall back to legacy — the slicing IS the value.
+- Stripping stale failure context: verify `useBuildExecution.ts` never calls `buildTieredContext` in build_task dispatch path. Fix in same PR if found.
+- Test files are their own lane (reviewer role) with imports of source lanes' exports. Keeps slicing clean.
+- ArchitectCard shows lane structure pre-build so user has visibility into slicing before locking spec.
+- Token estimation via heuristic (chars ÷ 4) is sufficient for "is slicing working" measurement; exact tokenization is a v2 tool.
+- Per-builder prompt caching with provider APIs is a follow-up. Slicing alone is the win; caching layers on top.
+- Smart on-demand fetch of additional cross-lane info during build is a v2 feature. v1 fails the task with `out_of_scope_call` if a builder needs unforecast info.
+
+**What didn't work**:
+- Spec only. No architect prompt update, concierge integration, or template module shipped. Implementation pending Sonnet.
+- The architect prompt template is grounded in the spec's data model but NOT validated against real-architect-LLM output. Step 3 of impl order is "validate prompt against real model with fixture project before merge" — until tested, the JSON contract is hypothesis.
+- Did not spec a UI for `build_prompt_logs` inspection ("Build Inspector" tab). v1 just writes the rows; viewer is a v1.1 thing.
+- Did not write the multi-executor capability routing spec — saving for next Opus session given DIFF-03 was higher priority for unblocking Sonnet.
+- Did not run a manual token-count comparison against an example fixture project. The 50%+ reduction target is an estimate from token math (15k → 5k), not a measurement.
+
 ### 2026-05-XX — Claude Sonnet 4.6 — UX-03 kick UI + DIFF-01 cost rollup card
 
 **What was done**:
