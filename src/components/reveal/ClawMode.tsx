@@ -9,7 +9,8 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import { AtelierSidebar } from './AtelierSidebar';
 import { AdvisorStrip } from './AdvisorStrip';
-import { BoardroomStage } from './BoardroomStage';
+import EmptyStage from './EmptyStage';
+import { deriveOrbState } from '../../lib/orbState';
 import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
@@ -63,6 +64,10 @@ export default function ClawMode() {
   const councilAgents = useMemo(
     () => (state.agents || []).filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
     [state.agents],
+  );
+  const orbState = useMemo(
+    () => deriveOrbState(state, latestResponses, councilAgents.length),
+    [state, latestResponses, councilAgents.length],
   );
   const hasRepo = useMemo(
     () => state.repoConnections?.some((connection: { is_active: boolean }) => connection.is_active) ?? false,
@@ -447,7 +452,7 @@ export default function ClawMode() {
           {clawView === 'concierge' && (
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 claw-view-enter">
               {messages.length === 0 && !state.isConciergeSending && (
-                <BoardroomStage />
+                <EmptyStage orbState={orbState} />
               )}
 
               {messages.map(msg => (

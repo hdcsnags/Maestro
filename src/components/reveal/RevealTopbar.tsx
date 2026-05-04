@@ -70,6 +70,19 @@ export default function RevealTopbar() {
       {/* Drawer hotkey caps */}
       <div className="flex items-center gap-2">
         <button
+          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'synthesis' ? null : 'synthesis' })}
+          style={{
+            width: 30, height: 28, borderRadius: 6, cursor: 'pointer',
+            border: activeDrawer === 'synthesis' ? '1px solid var(--ember-hairline)' : '1px solid var(--edge-1)',
+            background: activeDrawer === 'synthesis' ? 'var(--ember-soft)' : 'var(--surf-0)',
+            color: activeDrawer === 'synthesis' ? 'var(--ember)' : 'var(--ink-2)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+          title="Synthesis (⌘S)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </button>
+        <button
           onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'orchestra' ? null : 'orchestra' })}
           style={{
             width: 30, height: 28, borderRadius: 6, cursor: 'pointer',
