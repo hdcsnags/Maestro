@@ -3,9 +3,8 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
-import { supabase } from '../../lib/supabase';
 import {
-  AlertTriangle, Bot, ChevronDown, Hammer, MessageSquare, Radio,
+  AlertTriangle, ChevronDown, Hammer, MessageSquare, Radio,
   RefreshCw, Zap,
 } from 'lucide-react';
 import { CONCIERGE_MODELS, ComposerIntent, SessionMode, Thread } from '../../types';
@@ -58,7 +57,7 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
 
 const routingKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
 
-export default function RevealComposer({ variant = 'workspace' }: Props) {
+export default function RevealComposer(_props: Props) {
   const { state, dispatch } = useMaestro();
   const { buildTieredContext, synthesize, broadcast } = useOrchestration();
   const {
@@ -73,9 +72,6 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   } = useThreads();
   const { createSession } = useWorkspace();
   const [prompt, setPrompt] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>(
-    state.agents.filter(a => a.is_active).map(a => a.id),
-  );
   const [elevatedCapAck, setElevatedCapAck] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<SessionMode>('ask');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -144,19 +140,16 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   }, [state.conciergeModel]);
   const intentCfg = INTENT_CONFIG[composerIntent];
 
-  const selectedAgents = useMemo(() => {
-    return composerIntent === 'broadcast' ? councilAgents : activeAgents;
-  }, [composerIntent, councilAgents, activeAgents]);
-
   const { costEstimate, premiumSelected } = useMemo(() => {
-    const models = selectedAgents.map(a => a.model);
+    const models = councilAgents.map(a => a.model);
     const tiered = buildTieredContext(prompt);
     const estimate = estimateBroadcastCost(models, prompt.length, tiered.contextText.length);
     const premium = models.filter(m => !isFreeModel(m)).length;
     return { costEstimate: estimate, premiumSelected: premium };
-  }, [selectedAgents, prompt, buildTieredContext]);
+  }, [councilAgents, prompt, buildTieredContext]);
+  const costLabel = useMemo(() => formatCostRange(costEstimate), [costEstimate]);
 
-  const exceedsCap = premiumSelected > PREMIUM_SLOT_CAP;
+  const exceedsCap = composerIntent === 'broadcast' && premiumSelected > PREMIUM_SLOT_CAP;
   const isElevated = state.executionMode === 'elevated';
   const capBlocks = exceedsCap && !isElevated;
   const capNeedsAck = exceedsCap && isElevated && !elevatedCapAck;
@@ -185,25 +178,6 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
       textareaRef.current.style.height = 'auto';
     }
   }, []);
-
-  const handleSessionModeChange = async (mode: SessionMode) => {
-    setPendingSessionMode(mode);
-
-    if (!state.activeSession) return;
-
-    await supabase
-      .from('sessions')
-      .update({ mode } as never)
-      .eq('id', state.activeSession.id);
-
-    dispatch({ type: 'UPDATE_ACTIVE_SESSION', payload: { mode } });
-    dispatch({
-      type: 'SET_SESSIONS',
-      payload: state.sessions.map(session =>
-        session.id === state.activeSession?.id ? { ...session, mode } : session,
-      ),
-    });
-  };
 
   const ensureThreadContext = useCallback(async (): Promise<{ sessionId: string; thread: Thread } | null> => {
     let sessionForThread = state.activeSession;
@@ -579,6 +553,34 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
                 Synth
               </button>
             )}
+
+            <div
+              title={`${Math.round(fillPct)}% of the current synthesis context estimate`}
+              style={{
+                minWidth: 112,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                color: 'var(--ink-3)',
+                fontFamily: 'var(--mono)',
+                fontSize: 9,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              <span>{composerIntent === 'broadcast' ? `Est. ${costLabel}` : 'Context'}</span>
+              <span style={{ height: 3, borderRadius: 999, background: 'var(--surf-2)', overflow: 'hidden' }}>
+                <span
+                  style={{
+                    display: 'block',
+                    width: `${fillPct}%`,
+                    height: '100%',
+                    borderRadius: 999,
+                    background: fillColor,
+                  }}
+                />
+              </span>
+            </div>
 
             <div style={{ flex: 1 }} />
             

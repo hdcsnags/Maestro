@@ -147,6 +147,7 @@ Legacy (unused): agent_skills, flags
 
 | Capability | Verified |
 |------------|----------|
+| Claw frontend shell stabilization: strict TypeScript is clean again; `StatusChip` is restored in the topbar truth layer; carousel/focus synthesis handler is wired; ClawMode no longer presents the main workspace as a modal; invalid Tailwind `/8` and `/12` opacity classes now emit in production CSS | 2026-05-04 (`npm run typecheck`, `npm run build`) |
 | GitHub OAuth authorize + token exchange path exists in code | 2026-04-12 (code verified) |
 | Shell analyzer correctly segments &&, ||, ; (SEC-01 — injection guard) | 2026-05-03 |
 | HMAC approval tokens for shell commands (SEC-02): server-authoritative, pty_shell gated, token not persisted to DB | 2026-05-09 |
@@ -306,6 +307,32 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-04 — Codex GPT-5 — Claw frontend shell stabilization
+
+**What was done**:
+1. Restored strict frontend type safety: `npm run typecheck` now passes with 0 errors after the Gemini/Sonnet UI WIP had 29 pre-existing strict-mode failures.
+2. Wired `ClawMode` carousel/focus synthesis by adding a real `handleSynthesize()` callback through `useOrchestration().synthesize()`.
+3. Removed stale modal semantics from the always-mounted Claw shell: `ClawMode` now uses `role="main"` and no longer traps Tab focus as if it were an overlay dialog.
+4. Replaced the custom `RevealTopbar` status pill with the canonical incident-aware `StatusChip`, fixing the nonexistent `state.apiKeys` read and restoring executor/provider/incident truth signals.
+5. Removed dead topbar carousel/concierge toggle buttons that still wrote legacy visibility state instead of the current `clawView` shell state.
+6. Cleaned strict-mode unused imports/state in `AtelierSidebar`, `BoardroomStage`, `Orb`, `RevealComposer`, `RevealTopbar`, and `SessionSwitcher`.
+7. Made the boardroom empty state time/greeting dynamic instead of hardcoded `21:42` / `Michael`.
+8. Added visible composer context/cost feedback and limited the premium slot cap warning to Council broadcasts so Direct/Execute/Build are not blocked by the full active council roster.
+9. Loaded the declared Atelier font families (`Fraunces`, `Inter Tight`, `JetBrains Mono`) and extended Tailwind opacity tokens so `/8` and `/12` classes used by event/runway cards emit in production CSS.
+10. Verified `npm run typecheck` and `npm run build`.
+
+**Files touched**: `src/components/reveal/ClawMode.tsx`, `src/components/reveal/RevealTopbar.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/BoardroomStage.tsx`, `src/components/reveal/AtelierSidebar.tsx`, `src/components/reveal/Orb.tsx`, `src/components/reveal/SessionSwitcher.tsx`, `tailwind.config.js`, `index.html`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Kept the pass stabilization-focused, not a broad visual redesign. The goal was to make the premium shell truthful, compiling, and accessible enough for Gemini to review without building on broken wiring.
+- Used `StatusChip` as the topbar source of truth instead of duplicating executor/provider/incident logic in `RevealTopbar`.
+- Preserved legacy drawer buttons for Orchestra/Trust/Vault, but removed stale carousel/concierge visibility buttons because they no longer control the thread-first shell.
+
+**What didn't work / notes**:
+- No browser smoke test was run in this session; verification was TypeScript + production build only.
+- `npm run build` still reports the existing non-blocking warnings: outdated `caniuse-lite` and a >500 kB JS chunk.
+- Rich Claw Build runway UX is still thinner than the broader Build workspace; this pass did not implement DIFF-03 architect-plan visualization.
 
 ### 2026-05-04 — Claude Sonnet 4.6 — DIFF-03 lane-scoped prompt slicing implementation
 

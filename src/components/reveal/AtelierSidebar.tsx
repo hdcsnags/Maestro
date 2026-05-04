@@ -1,7 +1,5 @@
-import React from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
-import { useWorkspace } from '../../hooks/useWorkspace';
 import { Thread } from '../../types';
 import { Plus, Radio, Zap, MessageSquare, Mic } from 'lucide-react';
 
@@ -13,6 +11,7 @@ interface Props {
 export function AtelierSidebar({ open, onThreadClick }: Props) {
   const { state, dispatch } = useMaestro();
   const { createThread } = useThreads();
+  const newThreadShortcut = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘N' : 'Ctrl+N';
 
   const handleNewThread = async () => {
     if (!state.activeSession) {
@@ -80,7 +79,7 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
           New thread
           <span style={{ flex: 1 }} />
           <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
-            {navigator.platform.includes('Mac') ? '⌘N' : 'Ctrl+N'}
+            {newThreadShortcut}
           </span>
         </button>
 

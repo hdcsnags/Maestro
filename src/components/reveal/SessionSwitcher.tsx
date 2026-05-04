@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { Session } from '../../types';
-import { Plus, ChevronDown, Check, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Check, Pencil, Trash2 } from 'lucide-react';
 
 export default function SessionSwitcher() {
   const { state } = useMaestro();

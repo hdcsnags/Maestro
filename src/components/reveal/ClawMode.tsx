@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { X, Loader2, Bot, User, Radio, ArrowLeft, MessageSquare, Zap, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic, LayoutGrid } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent } from 'react';
+import { Loader2, Bot, User, Radio, ArrowLeft, MessageSquare, Zap, Hammer, PanelLeftOpen, PanelLeftClose, GitBranch, Mic } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useMaestro } from '../../context/MaestroContext';
+import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
@@ -15,29 +16,10 @@ import ConciergeEventCard from './ConciergeEventCard';
 import SystemEventCard from './EventCards/SystemEventCard';
 import PlanCardRenderer from './PlanCards/PlanCardRenderer';
 import RevealComposer from './RevealComposer';
-import StatusChip from './StatusChip';
-
-const THREAD_GROUPS = [
-  { type: 'concierge', Icon: Mic, label: 'Concierge' },
-  { type: 'broadcast', Icon: Radio, label: 'Broadcasts' },
-  { type: 'direct', Icon: MessageSquare, label: 'Direct' },
-  { type: 'execution', Icon: Zap, label: 'Execution' },
-] as const;
-
-const iconButtonClass = 'p-1.5 rounded-lg hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
-const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
-const headerButtonClass = 'flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-white/5 text-white/55 hover:text-white/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50';
-
-function getFocusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
-}
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
+  const { synthesize } = useOrchestration();
   const { ensureConciergeThread, focusDirectThread, loadThreads, loadThreadMessages } = useThreads();
   const { createSession } = useWorkspace();
   const [isMobile, setIsMobile] = useState(
@@ -47,7 +29,6 @@ export default function ClawMode() {
     () => typeof window === 'undefined' || !window.matchMedia('(max-width: 767px)').matches,
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const initializedSessionRef = useRef<string | null>(null);
 
   const clawView = state.clawView as ClawView;
@@ -103,22 +84,6 @@ export default function ClawMode() {
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
-
-  // Group threads by type for sidebar
-  const threadGroups = useMemo(() => {
-    const groups: Record<string, Thread[]> = {
-      concierge: [],
-      broadcast: [],
-      direct: [],
-      execution: [],
-    };
-    for (const t of state.threads) {
-      if (t.status !== 'active') continue;
-      const bucket = groups[t.type];
-      if (bucket) bucket.push(t);
-    }
-    return groups;
-  }, [state.threads]);
 
   // Active repo connection for context header
   const activeRepo = useMemo(
@@ -260,8 +225,6 @@ export default function ClawMode() {
           helper: 'text-white/60',
           busyIcon: 'bg-gold/10 text-gold/60',
         };
-  const shouldPulseHeader = state.isBroadcasting || state.isConciergeSending || isExecutionPending;
-
   // Initialize per session: load persisted threads + ensure concierge thread
   useEffect(() => {
     let cancelled = false;
@@ -321,37 +284,24 @@ export default function ClawMode() {
 
   // ─── Handlers ───────────────────────────────────────────────
 
-  const handleDialogKeyDownCapture = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      if (isMobile && sidebarOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        setSidebarOpen(false);
-        return;
-      }
+  const handleWorkspaceKeyDownCapture = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape') return;
+
+    if (isMobile && sidebarOpen) {
       e.preventDefault();
       e.stopPropagation();
-      const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
-      if (conciergeThread) {
-        dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
-      }
-      dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+      setSidebarOpen(false);
       return;
     }
 
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const focusable = getFocusableElements(dialogRef.current);
-    if (focusable.length === 0) return;
-
-    const activeElement = document.activeElement as HTMLElement | null;
-    const currentIndex = activeElement ? focusable.indexOf(activeElement) : -1;
-    const nextIndex = e.shiftKey
-      ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-      : (currentIndex === -1 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
-
     e.preventDefault();
-    focusable[nextIndex]?.focus();
+    e.stopPropagation();
+    const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
+    if (conciergeThread) {
+      dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+    }
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
   }, [dispatch, isMobile, sidebarOpen, state.threads]);
 
   const handleFocusAgent = useCallback(async (agentId: string) => {
@@ -383,14 +333,10 @@ export default function ClawMode() {
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
   }, [state.threads, dispatch]);
 
-  const handleClose = useCallback(() => {
-    const conciergeThread = state.threads.find(t => t.type === 'concierge' && t.status === 'active');
-    if (conciergeThread) {
-      dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
-    }
-    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-  }, [dispatch, state.threads]);
+  const handleSynthesize = useCallback(async () => {
+    if (state.isSynthesizing || !latestRound) return;
+    await synthesize(latestRound.id);
+  }, [state.isSynthesizing, latestRound, synthesize]);
 
   // Handle thread click in sidebar
   const handleThreadClick = useCallback(async (thread: Thread) => {
@@ -412,21 +358,6 @@ export default function ClawMode() {
 
   const SurfaceIcon = surfaceState.Icon;
   const backLabel = clawView === 'focus' ? 'Back to Orchestra' : 'Back to Concierge';
-  const emptyStateIconClass = surfaceState.kind === 'execute'
-    ? 'bg-signal-warn/10 text-signal-warn/85'
-    : surfaceState.kind === 'build'
-      ? 'bg-signal-ok/10 text-signal-ok/85'
-      : 'bg-gold/10 text-gold/60';
-  const emptyStateTitle = isExecutionThread
-    ? 'Execution thread ready'
-    : surfaceState.kind === 'build'
-      ? surfaceState.bannerTitle
-      : 'Concierge is ready';
-  const emptyStateDescription = isExecutionThread
-    ? 'Describe a command or repo task. Claw will parse it, request approval when needed, and keep run updates here.'
-    : surfaceState.kind === 'build'
-      ? 'Describe the feature or refactor you want. Claw will plan the repo changes before asking to write anything.'
-      : 'Chat, broadcast to the orchestra, execute commands, or build to a repo.';
 
   // ─── Render ───────────────────────────────────────────────
   const isBuilding = state.activeSession?.current_phase === 'build' || state.activeSession?.current_phase === 'bouncer';
@@ -436,12 +367,10 @@ export default function ClawMode() {
 
   return (
     <div
-      ref={dialogRef}
-      onKeyDownCapture={handleDialogKeyDownCapture}
+      onKeyDownCapture={handleWorkspaceKeyDownCapture}
       className="relative flex flex-col h-full w-full"
       style={{ isolation: 'isolate', paddingBottom: drawerPadding }}
-      role="dialog"
-      aria-modal="true"
+      role="main"
       aria-label="Claw Mode workspace"
     >
 
@@ -494,17 +423,6 @@ export default function ClawMode() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* We remove the Close (X) button here because closing is now handled differently, or it's redundant. Actually, wait. I will keep it for now. */}
-          <button
-            onClick={handleClose}
-            className="p-1.5 rounded-lg hover:bg-surf-1 text-ink-2 hover:text-ink-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-dim"
-            aria-label="Return to concierge thread"
-            title="Return to concierge thread"
-          >
-            <X size={15} />
-          </button>
-        </div>
       </div>
 
       {/* ─── Body: Sidebar + Content ───────────────────────── */}

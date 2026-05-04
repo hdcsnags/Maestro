@@ -5,9 +5,13 @@ export default {
     extend: {
       fontFamily: {
         syne: ['Syne', 'sans-serif'],
-        mono: ['DM Mono', 'ui-monospace', 'monospace', 'var(--mono)'],
-        sans: ['DM Sans', 'ui-sans-serif', 'system-ui', 'sans-serif', 'var(--sans)'],
+        mono: ['var(--mono)', 'DM Mono', 'ui-monospace', 'monospace'],
+        sans: ['var(--sans)', 'DM Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         serif: ['var(--serif)'],
+      },
+      opacity: {
+        8: '0.08',
+        12: '0.12',
       },
       colors: {
         void: {

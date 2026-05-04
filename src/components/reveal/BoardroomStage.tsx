@@ -1,10 +1,13 @@
-import React from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { Orb } from './Orb';
 
 export function BoardroomStage() {
   const { state } = useMaestro();
   const agents = (state.agents || []).filter(a => a.is_active && a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw');
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // Map agents to positions around a semi-circle
   const seats = agents.map((agent, i) => {
@@ -40,7 +43,7 @@ export function BoardroomStage() {
         color: 'var(--ink-3)', letterSpacing: '0.28em', textTransform: 'uppercase',
         marginBottom: 6,
       }}>
-        the boardroom · 21:42
+        the boardroom · {timeLabel}
       </div>
       <h1 style={{
         fontFamily: 'var(--serif)', fontWeight: 300,
@@ -48,7 +51,7 @@ export function BoardroomStage() {
         margin: '0 0 4px', textAlign: 'center', maxWidth: 620,
         color: 'var(--ink-0)',
       }}>
-        Good evening, Michael.
+        {greeting}, Conductor.
       </h1>
       <p style={{
         fontFamily: 'var(--serif)', fontStyle: 'italic',
