@@ -445,13 +445,13 @@ export default function ClawMode() {
       aria-label="Claw Mode workspace"
     >
 
-      {/* ─── Context Header ────────────────────────────────── */}
-      <div className="relative z-20 flex items-center justify-between gap-3 px-4 py-2.5 border-b border-white/[0.06]">
+      {/* ─── Context Navigation ────────────────────────────────── */}
+      <div className="relative z-20 flex items-center justify-between gap-3 px-4 py-2 border-b border-edge-1 bg-void-1">
         <div className="flex min-w-0 items-center gap-3">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className={iconButtonClass}
+            className="p-1.5 rounded-lg hover:bg-surf-1 text-ink-2 hover:text-ink-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-dim"
             aria-label={sidebarOpen ? 'Collapse thread sidebar' : 'Expand thread sidebar'}
             title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
@@ -462,7 +462,7 @@ export default function ClawMode() {
           {clawView !== 'concierge' && (
             <button
               onClick={clawView === 'focus' ? handleBackToCarousel : handleBackToConcierge}
-              className={headerButtonClass}
+              className="flex items-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1.5 hover:bg-surf-1 text-ink-2 hover:text-ink-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-dim"
               aria-label={backLabel}
               title={backLabel}
             >
@@ -471,31 +471,22 @@ export default function ClawMode() {
             </button>
           )}
 
-          <StatusChip
-            kind={surfaceState.kind}
-            label={surfaceState.badgeLabel}
-            description={surfaceState.description}
-            detailStatus={surfaceState.status}
-            pulse={shouldPulseHeader}
-            repoName={activeRepoName}
-          />
-
           {/* Context pills */}
           <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap" style={{ scrollbarWidth: 'none' }}>
             {clawView === 'focus' && focusedAgent && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/70">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surf-1 text-[11px] text-ink-1">
                 <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: focusedAgent.color }} />
                 {focusedAgent.display_name || focusedAgent.name}
               </span>
             )}
             {clawView === 'carousel' && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/70">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surf-1 text-[11px] text-ink-1">
                 <Radio size={10} />
                 {latestResponses.length} responses
               </span>
             )}
             {hasRepo && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] text-[11px] text-white/65">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-surf-1 text-[11px] text-ink-2">
                 <GitBranch size={10} />
                 {(activeRepo as { repo_full_name?: string })?.repo_full_name?.split('/')[1] || 'repo'}
               </span>
@@ -504,9 +495,10 @@ export default function ClawMode() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* We remove the Close (X) button here because closing is now handled differently, or it's redundant. Actually, wait. I will keep it for now. */}
           <button
             onClick={handleClose}
-            className={iconButtonClass}
+            className="p-1.5 rounded-lg hover:bg-surf-1 text-ink-2 hover:text-ink-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-dim"
             aria-label="Return to concierge thread"
             title="Return to concierge thread"
           >

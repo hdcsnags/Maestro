@@ -11,6 +11,7 @@ import PatchModal from '../components/reveal/PatchModal';
 import VaultDrawer from '../components/reveal/VaultDrawer';
 import ExecutionModal from '../components/reveal/ExecutionModal';
 import ClawMode from '../components/reveal/ClawMode';
+import RevealTopbar from '../components/reveal/RevealTopbar';
 import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
@@ -227,7 +228,8 @@ export default function WorkspacePage() {
         onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}
       />
 
-      <div className={`stage-container relative w-full h-full ${anyTransientOpen ? 'dimmed' : ''}`}>
+      <div className={`stage-container relative w-full h-full pt-14 ${anyTransientOpen ? 'dimmed' : ''}`}>
+        <RevealTopbar />
         <ClawMode />
       </div>
 

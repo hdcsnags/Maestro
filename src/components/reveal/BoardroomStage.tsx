@@ -108,25 +108,6 @@ export function BoardroomStage() {
             </div>
           </div>
         ))}
-
-        {/* Conductor Seat (User) */}
-        <div style={{
-          position: 'absolute', left: '50%', top: 'calc(60% + 130px)',
-          transform: 'translate(-50%, -50%)',
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-        }}>
-          <span style={{
-            width: 44, height: 44, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--ember-soft), var(--surf-3))',
-            border: '1px solid var(--ember-hairline)',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ember)',
-          }}>M</span>
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-3)',
-            letterSpacing: '0.22em', textTransform: 'uppercase',
-          }}>Conductor</span>
-        </div>
       </div>
     </div>
   );
