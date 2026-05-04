@@ -1,7 +1,8 @@
-import { exec } from "child_process";
-import type { Adapter, AdapterResult } from "./types.js";
+import { spawn } from "child_process";
+import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { analyzeShellCommand } from "../lib/kernel/shell-analyzer.js";
 import { getIncidentService } from "../executor.js";
+import { LineSplitter } from "../lib/line-splitter.js";
 
 const TRUSTED_COMMANDS = new Set([
   "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat",
@@ -23,6 +24,7 @@ export class ApprovedShellAdapter implements Adapter {
     prompt: string,
     workDir: string,
     timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     const command = prompt.trim();
     if (!command) {
@@ -64,41 +66,57 @@ export class ApprovedShellAdapter implements Adapter {
     console.log(`  🐚 approved_shell: validated & running "${command}" in ${workDir}`);
 
     return new Promise((resolve) => {
-      const child = exec(command, {
+      const child = spawn(command, {
         cwd: workDir,
-        timeout: timeoutMs,
-        maxBuffer: 1024 * 1024,
+        shell: true,
         env: { ...process.env },
-      }, (error, stdout, stderr) => {
-        if (error) {
-          if (error.killed) {
-            resolve({
-              success: false,
-              output: stdout || "",
-              error: `Command timed out after ${timeoutMs}ms`,
-            });
-            return;
-          }
-          resolve({
-            success: false,
-            output: stdout || "",
-            error: stderr || error.message,
-          });
+      });
+
+      let stdout = "";
+      let stderr = "";
+      const stdoutSplitter = new LineSplitter();
+      const stderrSplitter = new LineSplitter();
+
+      const timer = setTimeout(() => {
+        if (!child.killed) child.kill("SIGKILL");
+      }, timeoutMs + 5000);
+
+      child.stdout?.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        if (onLine) stdoutSplitter.push(chunk, (line) => onLine("stdout", line));
+      });
+
+      child.stderr?.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stderr += chunk;
+        if (onLine) stderrSplitter.push(chunk, (line) => onLine("stderr", line));
+      });
+
+      child.on("close", (code, signal) => {
+        clearTimeout(timer);
+        if (onLine) {
+          stdoutSplitter.drain((line) => onLine("stdout", line));
+          stderrSplitter.drain((line) => onLine("stderr", line));
+        }
+
+        if (signal === "SIGKILL" || (code === null && signal)) {
+          resolve({ success: false, output: stdout || "", error: `Command timed out after ${timeoutMs}ms` });
+          return;
+        }
+        if (code !== 0) {
+          resolve({ success: false, output: stdout || "", error: stderr || `Exit code ${code}` });
           return;
         }
 
         const combined = [stdout, stderr].filter(Boolean).join("\n").trim();
-        resolve({
-          success: true,
-          output: combined || "(no output)",
-        });
+        resolve({ success: true, output: combined || "(no output)" });
       });
 
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill("SIGKILL");
-        }
-      }, timeoutMs + 5000);
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        resolve({ success: false, output: stdout || "", error: err.message });
+      });
     });
   }
 }

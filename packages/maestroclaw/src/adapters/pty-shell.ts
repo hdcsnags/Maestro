@@ -1,7 +1,12 @@
 import pty from "@lydell/node-pty";
-import type { Adapter, AdapterResult } from "./types.js";
+import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { analyzeShellCommand } from "../lib/kernel/shell-analyzer.js";
 import { getIncidentService } from "../executor.js";
+import { LineSplitter } from "../lib/line-splitter.js";
+
+// Strip ANSI escape sequences before passing PTY output to onLine (display only).
+const ANSI_RE = /\x1B\[[0-9;]*[mGKHFJSTsulhir?]/g;
+function stripAnsi(s: string): string { return s.replace(ANSI_RE, ''); }
 
 const TRUSTED_COMMANDS = new Set([
   "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat", 
@@ -24,6 +29,7 @@ export class PtyShellAdapter implements Adapter {
     prompt: string,
     workDir: string,
     timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     const command = prompt.trim();
     if (!command) {
@@ -66,6 +72,7 @@ export class PtyShellAdapter implements Adapter {
 
     return new Promise((resolve) => {
       let output = "";
+      const splitter = onLine ? new LineSplitter() : null;
       const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
       const args = process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command];
 
@@ -88,10 +95,14 @@ export class PtyShellAdapter implements Adapter {
 
       ptyProcess.onData((data) => {
         output += data;
+        if (onLine && splitter) {
+          splitter.push(stripAnsi(data), (line) => onLine("stdout", line));
+        }
       });
 
       ptyProcess.onExit(({ exitCode, signal }) => {
         clearTimeout(timer);
+        if (onLine && splitter) splitter.drain((line) => onLine("stdout", line));
         resolve({
           success: exitCode === 0,
           output: output.trim() || "(no output)",

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import type { Adapter, AdapterResult } from "./types.js";
+import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
+import { LineSplitter } from "../lib/line-splitter.js";
 
 // Model to use for generation. Override via CLAW_CLAUDE_MODEL in .env.
 // Defaults to Sonnet to avoid burning Opus quota on bulk builds.
@@ -51,13 +52,14 @@ export class ClaudeCodeAdapter implements Adapter {
   async run(
     prompt: string,
     workDir: string,
-    timeoutMs: number
+    timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
-    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL);
+    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL, onLine);
 
     if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
       console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} — retrying with fallback ${FALLBACK_MODEL}`);
-      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL);
+      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL, onLine);
     }
 
     return result;
@@ -85,6 +87,7 @@ export class ClaudeCodeAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
     model: string,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     console.log(`  🤖 claude_code: running in ${workDir} (model: ${model})`);
 
@@ -102,14 +105,28 @@ export class ClaudeCodeAdapter implements Adapter {
 
       let stdout = "";
       let stderr = "";
+      const stdoutSplitter = onLine ? new LineSplitter() : null;
+      const stderrSplitter = onLine ? new LineSplitter() : null;
 
-      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      proc.stdout.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        if (onLine && stdoutSplitter) stdoutSplitter.push(chunk, (line) => onLine("stdout", line));
+      });
+      proc.stderr.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stderr += chunk;
+        if (onLine && stderrSplitter) stderrSplitter.push(chunk, (line) => onLine("stderr", line));
+      });
 
       proc.stdin.write(prompt);
       proc.stdin.end();
 
       proc.on("close", (code) => {
+        if (onLine) {
+          stdoutSplitter?.drain((line) => onLine("stdout", line));
+          stderrSplitter?.drain((line) => onLine("stderr", line));
+        }
         resolve({
           success: code === 0,
           output: stdout,

@@ -92,6 +92,25 @@ const LOCAL_EXECUTION_COMMAND_PREFIXES = [
   'ls', 'dir', 'cat', 'type', 'pwd', 'echo',
 ];
 
+// Commands that require a real PTY (interactive, raw-mode, or TUI tools).
+// When detected, the job is routed to the pty_shell adapter.
+const PTY_COMMANDS = new Set([
+  'top', 'htop', 'btop', 'atop',
+  'vim', 'vi', 'nvim', 'nano', 'emacs', 'pico',
+  'less', 'more', 'most',
+  'watch',
+  'ssh', 'scp', 'sftp', 'telnet', 'ftp',
+  'mysql', 'psql', 'sqlite3', 'mongo',
+  'python', 'python3', 'node', 'irb', 'iex',
+  'bash', 'zsh', 'sh', 'fish',
+  'tmux', 'screen',
+]);
+
+function requiresPty(command: string): boolean {
+  const firstToken = command.trim().split(/\s+/, 1)[0]?.toLowerCase() ?? '';
+  return PTY_COMMANDS.has(firstToken);
+}
+
 function looksLikeDirectCommand(candidate: string): boolean {
   const trimmed = candidate.trim();
   if (!trimmed) return false;
@@ -125,22 +144,24 @@ function tryParseLocalExecutionIntent(userMessage: string): ExecutionIntent | nu
   const fencedMatch = trimmed.match(/`([^`]+)`/);
   const quotedCommand = fencedMatch?.[1]?.trim();
   if (quotedCommand && looksLikeDirectCommand(quotedCommand)) {
+    const pty = requiresPty(quotedCommand);
     return {
       action: 'shell_command',
       command: quotedCommand,
       params: {},
-      adapter: 'approved_shell',
+      adapter: pty ? 'pty_shell' : 'approved_shell',
       trust: classifyCommandTrust(quotedCommand),
       description: describeLocalCommand(quotedCommand),
     };
   }
 
   if (looksLikeDirectCommand(trimmed)) {
+    const pty = requiresPty(trimmed);
     return {
       action: 'shell_command',
       command: trimmed,
       params: {},
-      adapter: 'approved_shell',
+      adapter: pty ? 'pty_shell' : 'approved_shell',
       trust: classifyCommandTrust(trimmed),
       description: describeLocalCommand(trimmed),
     };
@@ -149,11 +170,12 @@ function tryParseLocalExecutionIntent(userMessage: string): ExecutionIntent | nu
   const runMatch = trimmed.match(/^(?:please\s+)?(?:run|execute|try)\s+(.+)$/i);
   const runCommand = runMatch?.[1]?.trim();
   if (runCommand && looksLikeDirectCommand(runCommand)) {
+    const pty = requiresPty(runCommand);
     return {
       action: 'shell_command',
       command: runCommand,
       params: {},
-      adapter: 'approved_shell',
+      adapter: pty ? 'pty_shell' : 'approved_shell',
       trust: classifyCommandTrust(runCommand),
       description: describeLocalCommand(runCommand),
     };
@@ -950,6 +972,58 @@ export function useThreads() {
       if ('job' in result && result.job) {
         dispatch({ type: 'ADD_EXECUTOR_JOB', payload: result.job });
 
+        // Subscribe to live streaming output for this job.
+        // The subscription auto-terminates when a 'completed' event arrives.
+        const jobId = result.job.id;
+        const channel = supabase
+          .channel(`job-stream-${jobId}`)
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'executor_job_events', filter: `job_id=eq.${jobId}` },
+            (payload) => {
+              const rec = payload.new as { event_type: string; body: Record<string, unknown> };
+              if (rec.event_type === 'completed') {
+                dispatch({ type: 'STREAMING_CLEAR', payload: jobId });
+                supabase.removeChannel(channel);
+                return;
+              }
+              if (rec.event_type !== 'stdout' && rec.event_type !== 'stderr') return;
+              const body: Record<string, unknown> = rec.body ?? {};
+              const lines: string[] = Array.isArray(body.lines)
+                ? (body.lines as string[])
+                : typeof body.text === 'string'
+                  ? body.text.split('\n').filter(Boolean)
+                  : [];
+              if (lines.length > 0) {
+                dispatch({ type: 'STREAMING_APPEND', payload: { jobId, lines } });
+              }
+            },
+          )
+          .subscribe();
+        // Backfill events that arrived before our subscription (subscribe-then-backfill pattern)
+        supabase
+          .from('executor_job_events')
+          .select('event_type, body, created_at')
+          .eq('job_id', jobId)
+          .in('event_type', ['stdout', 'stderr'])
+          .order('created_at', { ascending: true })
+          .returns<{ event_type: string; body: Record<string, unknown> | null; created_at: string }[]>()
+          .then(({ data }) => {
+            if (!data || data.length === 0) return;
+            const backfillLines: string[] = [];
+            for (const row of data) {
+              const body = (row.body ?? {}) as Record<string, unknown>;
+              if (Array.isArray(body.lines)) {
+                backfillLines.push(...(body.lines as string[]));
+              } else if (typeof body.text === 'string') {
+                backfillLines.push(...body.text.split('\n').filter(Boolean));
+              }
+            }
+            if (backfillLines.length > 0) {
+              dispatch({ type: 'STREAMING_APPEND', payload: { jobId, lines: backfillLines } });
+            }
+          });
+
         const requiresApproval = result.job.approval_required && result.job.status === 'queued';
         await addSystemEvent(threadId, requiresApproval
           ? {
@@ -1095,6 +1169,7 @@ export function useThreads() {
     dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: job });
 
     if (job.status === 'succeeded') {
+      dispatch({ type: 'STREAMING_CLEAR', payload: jobId });
       const summary = job.result_summary || 'Completed successfully.';
       await addSystemEvent(threadId, {
         kind: 'execution_status',
@@ -1106,6 +1181,7 @@ export function useThreads() {
         },
       });
     } else if (job.status === 'failed') {
+      dispatch({ type: 'STREAMING_CLEAR', payload: jobId });
       const errText = job.error_text || 'Unknown failure.';
       await addSystemEvent(threadId, {
         kind: 'error_retry',

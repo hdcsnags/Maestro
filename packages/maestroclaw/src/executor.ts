@@ -6,6 +6,7 @@ import type { ExecutorJob } from "./api.js";
 import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
 import type { IncidentService } from "./lib/kernel/incident-service.js";
+import { StreamThrottle } from "./lib/stream-throttle.js";
 
 // Module-level holder for the IncidentService singleton.
 // Adapters access it via getIncidentService().
@@ -410,6 +411,15 @@ export async function executeJob(
   const maxRetries = config.maxRetries;
   const targetPath = job.allowed_paths?.[0] ?? "";
 
+  // Streaming throttle at function scope so catch block can drain it
+  const throttle = new StreamThrottle(async (type, lines, seq) => {
+    await reportEvent(config, job.id, type === 'stdout' ? 'stdout' : 'stderr', {
+      lines,
+      seq,
+      streaming: true,
+    });
+  });
+
   try {
     // Report running
     await reportEvent(config, job.id, "status_change", { status: "running" });
@@ -434,14 +444,23 @@ export async function executeJob(
       workDir = join(jobDir, "repo");
     }
 
-    // Get the adapter
-    const adapter = getAdapter(job.adapter);
+    // Get the adapter; fall back to approved_shell if pty_shell is requested but unavailable
+    let adapterName = job.adapter;
+    let adapter = getAdapter(adapterName);
 
-    // Check adapter availability
     const available = await adapter.check();
-    if (!available) {
+    if (!available && adapterName === 'pty_shell') {
+      console.warn(`  ⚠ pty_shell unavailable — falling back to approved_shell for job ${job.id.slice(0, 8)}`);
+      await reportEvent(config, job.id, 'stderr', { text: 'pty_shell adapter unavailable; using approved_shell fallback' });
+      adapterName = 'approved_shell';
+      adapter = getAdapter(adapterName);
+      const fallbackAvailable = await adapter.check();
+      if (!fallbackAvailable) {
+        throw new Error('Adapter "approved_shell" is not available on this machine');
+      }
+    } else if (!available) {
       throw new Error(
-        `Adapter "${job.adapter}" is not available on this machine`
+        `Adapter "${adapterName}" is not available on this machine`
       );
     }
 
@@ -477,25 +496,14 @@ export async function executeJob(
         ? job.prompt
         : buildRetryPrompt(job.prompt, lastFailureReason, attempt, maxRetries, targetPath);
 
-      console.log(`  ▶ Attempt ${attempt}/${maxRetries} — adapter "${job.adapter}" job ${job.id.slice(0, 8)}...`);
-      const result = await adapter.run(prompt, workDir, remainingMs);
+      console.log(`  ▶ Attempt ${attempt}/${maxRetries} — adapter "${adapterName}" job ${job.id.slice(0, 8)}...`);
+      const result = await adapter.run(prompt, workDir, remainingMs, (type, line) => throttle.emit(type, line));
+
+      // Drain buffered lines before any retry/complete transitions
+      await throttle.drain();
 
       finalOutput = result.output;
       finalError = result.error;
-
-      // Surface stdout/stderr for each attempt
-      if (result.output) {
-        await reportEvent(config, job.id, "stdout", {
-          text: result.output.slice(0, 50_000),
-          attempt,
-        });
-      }
-      if (result.error) {
-        await reportEvent(config, job.id, "stderr", {
-          text: result.error.slice(0, 10_000),
-          attempt,
-        });
-      }
 
       // Classify adapter-level failures before extracting content
       if (!result.success && !result.output) {
@@ -598,6 +606,7 @@ export async function executeJob(
     console.error(`  ❌ Job ${job.id.slice(0, 8)} failed:`, message);
 
     try {
+      await throttle.drain();
       await reportEvent(config, job.id, "error", { message });
       await completeJob(config, job.id, false, { error_text: message });
     } catch (reportErr) {

@@ -63,6 +63,9 @@ export interface MaestroState {
   buildDrawerExpanded: boolean;
   clawBuildSession: ClawBuildSessionState | null;
   sessionBuildState: SessionBuildState;
+  // Ephemeral streaming output for running executor jobs — keyed by job_id.
+  // Cleared when a job completes. Never persisted to DB.
+  jobStreamingOutput: Record<string, string[]>;
 }
 
 type Action =
@@ -143,7 +146,9 @@ type Action =
   | { type: 'SET_SESSION_BUILD_PROGRESS'; payload: SessionBuildProgress }
   | { type: 'SET_SESSION_BUILD_RUNS'; payload: SessionRunProgress[] }
   | { type: 'UPDATE_SESSION_BUILD_RUN'; payload: { key: string; updates: Partial<SessionRunProgress> } }
-  | { type: 'SET_IS_SESSION_BUILD_RUNNING'; payload: boolean };
+  | { type: 'SET_IS_SESSION_BUILD_RUNNING'; payload: boolean }
+  | { type: 'STREAMING_APPEND'; payload: { jobId: string; lines: string[] } }
+  | { type: 'STREAMING_CLEAR'; payload: string };
 
 const initial: MaestroState = {
   workspace: null,
@@ -196,6 +201,7 @@ const initial: MaestroState = {
   buildDrawerExpanded: false,
   clawBuildSession: null,
   sessionBuildState: createEmptySessionBuildState(),
+  jobStreamingOutput: {},
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -252,6 +258,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         composerIntent: 'chat',
         clawBuildSession: null,
         sessionBuildState: createEmptySessionBuildState(),
+        jobStreamingOutput: {},
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -399,6 +406,21 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         ...state,
         sessionBuildState: { ...state.sessionBuildState, isRunning: action.payload },
       };
+    case 'STREAMING_APPEND': {
+      const prev = state.jobStreamingOutput[action.payload.jobId] ?? [];
+      return {
+        ...state,
+        jobStreamingOutput: {
+          ...state.jobStreamingOutput,
+          [action.payload.jobId]: [...prev, ...action.payload.lines],
+        },
+      };
+    }
+    case 'STREAMING_CLEAR': {
+      const next = { ...state.jobStreamingOutput };
+      delete next[action.payload];
+      return { ...state, jobStreamingOutput: next };
+    }
     default: return state;
   }
 }

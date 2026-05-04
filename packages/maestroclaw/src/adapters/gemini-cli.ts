@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import type { Adapter, AdapterResult } from "./types.js";
+import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
+import { LineSplitter } from "../lib/line-splitter.js";
 
 // Model to use for generation. Override via CLAW_GEMINI_MODEL in .env.
 const PRIMARY_MODEL = process.env.CLAW_GEMINI_MODEL ?? "gemini-2.5-pro";
@@ -54,12 +55,13 @@ export class GeminiCliAdapter implements Adapter {
     prompt: string,
     workDir: string,
     timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
-    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL);
+    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL, onLine);
 
     if (!result.success && isRateLimited((result.output ?? "") + (result.error ?? "")) && FALLBACK_MODEL) {
       console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} — retrying with fallback ${FALLBACK_MODEL}`);
-      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL);
+      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL, onLine);
     }
 
     return result;
@@ -80,12 +82,15 @@ export class GeminiCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
     model: string,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     console.log(`  🤖 gemini_cli: running in ${workDir} (model: ${model})`);
 
     return new Promise((resolve) => {
       let stdout = "";
       let stderr = "";
+      const stdoutSplitter = onLine ? new LineSplitter() : null;
+      const stderrSplitter = onLine ? new LineSplitter() : null;
 
       // Gemini CLI detects a non-TTY stdin and processes it as the prompt.
       // Pipe via stdin to avoid Windows command-line arg length limits.
@@ -100,13 +105,25 @@ export class GeminiCliAdapter implements Adapter {
         },
       );
 
-      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      proc.stdout.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        if (onLine && stdoutSplitter) stdoutSplitter.push(chunk, (line) => onLine("stdout", line));
+      });
+      proc.stderr.on("data", (data: Buffer) => {
+        const chunk = data.toString();
+        stderr += chunk;
+        if (onLine && stderrSplitter) stderrSplitter.push(chunk, (line) => onLine("stderr", line));
+      });
 
       proc.stdin.write(prompt);
       proc.stdin.end();
 
       proc.on("close", (code, signal) => {
+        if (onLine) {
+          stdoutSplitter?.drain((line) => onLine("stdout", line));
+          stderrSplitter?.drain((line) => onLine("stderr", line));
+        }
         const success = code === 0;
         const error = success
           ? undefined

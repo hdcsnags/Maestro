@@ -98,7 +98,7 @@ Legacy (unused): agent_skills, flags
 ## Agent Roster
 
 15 cloud agents: 5 provider groups × 3 slots. Only slot-0 active by default.
-3 MaestroClaw agents: local CLI execution, build-only (not used for broadcast/analysis).
+4 MaestroClaw agents: local CLI execution, build-only (not used for broadcast/analysis).
 
 **Source of truth for model names: `src/types/index.ts`** — if what's listed below disagrees with that file, the file wins.
 
@@ -109,7 +109,7 @@ Legacy (unused): agent_skills, flags
 | google | Gemini 2.5 Flash | Gemini 2.5 Pro | Gemini 2.5 Flash |
 | openrouter_a | GPT-OSS 20B (free) | Gemma 4 31B (free) | Llama 4 Maverick |
 | openrouter_b | Sonnet 4.6 (OR) | GPT-5.4 Builder (OR) | Kimi K2 |
-| **maestroclaw** | **ClawClaude** (claude_code) | **ClawCopilot** (copilot_cli) | **ClawCodex** (codex_cli) |
+| **maestroclaw** | **ClawClaude** (claude_code) | **ClawCopilot** (copilot_cli) | **ClawCodex** (codex_cli) | **ClawGemini** (gemini_cli) |
 
 **Claw agents**: selectable as builders in Pre-Build. Score boosted when executor online (+60), penalized when offline (-40). Visible in Orchestra drawer with executor status badge. Hidden from Vault (no API key needed). Not used for broadcast — build-only.
 
@@ -227,7 +227,7 @@ Legacy (unused): agent_skills, flags
 | Build v3 migration: `executor_job_id` on build_tasks, `execution_backend` on sessions, `context_bundle` on executor_jobs, widened constraint to include 'auto' | 2026-04-18 (migration created, not yet applied to remote) |
 | #10 concierge re-fire (remount) fixed: `lanesLoaded` gate in hydration effect + builder-lanes-exist → plan_review shortcut | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
 | #12 weak-agent fallback fixed: locked IDs → full-pool fallback on DB miss; builder last-resort now excludes GPT-OSS/Gemma; `architect` redeployed | 2026-04-13 (code verified, `npm run typecheck`, commit `41fa2dd`) |
-| MaestroClaw agents in builder roster: 3 Claw agents (ClawClaude, ClawCopilot, ClawCodex) added to `AGENT_DEFAULTS`, selectable as builders in Pre-Build with executor-aware scoring | 2026-04-19 (`npm run typecheck`, commit `93e05f6`) |
+| MaestroClaw agents in builder roster: 4 Claw agents (ClawClaude, ClawCopilot, ClawCodex, ClawGemini) in `AGENT_DEFAULTS`, selectable as builders in Pre-Build with executor-aware scoring. Verified against `src/types/index.ts` 2026-05-03 | 2026-05-03 |
 | MaestroClaw in Orchestra drawer: dedicated section with executor online/offline status badge, `hasKey()` returns true (no API key needed) | 2026-04-19 (commit `4d68c12`) |
 | MaestroClaw hidden from Vault: `maestroclaw` filtered from API key management loop | 2026-04-19 (commit `1a02dae`) |
 | Auto-backend-switch: selecting a Claw builder in Pre-Build auto-switches execution backend to `local` | 2026-04-19 (code verified) |
@@ -305,6 +305,41 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-04 — Opus 4.7 — Continuous Bouncer spec + deploy runbook
+
+**What was done**:
+1. Returned from session reset. Reviewed multi-agent progress while away: SEC-04, REL-01, REL-02, UX-01 all verified-shipped during the gap. Five Phase 1 items now closed; Phase 2 in flight (Sonnet currently working on UX-03 + UX-04 + DIFF-01 in parallel).
+2. Authored `DEPLOY_RUNBOOK.md` — living deployment doc with pre-deploy/post-deploy/rollback checklists and per-spec runbooks for SEC-02 (executor-api redeploy + APPROVAL_TOKEN_SECRET set), DIFF-04, LIVE-01, BOUNCER-01. Closes the gap where deploy steps were scattered across spec docs.
+3. Authored `BOUNCER_OBSERVER_MODE_SPEC.md` — full spec for Continuous Bouncer (smoketest audit #5). The companion to LIVE-01: Bouncer becomes a continuously-watching presence during builds, not just a post-mortem reviewer.
+4. Designed three operating modes: `passive` (current behavior — end-of-build only), `observer` (mid-build batched reviews narrate via coordinator, no blocking), `gatekeeper` (mid-build batched reviews can pause build on critical findings). Mode is per-session, defaults vary by profile.
+5. Designed cost-bounded batching: trigger A (every 3 newly-completed files), trigger B (every 60s with at least one new file), trigger C (high-risk path completed — `**/auth/**`, `**/crypto/**`, `**/secrets/**`, etc., configurable). First trigger to fire wins. Typical 8-task build runs Bouncer 2-3 times mid-build, not 8.
+6. Designed a narrowed mid-build prompt — distinct from post-build review. One question only: "are any of these N files dangerous to ship?" Drops cost ~60-70% per run. Sonnet 4.6 model (Haiku misses subtle vulns; cost bounded by batch reduction).
+7. Designed `bouncer_findings` table modeling finding lifecycle independently from review runs (`bouncer_events`). Same finding can be detected mid-build, re-confirmed, then merged into post-build summary without duplicate rows. Tracks `acknowledged_decision` (approve_continue / pause / abort / fixed_in_subsequent_step).
+8. Designed gatekeeper soft-pause: in-flight tasks complete naturally, only NEW task dispatches are blocked. User isn't punished by losing in-flight work when Bouncer pauses.
+9. Designed clean integration with BOUNCER-01 (reuses reclassification matrix — pedagogical findings in training_lab don't pause), LIVE-01 (watcher emits coordinator triggers; coordinator narrates findings), DIFF-04 (optional "generated under fallback" annotation).
+10. Specified 12-step implementation order with Opus-review checkpoints on step 3 (prompt scope/voice) and step 4 (trigger logic — too-frequent blows budget, too-rare misses issues).
+11. Updated `IMPLEMENTATION_PLAN_STATUS.md` with both new specs.
+
+**Files touched**: `DEPLOY_RUNBOOK.md` (new), `BOUNCER_OBSERVER_MODE_SPEC.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Watcher uses Sonnet 4.6, NOT Haiku — security analysis needs reasoning depth; cost bounded by batching frequency (2-3 invocations per typical build, not 8).
+- Per-build $0.50 hard cap for mid-build watching — beyond that, watcher silences for the rest of the build (post-build review still runs). User configurable.
+- `bouncer_findings` distinct from `bouncer_events` — events records review runs; findings records issue lifecycle. Same finding can span multiple runs without duplication.
+- Gatekeeper pause is SOFT — in-flight tasks complete; only new dispatches blocked. Avoids losing work mid-Bouncer-decision.
+- Test files (`**/*.test.ts`, `__tests__/**`) get reduced flagging — only containment_critical findings flagged. Prevents false positives on intentional bad inputs / mock secrets.
+- Watcher is event-triggered (just like LIVE-01 coordinator) — stateless, scales naturally, no long-running process.
+- Default modes vary by profile: `passive` for `production_app` (speed prioritized), `observer` for `internal_demo` / `training_lab` / `security_ctf` (where the user is exploring or building lessons and wants signals).
+- Deferred multi-file cross-vulnerability detection (file A defines safe API, file B uses unsafely) to v2 — mid-build watcher only sees recently-completed files; cross-file requires post-build view.
+- Deferred PRO-02 iteration loop integration to v2 — iteration loops have their own per-step verification command which is the user's check.
+
+**What didn't work**:
+- Specs only. No watcher edge function, prompt, or UI shipped. Implementation pending.
+- The mid-build prompt scope/voice is grounded in design reasoning but NOT validated against real Sonnet output yet. Step 3 of impl order is "validate prompt against real fixture build before continuing." Until tested, the prompt is hypothesis.
+- Cross-file vulnerability detection acknowledged as a v1 limitation. Will need a separate "v2 cross-file analysis pass" if this proves to matter in real use.
+- Did not write `MULTI_EXECUTOR_ROUTING_SPEC.md` (the other big "Remaining Non-Audited Risk") — saved for next Opus session. The "work anywhere" promise still has no spec.
+- Did not validate that the `BouncerWatchCard` UI design composes cleanly with Gemini's new `BoardroomStage` Atelier styling — left as a UX polish item for whoever implements the component.
 
 ### 2026-05-04 — Claude Sonnet 4.6 — SEC-04 IncidentService end-to-end
 

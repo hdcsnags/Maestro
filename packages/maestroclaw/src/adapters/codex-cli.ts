@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import type { Adapter, AdapterResult } from "./types.js";
+import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { buildCliArguments, resolveCliInvocation } from "./command.js";
+import { LineSplitter } from "../lib/line-splitter.js";
 
 export class CodexCliAdapter implements Adapter {
   name = "codex_cli";
@@ -30,8 +31,9 @@ export class CodexCliAdapter implements Adapter {
     prompt: string,
     workDir: string,
     timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
-    return this.executeWithTools(prompt, workDir, timeoutMs);
+    return this.executeWithTools(prompt, workDir, timeoutMs, onLine);
   }
 
   // Session mode: Codex --full-auto already writes files directly.
@@ -48,6 +50,7 @@ export class CodexCliAdapter implements Adapter {
     prompt: string,
     workDir: string,
     timeoutMs: number,
+    onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     console.log(`  🤖 codex_cli: running in ${workDir}`);
 
@@ -65,6 +68,8 @@ export class CodexCliAdapter implements Adapter {
       let stdout = "";
       let stderr = "";
       let settled = false;
+      const stdoutSplitter = onLine ? new LineSplitter() : null;
+      const stderrSplitter = onLine ? new LineSplitter() : null;
 
       const finish = (result: AdapterResult) => {
         if (settled) return;
@@ -101,16 +106,24 @@ export class CodexCliAdapter implements Adapter {
       );
 
       proc.stdout.on("data", (data: Buffer) => {
-        stdout += data.toString();
+        const chunk = data.toString();
+        stdout += chunk;
+        if (onLine && stdoutSplitter) stdoutSplitter.push(chunk, (line) => onLine("stdout", line));
       });
       proc.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
+        const chunk = data.toString();
+        stderr += chunk;
+        if (onLine && stderrSplitter) stderrSplitter.push(chunk, (line) => onLine("stderr", line));
       });
 
       proc.stdin.write(prompt);
       proc.stdin.end();
 
       proc.on("close", (code, signal) => {
+        if (onLine) {
+          stdoutSplitter?.drain((line) => onLine("stdout", line));
+          stderrSplitter?.drain((line) => onLine("stderr", line));
+        }
         const finalOutput = existsSync(outputFilePath)
           ? readFileSync(outputFilePath, "utf-8").trimEnd()
           : stdout.trimEnd();

@@ -408,6 +408,7 @@ export interface ExecutorJob {
   allowed_paths: string[];
   timeout_seconds: number;
   approval_required: boolean;
+  requires_pty: boolean;
   status: 'queued' | 'approved' | 'claimed' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'expired';
   result_summary: string | null;
   error_text: string | null;
@@ -731,7 +732,7 @@ export interface ExecutionIntent {
   action: string;
   command?: string;
   params: Record<string, string>;
-  adapter: 'approved_shell' | 'claude_code' | 'github_api';
+  adapter: 'approved_shell' | 'claude_code' | 'github_api' | 'pty_shell';
   trust: ExecutionCommandTrust;
   description: string;
 }
