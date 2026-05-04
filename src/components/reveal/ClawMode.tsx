@@ -8,6 +8,7 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import { AtelierSidebar } from './AtelierSidebar';
 import { AdvisorStrip } from './AdvisorStrip';
+import { BoardroomStage } from './BoardroomStage';
 import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
