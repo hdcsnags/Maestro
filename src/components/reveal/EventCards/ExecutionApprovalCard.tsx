@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Check, XCircle } from 'lucide-react';
 import { useMaestro } from '../../../context/MaestroContext';
 import { useThreads } from '../../../hooks/useThreads';
@@ -6,6 +7,7 @@ import type { ThreadMessage } from '../../../types';
 export default function ExecutionApprovalCard({ message }: { message: ThreadMessage }) {
   const { state, dispatch } = useMaestro();
   const { approveExecutionJob, approveWithToken, pollJobStatus, addMessage, loadThreadMessages } = useThreads();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const event = message.metadata.system_event;
   const jobId = typeof message.metadata.job_id === 'string' ? message.metadata.job_id : null;
 
@@ -16,56 +18,66 @@ export default function ExecutionApprovalCard({ message }: { message: ThreadMess
   const tokenApproval = pending?.approvalToken && pending?.intent ? pending : null;
 
   const handleApprove = async () => {
-    if (tokenApproval) {
-      // HMAC token path: resubmit with the token to create an approved job.
-      const job = await approveWithToken(
-        tokenApproval.approvalToken!,
-        tokenApproval.intent,
-        message.thread_id,
-      );
-      if (!job) return;
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      if (tokenApproval) {
+        const job = await approveWithToken(
+          tokenApproval.approvalToken!,
+          tokenApproval.intent,
+          message.thread_id,
+        );
+        if (!job) return;
+
+        let attempts = 0;
+        const maxAttempts = 30;
+        while (attempts < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          attempts += 1;
+          const updated = await pollJobStatus(job.id, message.thread_id);
+          if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
+        }
+        await loadThreadMessages(message.thread_id);
+        return;
+      }
+
+      if (!jobId) return;
+      await approveExecutionJob(jobId, message.thread_id);
+      dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
 
       let attempts = 0;
       const maxAttempts = 30;
       while (attempts < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         attempts += 1;
-        const updated = await pollJobStatus(job.id, message.thread_id);
+        const updated = await pollJobStatus(jobId, message.thread_id);
         if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
       }
       await loadThreadMessages(message.thread_id);
-      return;
+    } finally {
+      setIsSubmitting(false);
     }
-
-    if (!jobId) return;
-    // Legacy queued-job path.
-    await approveExecutionJob(jobId, message.thread_id);
-    dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
-
-    let attempts = 0;
-    const maxAttempts = 30;
-    while (attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      attempts += 1;
-      const updated = await pollJobStatus(jobId, message.thread_id);
-      if (updated && (updated.status === 'succeeded' || updated.status === 'failed')) break;
-    }
-    await loadThreadMessages(message.thread_id);
   };
 
   const handleReject = async () => {
-    await addMessage(message.thread_id, 'system', 'Execution rejected by user.', undefined, {
-      kind: 'execution_status',
-      system_event: {
-        tone: 'approval',
-        title: 'Execution rejected',
-        body: 'The command was not sent to the executor.',
-      },
-    });
-    if (state.pendingExecution?.threadId === message.thread_id) {
-      dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await addMessage(message.thread_id, 'system', 'Execution rejected by user.', undefined, {
+        kind: 'execution_status',
+        system_event: {
+          tone: 'approval',
+          title: 'Execution rejected',
+          body: 'The command was not sent to the executor.',
+        },
+      });
+      if (state.pendingExecution?.threadId === message.thread_id) {
+        dispatch({ type: 'SET_PENDING_EXECUTION', payload: null });
+      }
+      await loadThreadMessages(message.thread_id);
+    } finally {
+      setIsSubmitting(false);
     }
-    await loadThreadMessages(message.thread_id);
   };
 
   return (
@@ -86,14 +98,16 @@ export default function ExecutionApprovalCard({ message }: { message: ThreadMess
       <div className="mt-4 flex items-center gap-2">
         <button
           onClick={handleApprove}
-          className="flex items-center gap-1.5 rounded-lg bg-signal-ok/80 px-3 py-1.5 text-xs text-white transition-all hover:bg-signal-ok"
+          disabled={isSubmitting}
+          className="flex items-center gap-1.5 rounded-lg bg-signal-ok/80 px-3 py-1.5 text-xs text-white transition-all hover:bg-signal-ok disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Check size={12} />
-          Approve
+          {isSubmitting ? 'Running…' : 'Approve'}
         </button>
         <button
           onClick={handleReject}
-          className="flex items-center gap-1.5 rounded-lg bg-signal-risk/20 px-3 py-1.5 text-xs text-signal-risk transition-all hover:bg-signal-risk/30"
+          disabled={isSubmitting}
+          className="flex items-center gap-1.5 rounded-lg bg-signal-risk/20 px-3 py-1.5 text-xs text-signal-risk transition-all hover:bg-signal-risk/30 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <XCircle size={12} />
           Reject

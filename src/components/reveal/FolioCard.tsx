@@ -88,6 +88,7 @@ export default function FolioCard({
 }: Props) {
   const { dispatch } = useMaestro();
   const [flagging, setFlagging] = useState(false);
+  const [busyChip, setBusyChip] = useState<'lead' | 'pin' | null>(null);
   const [signalsExpanded, setSignalsExpanded] = useState(false);
   const [manifestExpanded, setManifestExpanded] = useState(false);
   const [busyAction, setBusyAction] = useState<'pin' | 'followup' | 'decision' | 'synthesize' | null>(null);
@@ -98,32 +99,48 @@ export default function FolioCard({
   }, [response.id]);
 
   const handleFlag = async () => {
+    if (flagging) return;
     setFlagging(true);
     const newFlagged = !response.is_flagged;
-    await supabase
-      .from('responses')
-      .update({ is_flagged: newFlagged } as never)
-      .eq('id', response.id);
-    dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_flagged: newFlagged } });
-    setFlagging(false);
+    try {
+      await supabase
+        .from('responses')
+        .update({ is_flagged: newFlagged } as never)
+        .eq('id', response.id);
+      dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_flagged: newFlagged } });
+    } finally {
+      setFlagging(false);
+    }
   };
 
   const handleLead = async () => {
+    if (busyChip !== null) return;
+    setBusyChip('lead');
     const newLead = !response.is_lead;
-    await supabase
-      .from('responses')
-      .update({ is_lead: newLead } as never)
-      .eq('id', response.id);
-    dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_lead: newLead } });
+    try {
+      await supabase
+        .from('responses')
+        .update({ is_lead: newLead } as never)
+        .eq('id', response.id);
+      dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_lead: newLead } });
+    } finally {
+      setBusyChip(null);
+    }
   };
 
   const handlePin = async () => {
+    if (busyChip !== null) return;
+    setBusyChip('pin');
     const newPinned = !response.is_pinned;
-    await supabase
-      .from('responses')
-      .update({ is_pinned: newPinned } as never)
-      .eq('id', response.id);
-    dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: newPinned } });
+    try {
+      await supabase
+        .from('responses')
+        .update({ is_pinned: newPinned } as never)
+        .eq('id', response.id);
+      dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: newPinned } });
+    } finally {
+      setBusyChip(null);
+    }
   };
 
   const handleDownload = () => {
@@ -189,13 +206,13 @@ export default function FolioCard({
             style={response.is_flagged ? { color: 'var(--gold)', borderColor: 'rgba(201,168,76,0.3)', background: 'rgba(201,168,76,0.08)', cursor: 'pointer' } : { cursor: 'pointer' }}>
             <Flag size={11} />{response.is_flagged ? 'Flagged' : 'Flag'}
           </button>
-          <button onClick={handleLead} className="reveal-chip"
-            style={response.is_lead ? { color: 'var(--text)', borderColor: 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', cursor: 'pointer' } : { cursor: 'pointer' }}>
+          <button onClick={handleLead} disabled={busyChip !== null} className="reveal-chip"
+            style={response.is_lead ? { color: 'var(--text)', borderColor: 'rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.06)', cursor: 'pointer' } : { cursor: busyChip !== null ? 'default' : 'pointer' }}>
             <Star size={11} />{response.is_lead ? 'Lead' : 'Set lead'}
           </button>
-          <button onClick={handlePin} className="reveal-chip"
+          <button onClick={handlePin} disabled={busyChip !== null} className="reveal-chip"
             title={response.is_pinned ? 'Unpin from session context' : 'Pin to session context'}
-            style={response.is_pinned ? { color: '#8aa8e0', borderColor: 'rgba(138,168,224,0.3)', background: 'rgba(138,168,224,0.08)', cursor: 'pointer' } : { cursor: 'pointer' }}>
+            style={response.is_pinned ? { color: '#8aa8e0', borderColor: 'rgba(138,168,224,0.3)', background: 'rgba(138,168,224,0.08)', cursor: 'pointer' } : { cursor: busyChip !== null ? 'default' : 'pointer' }}>
             <Pin size={11} />{response.is_pinned ? 'Pinned' : 'Pin'}
           </button>
           <button onClick={handleDownload} className="reveal-chip" title="Download response as markdown"

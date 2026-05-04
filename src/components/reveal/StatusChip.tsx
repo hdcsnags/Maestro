@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { AlertTriangle, Bot, ChevronDown, KeyRound, Laptop, Zap } from 'lucide-react';
 import { useMaestro } from '../../context/MaestroContext';
 import { CONCIERGE_MODELS, type ExecutionMode } from '../../types';
@@ -46,7 +46,19 @@ export default function StatusChip({
 }: StatusChipProps) {
   const { state, dispatch } = useMaestro();
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const { unackCritical } = useUnackIncidents();
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
 
   const currentModelLabel = useMemo(() => {
     const found = CONCIERGE_MODELS.find((model) => model.id === state.conciergeModel);
@@ -82,7 +94,7 @@ export default function StatusChip({
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={ref}>
       <div className="flex items-center gap-2">
         {unackCritical > 0 && (
           <button

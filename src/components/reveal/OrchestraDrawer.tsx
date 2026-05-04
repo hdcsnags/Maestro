@@ -168,7 +168,7 @@ export default function OrchestraDrawer() {
       const key = slotKey(agent.provider_group, agent.slot_index);
       const shouldBeActive = tierSlotKeys.has(key);
       if (agent.is_active !== shouldBeActive) {
-        supabase.from('agents').update({ is_active: shouldBeActive } as never).eq('id', agent.id);
+        await supabase.from('agents').update({ is_active: shouldBeActive } as never).eq('id', agent.id);
         dispatch({ type: 'UPDATE_AGENT', payload: { id: agent.id, is_active: shouldBeActive } });
       }
     }

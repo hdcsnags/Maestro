@@ -32,7 +32,7 @@ export default function ShortcutOverlay() {
         <button className="keycap" onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}>Esc</button>
       </div>
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: window.innerWidth > 720 ? 'repeat(2, 1fr)' : '1fr' }}>
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
         {SHORTCUTS.map(s => (
           <div
             key={s.key}

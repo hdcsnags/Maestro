@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { Response as MaestroResponse, ExecutionMode } from '../../types';
@@ -41,6 +41,13 @@ export default function SynthesisDrawer() {
   const { state, dispatch } = useMaestro();
   const { synthesize, newRound } = useOrchestration();
   const isOpen = state.activeDrawer === 'synthesis';
+
+  const [isWide, setIsWide] = useState(() => window.innerWidth > 860);
+  useEffect(() => {
+    const handler = () => setIsWide(window.innerWidth > 860);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   const latestRound = state.rounds.length > 0 ? state.rounds[state.rounds.length - 1] : null;
   const latestResponses = useMemo(
@@ -124,7 +131,7 @@ export default function SynthesisDrawer() {
       <div
         className="grid gap-5"
         style={{
-          gridTemplateColumns: window.innerWidth > 860 ? '0.86fr 1.14fr' : '1fr',
+          gridTemplateColumns: isWide ? '0.86fr 1.14fr' : '1fr',
           height: 'calc(100% - 80px)',
           overflow: 'auto',
         }}
