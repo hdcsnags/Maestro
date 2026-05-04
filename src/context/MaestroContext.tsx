@@ -7,6 +7,7 @@ import {
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
   ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
+  ProviderHealthRecord,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -66,6 +67,8 @@ export interface MaestroState {
   // Ephemeral streaming output for running executor jobs — keyed by job_id.
   // Cleared when a job completes. Never persisted to DB.
   jobStreamingOutput: Record<string, string[]>;
+  // DIFF-04: provider health snapshot (loaded + updated by useProviderHealth)
+  providerHealth: ProviderHealthRecord[];
 }
 
 type Action =
@@ -148,7 +151,8 @@ type Action =
   | { type: 'UPDATE_SESSION_BUILD_RUN'; payload: { key: string; updates: Partial<SessionRunProgress> } }
   | { type: 'SET_IS_SESSION_BUILD_RUNNING'; payload: boolean }
   | { type: 'STREAMING_APPEND'; payload: { jobId: string; lines: string[] } }
-  | { type: 'STREAMING_CLEAR'; payload: string };
+  | { type: 'STREAMING_CLEAR'; payload: string }
+  | { type: 'SET_PROVIDER_HEALTH'; payload: ProviderHealthRecord[] };
 
 const initial: MaestroState = {
   workspace: null,
@@ -202,6 +206,7 @@ const initial: MaestroState = {
   clawBuildSession: null,
   sessionBuildState: createEmptySessionBuildState(),
   jobStreamingOutput: {},
+  providerHealth: [],
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -421,6 +426,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       delete next[action.payload];
       return { ...state, jobStreamingOutput: next };
     }
+    case 'SET_PROVIDER_HEALTH':
+      return { ...state, providerHealth: action.payload };
     default: return state;
   }
 }

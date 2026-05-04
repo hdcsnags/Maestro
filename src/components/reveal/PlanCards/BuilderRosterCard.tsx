@@ -1,8 +1,19 @@
-import type { ThreadMessage } from '../../../types';
+import type { ThreadMessage, ProviderHealthState } from '../../../types';
 import PlanCardFrame from './PlanCardFrame';
 import { usePreBuildPlan } from '../../../hooks/usePreBuildPlan';
+import { useMaestro } from '../../../context/MaestroContext';
+import { modelToProviderKey } from '../../../lib/providerHealth';
+
+const HEALTH_DOT: Record<ProviderHealthState, string> = {
+  healthy:      'bg-signal-ok',
+  degraded:     'bg-signal-warn',
+  down:         'bg-signal-risk',
+  rate_limited: 'bg-gold',
+  unknown:      'bg-ink-3/40',
+};
 
 export default function BuilderRosterCard({ message }: { message: ThreadMessage }) {
+  const { state } = useMaestro();
   const {
     rankedBuilderAgents,
     selectedBuilderIds,
@@ -64,7 +75,14 @@ export default function BuilderRosterCard({ message }: { message: ThreadMessage 
               const availability = getBuilderAvailability(agent);
               return (
                 <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                  <span className="text-ink-3">{agent.provider_group === 'maestroclaw' ? agent.model : agent.provider}</span>
+                  <div className="flex items-center gap-1.5">
+                    {(() => {
+                      const provKey = modelToProviderKey(agent.model ?? '');
+                      const healthState = (state.providerHealth.find((h) => h.provider_id === provKey)?.state ?? 'unknown') as ProviderHealthState;
+                      return <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${HEALTH_DOT[healthState]}`} title={healthState} />;
+                    })()}
+                    <span className="text-ink-3">{agent.provider_group === 'maestroclaw' ? agent.model : agent.provider}</span>
+                  </div>
                   <span className={availability.tone === 'ok' ? 'text-signal-ok/85' : 'text-gold/85'}>
                     {availability.label}
                   </span>

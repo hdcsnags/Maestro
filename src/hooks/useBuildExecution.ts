@@ -16,6 +16,15 @@ import {
 } from '../lib/sessionBuild';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
+import { useProviderHealth } from './useProviderHealth';
+import { buildFallbackChain } from '../lib/providerFallbacks';
+import {
+  selectModel,
+  computeCostDelta,
+  classifyFailure,
+  modelToProviderKey,
+  REROUTE_COST_THRESHOLD,
+} from '../lib/providerHealth';
 import {
   BuildTask,
   BuildTaskStatus,
@@ -25,6 +34,7 @@ import {
   SessionBuildManifestEntry,
   SessionBuildProgress,
   SessionRunProgress,
+  RerouteDecision,
 } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -190,6 +200,7 @@ function deriveSessionProgress(runs: SessionRunProgress[]): SessionBuildProgress
 export function useBuildExecution() {
   const { state, dispatch } = useMaestro();
   const { session, user } = useAuth();
+  const { providerHealthRef, observeSuccess, observeFailure, awaitRerouteDecision, abortAllWaiters } = useProviderHealth();
 
   const [tasks, setTasks] = useState<BuildTask[]>([]);
   const tasksRef = useRef<BuildTask[]>([]); // synchronous truth — avoids stale-closure bugs
@@ -1203,17 +1214,28 @@ export function useBuildExecution() {
       }
     }
 
-    // ── Edge execution (unchanged v2 path) ───────────────────────────
+    // ── Edge execution (DIFF-04: health-aware model selection) ───────────
     try {
+      const chain = buildFallbackChain(agent.model);
+      const connectedProviders = new Set(
+        state.providerConnections.filter((p) => p.is_connected).map((p) => p.provider),
+      );
+      // Exclude the agent's own model if this is a rerouted retry
+      const excludeModels = task.rerouted_from ? new Set([agent.model]) : new Set<string>();
+      const selectedModel = selectModel(chain, providerHealthRef.current, connectedProviders, excludeModels) ?? agent.model;
+      const selectedProvider = modelToProviderKey(selectedModel);
+
       const result = await invokeEdgeFunction<OrchestrateTaskResult>('orchestrate', {
         prompt: task.prompt_slice,
-        provider: agent.provider,
-        model: agent.model,
+        provider: selectedProvider,
+        model: selectedModel,
         agentName: agent.name,
         agentRole: agent.role,
         mode: 'build_task',
         session_id: state.activeSession?.id,
       });
+
+      observeSuccess(selectedModel);
 
       const parsed = parseTaskResult(result, task.file_path);
       if (!parsed || !parsed.content) {
@@ -1245,7 +1267,10 @@ export function useBuildExecution() {
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      const isRetryable = errMsg.includes('504') || errMsg.includes('timeout') || errMsg.includes('rate');
+      const failureClass = classifyFailure(errMsg);
+      observeFailure(agent.model, failureClass);
+
+      const isRetryable = failureClass === 'rate_limited' || failureClass === 'timeout';
 
       if (isRetryable && (task.retry_count ?? 0) < (task.max_retries ?? 2)) {
         await updateTaskStatus(task.id, 'queued', {
@@ -1255,23 +1280,72 @@ export function useBuildExecution() {
         return false;
       }
 
-      // Try fallback before giving up
-      if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
-        await updateTaskStatus(task.id, 'rerouted', {
-          rerouted_from: task.lane_owner,
-          lane_owner: task.fallback_owner,
-          failure_reason: errMsg.slice(0, 200),
-        } as Partial<BuildTask>);
-        return false;
+      // Cost-gated reroute: check whether switching models crosses the threshold
+      const chain = buildFallbackChain(agent.model);
+      const connectedProviders = new Set(
+        state.providerConnections.filter((p) => p.is_connected).map((p) => p.provider),
+      );
+      const excludeModels = new Set([agent.model]);
+      const nextModel = selectModel(chain, providerHealthRef.current, connectedProviders, excludeModels);
+
+      if (nextModel && nextModel !== agent.model) {
+        const costDelta = computeCostDelta(agent.model, nextModel, (task.prompt_slice ?? '').length);
+        const activeThread = state.threads?.find((t) => t.session_id === state.activeSession?.id) ?? null;
+
+        if (costDelta > REROUTE_COST_THRESHOLD && activeThread) {
+          // Insert approval card and wait for user decision
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: msgRow } = await (supabase as any).from('thread_messages').insert({
+            thread_id: activeThread.id,
+            role: 'system',
+            content: `Reroute approval needed: ${agent.model} → ${nextModel}`,
+            metadata: {
+              kind: 'reroute_approval',
+              reroute_approval: {
+                build_task_id: task.id,
+                file_path: task.file_path,
+                from_model: agent.model,
+                to_model: nextModel,
+                cost_delta: costDelta,
+                failure_reason: errMsg.slice(0, 200),
+              },
+            },
+          }).select().maybeSingle();
+
+          if (msgRow) {
+            dispatch({ type: 'ADD_THREAD_MESSAGE', payload: msgRow });
+          }
+
+          const decision: RerouteDecision = await awaitRerouteDecision(task.id);
+          if (decision === 'skip') {
+            await updateTaskStatus(task.id, 'failed', {
+              failure_reason: `User skipped reroute. Original error: ${errMsg.slice(0, 300)}`,
+              provider_error: errMsg.slice(0, 500),
+            } as Partial<BuildTask>);
+            return false;
+          }
+          // 'approved' or 'emergency' — fall through to reroute
+        }
+
+        // Reroute to next-best model via fallback_owner if available, else re-queue with updated model hint
+        if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+          await updateTaskStatus(task.id, 'rerouted', {
+            rerouted_from: task.lane_owner,
+            lane_owner: task.fallback_owner,
+            failure_reason: errMsg.slice(0, 200),
+          } as Partial<BuildTask>);
+          return false;
+        }
       }
 
+      // No viable fallback
       await updateTaskStatus(task.id, 'failed', {
         failure_reason: errMsg.slice(0, 500),
         provider_error: errMsg.slice(0, 500),
       } as Partial<BuildTask>);
       return false;
     }
-  }, [resolveAgent, updateTaskStatus, state.activeSession?.id, resolveBackend, dispatchTaskLocal]);
+  }, [resolveAgent, updateTaskStatus, state.activeSession?.id, state.providerConnections, state.threads, resolveBackend, dispatchTaskLocal, providerHealthRef, observeSuccess, observeFailure, awaitRerouteDecision, dispatch]);
 
   // ── Main execution loop ──────────────────────────────────────────────
 
@@ -1403,7 +1477,8 @@ export function useBuildExecution() {
 
   const abort = useCallback(() => {
     abortRef.current = true;
-  }, []);
+    abortAllWaiters();
+  }, [abortAllWaiters]);
 
   const skipTask = useCallback(async (taskId: string, reason: string) => {
     await updateTaskStatus(taskId, 'skipped', {

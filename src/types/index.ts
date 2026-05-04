@@ -98,6 +98,7 @@ export type ThreadMessageKind =
   | 'file_manifest'
   | 'error_retry'
   | 'cost_rollup'
+  | 'reroute_approval'
   | 'info';
 
 export interface ThreadSystemEvent {
@@ -139,6 +140,7 @@ export interface ThreadMessageMetadata extends Record<string, unknown> {
   prompt?: string;
   redacted?: boolean;
   redaction_count?: number;
+  reroute_approval?: RerouteApprovalMetadata;
 }
 
 // All models available as concierge (union of direct + OpenRouter)
@@ -265,6 +267,9 @@ export interface BuildTask {
   execution_backend?: 'edge' | 'local' | 'auto';
   executor_job_id?: string | null;
 
+  // DIFF-04: fallback chain — built by concierge or derived at dispatch time
+  fallback_chain?: FallbackChain | null;
+
   created_at?: string;
   updated_at?: string;
 }
@@ -359,6 +364,40 @@ export interface BuildTaskPromptSlice {
   cross_lane_exports: LaneApiExport[];
   target_file: string;
   task_instruction: string;
+}
+
+// ── DIFF-04: Provider Fallback Matrix ───────────────────────────────────────
+
+export type ProviderHealthState = 'healthy' | 'degraded' | 'down' | 'rate_limited' | 'unknown';
+export type FailureClass = 'rate_limited' | 'timeout' | 'auth_error' | 'server_error' | 'unknown';
+export type RerouteDecision = 'approved' | 'emergency' | 'skip';
+
+export interface FallbackChain {
+  primary: string;
+  fallbacks: string[];
+  emergency: string;
+}
+
+export interface ProviderHealthRecord {
+  user_id: string;
+  provider_id: string;
+  state: ProviderHealthState;
+  last_success_at?: string | null;
+  last_failure_at?: string | null;
+  recent_failure_count: number;
+  recent_success_count: number;
+  rate_limit_until?: string | null;
+  last_failure_reason?: string | null;
+  updated_at?: string;
+}
+
+export interface RerouteApprovalMetadata {
+  build_task_id: string;
+  file_path: string;
+  from_model: string;
+  to_model: string;
+  cost_delta: number;
+  failure_reason: string;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

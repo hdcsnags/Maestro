@@ -1,5 +1,6 @@
 import { useMaestro } from '../../context/MaestroContext';
 import { AuditEvent } from '../../types';
+import HealthPanel from './HealthPanel';
 import SecurityPanel from './SecurityPanel';
 
 export default function TrustDrawer() {
@@ -71,6 +72,9 @@ export default function TrustDrawer() {
 
       <div className="reveal-label mb-3 mt-6">Security Incidents</div>
       <SecurityPanel />
+
+      <div className="reveal-label mb-3 mt-6">Provider Health</div>
+      <HealthPanel />
     </aside>
   );
 }

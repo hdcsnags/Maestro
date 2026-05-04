@@ -6,6 +6,7 @@ import ExecutionApprovalCard from './ExecutionApprovalCard';
 import FileManifestCard from './FileManifestCard';
 import InfoCard from './InfoCard';
 import PrOpenedCard from './PrOpenedCard';
+import RerouteApprovalCard from './RerouteApprovalCard';
 
 export default function SystemEventCard({ message }: { message: ThreadMessage }) {
   switch (message.metadata.kind) {
@@ -23,6 +24,8 @@ export default function SystemEventCard({ message }: { message: ThreadMessage })
       return <CommandResultCard message={message} />;
     case 'cost_rollup':
       return <CostRollupCard message={message} />;
+    case 'reroute_approval':
+      return <RerouteApprovalCard message={message} />;
     case 'info':
     default:
       return <InfoCard message={message} />;
