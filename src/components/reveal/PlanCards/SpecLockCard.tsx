@@ -54,10 +54,10 @@ export default function SpecLockCard({ message }: { message: ThreadMessage }) {
       <div className="space-y-2">
         {checklist.map((item) => (
           <div key={item.label} className="flex items-center gap-2 text-sm">
-            <div className={`flex h-5 w-5 items-center justify-center rounded-full ${item.ready ? 'bg-signal-ok/15 text-signal-ok/90' : 'bg-white/[0.06] text-white/35'}`}>
+            <div className={`flex h-5 w-5 items-center justify-center rounded-full ${item.ready ? 'bg-signal-ok/15 text-signal-ok/90' : 'bg-surf-2 text-ink-3'}`}>
               <Check size={12} />
             </div>
-            <span className={item.ready ? 'text-white/75' : 'text-white/45'}>{item.label}</span>
+            <span className={item.ready ? 'text-ink-1' : 'text-ink-3'}>{item.label}</span>
           </div>
         ))}
       </div>

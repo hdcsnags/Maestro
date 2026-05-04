@@ -32,7 +32,7 @@ export default function BuilderRosterCard({ message }: { message: ThreadMessage 
               disabled={disabled || lanesLocked}
               className={`min-w-10 rounded-full border px-3 py-1.5 text-xs ${active
                 ? 'border-gold/30 bg-gold/10 text-gold'
-                : 'border-white/[0.08] bg-black/10 text-white/60'} ${(disabled || lanesLocked) ? 'opacity-40' : ''}`}
+                : 'border-edge-1 bg-void-1 text-ink-2'} ${(disabled || lanesLocked) ? 'opacity-40' : ''}`}
             >
               {count}
             </button>
@@ -42,13 +42,13 @@ export default function BuilderRosterCard({ message }: { message: ThreadMessage 
 
       <div className="space-y-3">
         {selectedBuilderIds.map((agentId, index) => (
-          <div key={`${index}-${agentId}`} className="rounded-xl border border-white/[0.06] bg-black/10 px-3 py-3">
-            <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-white/35">Builder {index + 1}</div>
+          <div key={`${index}-${agentId}`} className="rounded-xl border border-edge-1 bg-void-1 px-3 py-3">
+            <div className="mb-2 text-[11px] uppercase tracking-[0.14em] text-ink-3">Builder {index + 1}</div>
             <select
               value={agentId}
               onChange={(event) => void setBuilderAt(index, event.target.value)}
               disabled={lanesLocked}
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/80 outline-none"
+              className="w-full rounded-xl border border-edge-1 bg-surf-1 px-3 py-2 text-sm text-ink-1 outline-none"
             >
               {rankedBuilderAgents
                 .filter((agent) => agent.id === agentId || !selectedBuilderIds.some((selectedId, selectedIndex) => selectedIndex !== index && selectedId === agent.id))
@@ -64,7 +64,7 @@ export default function BuilderRosterCard({ message }: { message: ThreadMessage 
               const availability = getBuilderAvailability(agent);
               return (
                 <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                  <span className="text-white/45">{agent.provider_group === 'maestroclaw' ? agent.model : agent.provider}</span>
+                  <span className="text-ink-3">{agent.provider_group === 'maestroclaw' ? agent.model : agent.provider}</span>
                   <span className={availability.tone === 'ok' ? 'text-signal-ok/85' : 'text-gold/85'}>
                     {availability.label}
                   </span>

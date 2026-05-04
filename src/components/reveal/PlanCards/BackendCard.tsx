@@ -22,12 +22,12 @@ export default function BackendCard({ message }: { message: ThreadMessage }) {
       onOpenAdvancedView={openAdvancedView}
     >
       {selectedClawBuilder && hasOnlineExecutor && (
-        <div className="mb-4 rounded-xl border border-signal-ok/20 bg-signal-ok/8 px-3 py-3 text-sm text-white/75">
+        <div className="mb-4 rounded-xl border border-signal-ok/20 bg-signal-ok/8 px-3 py-3 text-sm text-ink-1">
           I see you picked <span className="text-signal-ok/90">{selectedClawBuilder.display_name}</span> and the executor is online. Running locally is the fastest path here.
         </div>
       )}
       {selectedClawBuilder && !hasOnlineExecutor && (
-        <div className="mb-4 rounded-xl border border-gold/20 bg-gold/8 px-3 py-3 text-sm text-white/75">
+        <div className="mb-4 rounded-xl border border-gold/20 bg-gold/8 px-3 py-3 text-sm text-ink-1">
           A Claw builder is selected, but the executor is offline. Concierge will keep you on edge until it comes back.
         </div>
       )}
@@ -47,13 +47,13 @@ export default function BackendCard({ message }: { message: ThreadMessage }) {
               disabled={disabled}
               className={`rounded-xl border px-3 py-3 text-left transition-colors ${active
                 ? 'border-gold/30 bg-gold/10 text-white'
-                : 'border-white/[0.08] bg-black/10 text-white/70 hover:border-white/[0.14]'} ${disabled ? 'opacity-40' : ''}`}
+                : 'border-edge-1 bg-void-1 text-ink-1 hover:border-edge-2'} ${disabled ? 'opacity-40' : ''}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono-dm text-[11px] uppercase tracking-[0.14em]">{option.label}</span>
                 {recommended && <span className="text-[10px] uppercase tracking-[0.12em] text-signal-ok/85">Recommended</span>}
               </div>
-              <div className="mt-2 text-sm leading-6 text-white/60">{option.body}</div>
+              <div className="mt-2 text-sm leading-6 text-ink-2">{option.body}</div>
             </button>
           );
         })}

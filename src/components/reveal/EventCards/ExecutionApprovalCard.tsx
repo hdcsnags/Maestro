@@ -69,17 +69,17 @@ export default function ExecutionApprovalCard({ message }: { message: ThreadMess
   };
 
   return (
-    <div className="mx-1 my-0.5 rounded-xl border border-signal-warn/30 bg-signal-warn/10 px-4 py-3 text-white/80">
+    <div className="mx-1 my-0.5 rounded-xl border border-signal-warn/30 bg-signal-warn/10 px-4 py-3 text-ink-1">
       <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-signal-warn/90">
         {event?.title ?? 'Approval required'}
       </div>
       {event?.body && (
-        <div className="mt-2 text-sm leading-7 text-white/75">
+        <div className="mt-2 text-sm leading-7 text-ink-1">
           {event.body}
         </div>
       )}
       {event?.command && (
-        <code className="mt-3 block overflow-x-auto rounded-lg bg-black/20 px-3 py-2 text-xs text-white/70">
+        <code className="mt-3 block overflow-x-auto rounded-lg bg-void-2 px-3 py-2 text-xs text-ink-1">
           {event.command}
         </code>
       )}

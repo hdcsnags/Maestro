@@ -35,7 +35,7 @@ function LaneRow({
   }, [lane.lane_paths]);
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-black/10 px-3 py-3">
+    <div className="rounded-xl border border-edge-1 bg-void-1 px-3 py-3">
       <div className="grid gap-3 md:grid-cols-[1.2fr,1fr,auto]">
         <select
           value={lane.agent_id ?? ''}
@@ -44,7 +44,7 @@ function LaneRow({
             void onUpdate(index, { agent_id: event.target.value, agent_name: agent?.label ?? lane.agent_name });
           }}
           disabled={disabled}
-          className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/80 outline-none"
+          className="rounded-xl border border-edge-1 bg-surf-1 px-3 py-2 text-sm text-ink-1 outline-none"
         >
           {agentOptions.map((option) => (
             <option key={option.id} value={option.id}>{option.label}</option>
@@ -54,7 +54,7 @@ function LaneRow({
           value={lane.role}
           onChange={(event) => void onUpdate(index, { role: event.target.value as BuildLaneRole })}
           disabled={disabled}
-          className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/80 outline-none"
+          className="rounded-xl border border-edge-1 bg-surf-1 px-3 py-2 text-sm text-ink-1 outline-none"
         >
           {ROLE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -63,7 +63,7 @@ function LaneRow({
         <button
           onClick={() => void onRemove(index)}
           disabled={disabled}
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-white/50 hover:text-white/75"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-edge-1 bg-surf-1 text-ink-2 hover:text-ink-1"
           aria-label="Remove lane"
         >
           <Trash2 size={13} />
@@ -81,7 +81,7 @@ function LaneRow({
           }
         }}
         disabled={disabled}
-        className="mt-3 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 font-mono text-xs text-white/75 outline-none"
+        className="mt-3 w-full rounded-xl border border-edge-1 bg-surf-1 px-3 py-2 font-mono text-xs text-ink-1 outline-none"
         placeholder="src/**, app/**"
       />
       {issue && (
@@ -113,7 +113,7 @@ export default function LaneCard({ message }: { message: ThreadMessage }) {
       onOpenAdvancedView={openAdvancedView}
     >
       {suggestedLanes.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-white/[0.08] px-3 py-4 text-sm text-white/55">
+        <div className="rounded-xl border border-dashed border-edge-1 px-3 py-4 text-sm text-ink-2">
           No lanes yet. Generate ARCHITECT.md first, or seed a basic builder split now.
           <div className="mt-3">
             <button

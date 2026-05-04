@@ -79,7 +79,7 @@ export default function ArchitectCard({ message }: { message: ThreadMessage }) {
         </div>
       )}
       {architectMd && (
-        <div className="claw-prose mt-4 rounded-xl border border-white/[0.08] bg-black/10 px-4 py-4 text-sm text-white/75">
+        <div className="claw-prose mt-4 rounded-xl border border-edge-1 bg-void-1 px-4 py-4 text-sm text-ink-1">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {architectMd}
           </ReactMarkdown>

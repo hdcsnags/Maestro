@@ -6,12 +6,12 @@ export default function FileManifestCard({ message }: { message: ThreadMessage }
   const skippedFiles = event?.skipped_files ?? [];
 
   return (
-    <div className="mx-1 my-0.5 rounded-xl border border-signal-ok/20 bg-signal-ok/8 px-4 py-3 text-white/80">
-      <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-white/40">
+    <div className="mx-1 my-0.5 rounded-xl border border-signal-ok/20 bg-signal-ok/8 px-4 py-3 text-ink-1">
+      <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-ink-2">
         {event?.title ?? 'Build output ready'}
       </div>
       {event?.body && (
-        <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-white/70">
+        <div className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink-1">
           {event.body}
         </div>
       )}

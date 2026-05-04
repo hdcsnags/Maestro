@@ -32,7 +32,7 @@ export default function ProjectTypeCard({ message }: { message: ThreadMessage })
               disabled={lanesLocked}
               className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm transition-colors ${active
                 ? 'border-gold/30 bg-gold/10 text-gold'
-                : 'border-white/[0.08] bg-black/10 text-white/70 hover:border-white/[0.14]'} ${lanesLocked ? 'opacity-60' : ''}`}
+                : 'border-edge-1 bg-void-1 text-ink-1 hover:border-edge-2'} ${lanesLocked ? 'opacity-60' : ''}`}
             >
               <Icon size={14} />
               {option.label}

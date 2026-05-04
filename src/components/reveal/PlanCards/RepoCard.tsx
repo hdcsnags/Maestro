@@ -37,9 +37,9 @@ export default function RepoCard({ message }: { message: ThreadMessage }) {
     >
       <RepoSection />
       {projectType === 'existing' && (
-        <div className="mt-4 rounded-xl border border-white/[0.08] bg-black/10 p-3">
+        <div className="mt-4 rounded-xl border border-edge-1 bg-void-1 p-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm text-white/65">
+            <div className="text-sm text-ink-2">
               {scanResult
                 ? 'Repository scan complete. Re-run it if the repo context changed.'
                 : 'Scan the repo so Concierge can summarize stack, risks, and safe zones before architecting the build.'}
@@ -55,17 +55,17 @@ export default function RepoCard({ message }: { message: ThreadMessage }) {
             </button>
           </div>
           {scanResult && (
-            <div className="mt-3 grid gap-2 text-xs text-white/60 md:grid-cols-3">
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-white/35">Stack</div>
+            <div className="mt-3 grid gap-2 text-xs text-ink-2 md:grid-cols-3">
+              <div className="rounded-xl border border-edge-1 bg-surf-1 px-3 py-2">
+                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-ink-3">Stack</div>
                 <div className="mt-2">{scanResult.stack.join(', ') || 'No stack detected yet.'}</div>
               </div>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-white/35">Risk files</div>
+              <div className="rounded-xl border border-edge-1 bg-surf-1 px-3 py-2">
+                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-ink-3">Risk files</div>
                 <div className="mt-2">{scanResult.risk_files.slice(0, 3).join(', ') || 'No hotspots flagged.'}</div>
               </div>
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-white/35">Architecture notes</div>
+              <div className="rounded-xl border border-edge-1 bg-surf-1 px-3 py-2">
+                <div className="font-mono-dm text-[10px] uppercase tracking-[0.14em] text-ink-3">Architecture notes</div>
                 <div className="mt-2">{scanResult.architecture_notes || 'No notes yet.'}</div>
               </div>
             </div>
@@ -78,7 +78,7 @@ export default function RepoCard({ message }: { message: ThreadMessage }) {
         </div>
       )}
       {!activeRepoConnection && (
-        <div className="mt-3 flex items-center gap-2 text-sm text-white/55">
+        <div className="mt-3 flex items-center gap-2 text-sm text-ink-2">
           <GitBranch size={13} />
           Connect GitHub here, then keep moving through the rest of the plan cards.
         </div>
