@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Bot, ChevronDown, KeyRound, Laptop, Zap } from 'lucide-react';
+import { AlertTriangle, Bot, ChevronDown, KeyRound, Laptop, Zap } from 'lucide-react';
 import { useMaestro } from '../../context/MaestroContext';
 import { CONCIERGE_MODELS, type ExecutionMode } from '../../types';
+import { useUnackIncidents } from '../../hooks/useUnackIncidents';
 
 type StatusKind = 'default' | 'build' | 'execute';
 
@@ -45,6 +46,7 @@ export default function StatusChip({
 }: StatusChipProps) {
   const { state, dispatch } = useMaestro();
   const [open, setOpen] = useState(false);
+  const { unackCritical } = useUnackIncidents();
 
   const currentModelLabel = useMemo(() => {
     const found = CONCIERGE_MODELS.find((model) => model.id === state.conciergeModel);
@@ -82,6 +84,18 @@ export default function StatusChip({
   return (
     <div className="relative">
       <div className="flex items-center gap-2">
+        {unackCritical > 0 && (
+          <button
+            type="button"
+            title={`${unackCritical} unacknowledged critical incident${unackCritical !== 1 ? 's' : ''} — click to review`}
+            onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'trust' })}
+            className="flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/15 px-2 py-1 animate-pulse"
+            style={{ cursor: 'pointer' }}
+          >
+            <AlertTriangle size={11} style={{ color: 'var(--risk)' }} />
+            <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--risk)' }}>{unackCritical}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}

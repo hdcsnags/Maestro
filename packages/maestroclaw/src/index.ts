@@ -5,6 +5,8 @@ import { loadConfig } from "./config.js";
 import { heartbeat, pollForJob, claimJob, type ExecutorCapabilities } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
 import { executeJob, executeSessionJob } from "./executor.js";
+import { setIncidentService } from "./executor.js";
+import { IncidentService } from "./lib/kernel/incident-service.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -17,6 +19,10 @@ async function main() {
   console.log(`📡 Supabase: ${config.supabaseUrl}`);
   console.log(`⏱  Poll interval: ${config.pollIntervalMs}ms`);
   console.log(`⚡ Max concurrent jobs: ${config.maxConcurrentJobs}`);
+
+  // Wire up the IncidentService so adapters can report kernel/security events.
+  const incidents = new IncidentService(config);
+  setIncidentService(incidents);
 
   // Check adapters
   const adapters = await checkAdapters();

@@ -5,6 +5,19 @@ import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
 import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
+import type { IncidentService } from "./lib/kernel/incident-service.js";
+
+// Module-level holder for the IncidentService singleton.
+// Adapters access it via getIncidentService().
+let _incidentService: IncidentService | undefined;
+
+export function setIncidentService(svc: IncidentService): void {
+  _incidentService = svc;
+}
+
+export function getIncidentService(): IncidentService | undefined {
+  return _incidentService;
+}
 
 function resolveSafeArtifactPath(rootDir: string, filePath: string): string {
   const resolvedRoot = resolve(rootDir);

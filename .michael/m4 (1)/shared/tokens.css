@@ -1,0 +1,94 @@
+/* ═══ Maestro — refined Void tokens ═══ */
+:root {
+  /* Surfaces — toned warm-black, NOT pure black */
+  --void-0: #08090b;
+  --void-1: #0b0c0f;
+  --void-2: #0e1014;
+  --void-3: #131519;
+  --void-4: #181a20;
+
+  /* Edges */
+  --edge-0: rgba(255,255,255,0.04);
+  --edge-1: rgba(255,255,255,0.07);
+  --edge-2: rgba(255,255,255,0.12);
+  --edge-3: rgba(255,255,255,0.20);
+
+  /* Surfaces */
+  --surf-0: rgba(255,255,255,0.018);
+  --surf-1: rgba(255,255,255,0.035);
+  --surf-2: rgba(255,255,255,0.06);
+  --surf-3: rgba(255,255,255,0.09);
+
+  /* Type — parchment, not paper */
+  --ink-0: #ece8de;
+  --ink-1: #d4cfc2;
+  --ink-2: #908a7e;
+  --ink-3: #5e594f;
+  --ink-4: #3a362f;
+
+  /* Accent — true gold (was bronze ember) */
+  --ember: #d4a84a;
+  --ember-glow: rgba(212,168,74,0.32);
+  --ember-soft: rgba(212,168,74,0.13);
+  --ember-hairline: rgba(212,168,74,0.26);
+
+  /* Agent voices — desaturated, not skittle */
+  --voice-claude: #c97a5a;
+  --voice-gpt: #6ea88a;
+  --voice-gemini: #6e8fc4;
+  --voice-kimi: #a48fc4;
+  --voice-claw: #d4b270;
+
+  /* Signals */
+  --ok: #6ea88a;
+  --warn: #c9a060;
+  --risk: #c46a6a;
+
+  /* Motion */
+  --spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Type stacks */
+  --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --sans: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  color: var(--ink-0);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.005em;
+}
+
+button { font: inherit; cursor: pointer; color: inherit; background: none; border: none; padding: 0; }
+a { color: inherit; text-decoration: none; }
+input, textarea { font: inherit; color: inherit; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--edge-1); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--edge-2); }
+
+/* Atmosphere — used by all directions, customized per artboard */
+.void-bg {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(217,119,87,0.05), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 50% 100%, rgba(217,119,87,0.025), transparent 70%),
+    linear-gradient(180deg, var(--void-0) 0%, var(--void-1) 50%, var(--void-0) 100%);
+}
+.void-grain {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: 0.035;
+  background-image: radial-gradient(rgba(255,255,255,0.7) 0.4px, transparent 0.4px);
+  background-size: 6px 6px;
+  mix-blend-mode: soft-light;
+}
+.void-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.35) 100%);
+}

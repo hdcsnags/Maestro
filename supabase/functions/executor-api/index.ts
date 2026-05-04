@@ -106,6 +106,7 @@ const EXECUTOR_API_BODY_LIMITS = {
   rotate: 16_384,
   submit: 524_288,
   approve: 16_384,
+  report_incident: 32_768,
 } as const;
 
 function normalizeStringArray(value: unknown): string[] {
@@ -796,6 +797,65 @@ Deno.serve(async (req: Request) => {
       if (!job) return err("Job not found or not in queued state", 404);
 
       return json({ job });
+    }
+
+    // ── REPORT_INCIDENT ───────────────────────────────────────
+    // POST ?action=report_incident  body: { severity, category, title, message, metadata?, job_id?, executor_id? }
+    // Authenticated by the executor token (same as all other executor actions).
+    // Associates the incident with the executor's owner_user_id so it surfaces
+    // in the correct user's SecurityPanel.
+    if (req.method === "POST" && action === "report_incident") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<Record<string, unknown>>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.report_incident,
+        label: "Incident report body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+
+      const VALID_SEVERITIES = new Set(["low", "medium", "high", "critical"]);
+      const VALID_CATEGORIES = new Set([
+        "kernel_violation", "security_violation", "auth_violation",
+        "scope_violation", "system_error", "manual",
+      ]);
+
+      const severity = typeof body.severity === "string" ? body.severity : "";
+      const category = typeof body.category === "string" ? body.category : "";
+      const title = typeof body.title === "string" ? body.title.slice(0, 200) : "";
+      const message = typeof body.message === "string" ? body.message.slice(0, 4096) : "";
+
+      if (!VALID_SEVERITIES.has(severity)) return err("Invalid severity");
+      if (!VALID_CATEGORIES.has(category)) return err("Invalid category");
+      if (!title) return err("title is required");
+      if (!message) return err("message is required");
+
+      const metadata = typeof body.metadata === "object" && body.metadata !== null
+        ? body.metadata
+        : {};
+      const job_id = typeof body.job_id === "string" ? body.job_id : null;
+
+      const { data: incident, error: insertErr } = await adminClient
+        .from("executor_incidents")
+        .insert({
+          user_id: executor.owner_user_id,
+          executor_id: executor.id,
+          job_id,
+          severity,
+          category,
+          title,
+          message,
+          metadata,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (insertErr) return err(insertErr.message, 500);
+
+      console.log(`[executor-api] incident reported uid=${executor.owner_user_id} sev=${severity} cat=${category} title="${title}"`);
+      return json({ incident });
     }
 
     return err(`Unknown action: ${action}`, 404);

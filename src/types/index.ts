@@ -422,6 +422,33 @@ export interface ExecutorJob {
   completed_at: string | null;
 }
 
+// ─── Executor Incidents (SEC-04) ─────────────────────────────
+
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export type IncidentCategory =
+  | 'kernel_violation'
+  | 'security_violation'
+  | 'auth_violation'
+  | 'scope_violation'
+  | 'system_error'
+  | 'manual';
+
+export interface ExecutorIncident {
+  id: string;
+  user_id: string;
+  executor_id?: string | null;
+  job_id?: string | null;
+  severity: IncidentSeverity;
+  category: IncidentCategory;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  acknowledged_at?: string | null;
+  acknowledged_by?: string | null;
+  created_at: string;
+}
+
 // ─── Claw Build Session State (in-thread card) ──────────────
 export interface ClawBuildSessionState {
   threadId: string;

@@ -1,38 +1,56 @@
-import { reportEvent } from "../../api.js";
 import type { ClawConfig } from "../../config.js";
 
-export interface IncidentReport {
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentCategory =
+  | 'kernel_violation'
+  | 'security_violation'
+  | 'auth_violation'
+  | 'scope_violation'
+  | 'system_error'
+  | 'manual';
+
+export interface IncidentPayload {
+  severity: IncidentSeverity;
+  category: IncidentCategory;
   title: string;
   message: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
+  job_id?: string;
 }
 
 /**
- * Incident Service - Bridges local security events to the Thamos UI.
- * This allows the remote worker to report Sentinel-style alerts back home.
+ * Routes local kernel/security events to the executor-api report_incident
+ * endpoint so they surface in the user's SecurityPanel in real-time.
+ * All errors are swallowed — incident reporting must never crash the executor.
  */
 export class IncidentService {
-  constructor(private config: ClawConfig) {}
+  private readonly url: string;
+  private readonly token: string;
 
-  /**
-   * Reports a high-severity security incident back to the Thamos Desktop.
-   */
-  async reportIncident(report: IncidentReport, jobId?: string) {
-    console.log(`🚨 [IncidentService] Reporting: ${report.title} (${report.severity.toUpperCase()})`);
-    
-    // We use reportEvent if we are inside a job, otherwise we could use a dedicated endpoint
-    // For now, we'll assume there's a global "system_node" job ID or similar for general events
-    const targetJobId = jobId || "system_node_event";
+  constructor(config: ClawConfig) {
+    this.url = `${config.supabaseUrl}/functions/v1/executor-api?action=report_incident`;
+    this.token = config.executorToken;
+  }
 
+  async report(payload: IncidentPayload): Promise<boolean> {
+    console.log(`🚨 [IncidentService] ${payload.severity.toUpperCase()} ${payload.category}: ${payload.title}`);
     try {
-      await reportEvent(this.config, targetJobId, "incident", {
-        ...report,
-        timestamp: Date.now()
+      const res = await fetch(this.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Executor-Token": this.token,
+        },
+        body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.error(`[IncidentService] HTTP ${res.status}: ${body}`);
+        return false;
+      }
       return true;
     } catch (err) {
-      console.error(`⚠️ [IncidentService] Failed to report incident:`, err);
+      console.error("[IncidentService] Failed to report incident:", err);
       return false;
     }
   }

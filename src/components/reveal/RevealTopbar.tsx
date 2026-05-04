@@ -1,7 +1,7 @@
 import React from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
-import { LogOut, Eye, EyeOff, Sparkles, ChevronDown } from 'lucide-react';
+import { LogOut, Eye, EyeOff, Sparkles, Zap } from 'lucide-react';
 import SessionSwitcher from './SessionSwitcher';
 import { Orb } from './Orb';
 
@@ -12,6 +12,27 @@ export default function RevealTopbar() {
   const connectedKeys = state.apiKeys ? Object.values(state.apiKeys).filter(Boolean).length : 0;
   const activeLocalExecutors = state.executors?.filter(e => e.status === 'online').length ?? 0;
   const executorLabel = activeLocalExecutors > 0 ? `${activeLocalExecutors} online` : 'offline';
+  const activeDrawer = state.activeDrawer;
+
+  const cycleExecutionMode = () => {
+    const modes = ['analyze', 'pr_flow', 'elevated'] as const;
+    const currentIndex = modes.indexOf(state.executionMode as any);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+    dispatch({ type: 'SET_EXECUTION_MODE', payload: nextMode });
+  };
+
+  const getExecutionModeLabel = (mode: string) => {
+    if (mode === 'analyze') return 'Analyze';
+    if (mode === 'pr_flow') return 'PR Flow';
+    if (mode === 'elevated') return 'Elevated';
+    return mode;
+  };
+
+  const getExecutionModeColor = (mode: string) => {
+    if (mode === 'elevated') return 'var(--risk)';
+    if (mode === 'analyze') return 'var(--ink-2)';
+    return 'var(--ember)';
+  };
 
   return (
     <header style={{
@@ -37,7 +58,7 @@ export default function RevealTopbar() {
 
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: 8,
-        padding: '4px 12px', borderRadius: 999,
+        padding: '4px 4px 4px 12px', borderRadius: 999,
         border: '1px solid rgba(217,119,87,0.18)', background: 'rgba(217,119,87,0.08)',
         fontSize: 11, color: 'var(--ink-1)',
       }}>
@@ -45,6 +66,21 @@ export default function RevealTopbar() {
         Concierge: <strong style={{ color: 'var(--ink-0)', fontWeight: 500, marginLeft: 2 }}>Haiku 4.5</strong>
         <span style={{ color: 'var(--ink-3)' }}>·</span>
         <span style={{ color: 'var(--ink-2)' }}>{connectedKeys} keys · local {executorLabel}</span>
+        <button
+          onClick={cycleExecutionMode}
+          title="Cycle execution mode"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '2px 8px', borderRadius: 999,
+            border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
+            cursor: 'pointer', color: getExecutionModeColor(state.executionMode),
+            fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase',
+            marginLeft: 4, transition: 'all 0.2s ease', outline: 'none'
+          }}
+        >
+          <Zap size={9} />
+          {getExecutionModeLabel(state.executionMode)}
+        </button>
       </div>
 
       <div style={{ flex: 1 }} />
@@ -52,33 +88,39 @@ export default function RevealTopbar() {
       {/* Drawer hotkey caps */}
       <div className="flex items-center gap-2">
         <button
-          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'orchestra' })}
+          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'orchestra' ? null : 'orchestra' })}
           style={{
             width: 30, height: 28, borderRadius: 6, cursor: 'pointer',
-            border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
-            color: 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            border: activeDrawer === 'orchestra' ? '1px solid var(--ember-hairline)' : '1px solid var(--edge-1)',
+            background: activeDrawer === 'orchestra' ? 'var(--ember-soft)' : 'var(--surf-0)',
+            color: activeDrawer === 'orchestra' ? 'var(--ember)' : 'var(--ink-2)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.2s ease'
           }}
           title="Roster (⌘O)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/></svg>
         </button>
         <button
-          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'trust' })}
+          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'trust' ? null : 'trust' })}
           style={{
             width: 30, height: 28, borderRadius: 6, cursor: 'pointer',
-            border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
-            color: 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            border: activeDrawer === 'trust' ? '1px solid var(--ember-hairline)' : '1px solid var(--edge-1)',
+            background: activeDrawer === 'trust' ? 'var(--ember-soft)' : 'var(--surf-0)',
+            color: activeDrawer === 'trust' ? 'var(--ember)' : 'var(--ink-2)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.2s ease'
           }}
           title="Trust (⌘J)">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </button>
         <button
-          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })}
+          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'vault' ? null : 'vault' })}
           style={{
             width: 30, height: 28, borderRadius: 6, cursor: 'pointer',
-            border: '1px solid var(--edge-1)', background: 'var(--surf-0)',
-            color: 'var(--ink-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            border: activeDrawer === 'vault' ? '1px solid var(--ember-hairline)' : '1px solid var(--edge-1)',
+            background: activeDrawer === 'vault' ? 'var(--ember-soft)' : 'var(--surf-0)',
+            color: activeDrawer === 'vault' ? 'var(--ember)' : 'var(--ink-2)',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.2s ease'
           }}
           title="Vault (⌘K)">

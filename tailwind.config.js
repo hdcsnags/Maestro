@@ -12,8 +12,29 @@ export default {
       colors: {
         void: {
           DEFAULT: 'var(--void-0)',
+          1: 'var(--void-1)',
           2: 'var(--void-2)',
           3: 'var(--void-3)',
+          4: 'var(--void-4)',
+        },
+        surf: {
+          0: 'var(--surf-0)',
+          1: 'var(--surf-1)',
+          2: 'var(--surf-2)',
+          3: 'var(--surf-3)',
+        },
+        edge: {
+          0: 'var(--edge-0)',
+          1: 'var(--edge-1)',
+          2: 'var(--edge-2)',
+          3: 'var(--edge-3)',
+        },
+        ink: {
+          0: 'var(--ink-0)',
+          1: 'var(--ink-1)',
+          2: 'var(--ink-2)',
+          3: 'var(--ink-3)',
+          4: 'var(--ink-4)',
         },
         gold: {
           DEFAULT: 'var(--ember)',
@@ -31,6 +52,7 @@ export default {
           ok: 'var(--ok)',
           warn: 'var(--warn)',
           risk: 'var(--risk)',
+          info: 'var(--gemini)',
         },
       },
       borderColor: {

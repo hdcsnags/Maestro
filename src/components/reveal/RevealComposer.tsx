@@ -385,7 +385,7 @@ export default function RevealComposer({ variant = 'workspace' }: Props) {
   return (
     <div style={{
       position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-      width: 'min(760px, calc(100vw - 44px))', zIndex: 30,
+      width: 'min(760px, calc(100% - 44px))', zIndex: 30,
     }}>
       {exceedsCap && (
         <div

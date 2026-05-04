@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maestro — Workspace Reimagined</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,200..600;1,200..600&family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="shared/tokens.css" />
+  <style>
+    body { background: #050608; color: var(--ink-0); }
+    /* Make artboard chrome match the void */
+    .dc-artboard { background: var(--void-0) !important; }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <template id="__bundler_thumbnail" data-bg-color="#08090b">
+    <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="orb" cx="42%" cy="38%" r="55%">
+          <stop offset="0%" stop-color="#fff0c8" stop-opacity="0.95"/>
+          <stop offset="35%" stop-color="#d4a84a"/>
+          <stop offset="75%" stop-color="#3d2f10" stop-opacity="0.4"/>
+          <stop offset="100%" stop-color="#08090b" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="1200" height="800" fill="#08090b"/>
+      <circle cx="600" cy="400" r="180" fill="url(#orb)"/>
+      <text x="600" y="640" text-anchor="middle" fill="#ece8de" font-family="serif" font-style="italic" font-size="42" font-weight="300">Maestro</text>
+    </svg>
+  </template>
+  <div id="root"></div>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="shared/primitives.jsx"></script>
+  <script type="text/babel" src="directions/atelier.jsx"></script>
+  <script type="text/babel" src="directions/atrium.jsx"></script>
+  <script type="text/babel" src="directions/boardroom.jsx"></script>
+  <script type="text/babel" src="directions/score.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect } = React;
+
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "accent": "#d4a84a",
+      "density": "comfortable",
+      "fontDisplay": "Fraunces"
+    }/*EDITMODE-END*/;
+
+    function App() {
+      const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+      // apply accent live
+      useEffect(() => {
+        const r = document.documentElement;
+        r.style.setProperty('--ember', tweaks.accent);
+        // recompute glow / soft variants
+        const hex = tweaks.accent.replace('#','');
+        const rr = parseInt(hex.slice(0,2), 16);
+        const gg = parseInt(hex.slice(2,4), 16);
+        const bb = parseInt(hex.slice(4,6), 16);
+        r.style.setProperty('--ember-glow', `rgba(${rr},${gg},${bb},0.30)`);
+        r.style.setProperty('--ember-soft', `rgba(${rr},${gg},${bb},0.12)`);
+        r.style.setProperty('--ember-hairline', `rgba(${rr},${gg},${bb},0.22)`);
+      }, [tweaks.accent]);
+
+      return (
+        <>
+          <DesignCanvas
+            title="Maestro · Workspace Reimagined"
+            subtitle="Three directions on the void aesthetic. Each artboard has an empty/reading toggle in its topbar — click to see the carousel reader."
+          >
+            <DCSection id="merged" title="The merged direction">
+              <DCArtboard id="atelier" label="00 · Atelier — Atrium shell + Boardroom centerpiece + drawers" width={1360} height={860}>
+                <Atelier />
+              </DCArtboard>
+            </DCSection>
+
+            <DCSection id="directions" title="Original three takes (for reference)">
+
+              <DCArtboard id="atrium" label="01 · Atrium — refined original" width={1280} height={840}>
+                <Atrium />
+              </DCArtboard>
+
+              <DCArtboard id="boardroom" label="02 · Boardroom — metaphor literalized" width={1280} height={840}>
+                <Boardroom />
+              </DCArtboard>
+
+              <DCArtboard id="score" label="03 · Score — editorial / experimental" width={1280} height={840}>
+                <Score />
+              </DCArtboard>
+
+            </DCSection>
+          </DesignCanvas>
+
+          <TweaksPanel title="Tweaks">
+            <TweakSection title="Accent">
+              <TweakColor
+                label="Ember"
+                value={tweaks.accent}
+                onChange={v => setTweak('accent', v)}
+                presets={['#d4a84a', '#e8c265', '#c9a84c', '#d97757', '#9aa86c', '#6e8fc4']}
+              />
+              <p style={{
+                margin: '8px 0 0', fontSize: 11, color: 'var(--ink-3)',
+                fontFamily: 'var(--mono)', letterSpacing: '0.08em',
+              }}>
+                Drives orb, links, send button, active states.
+              </p>
+            </TweakSection>
+
+            <TweakSection title="What's tweakable next">
+              <ul style={{
+                margin: 0, padding: '0 0 0 16px',
+                fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6,
+              }}>
+                <li>Density (comfortable / dense)</li>
+                <li>Display type (Fraunces / Inter / Söhne)</li>
+                <li>Carousel orientation (horizontal / vertical / grid)</li>
+                <li>Synthesis-first vs voice-first reader</li>
+              </ul>
+              <p style={{
+                margin: '12px 0 0', fontSize: 11, color: 'var(--ink-3)',
+                fontFamily: 'var(--mono)', letterSpacing: '0.06em',
+              }}>
+                Tell me which direction to lean into and I'll wire these.
+              </p>
+            </TweakSection>
+          </TweaksPanel>
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

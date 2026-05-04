@@ -6,7 +6,8 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
-import { BoardroomStage } from './BoardroomStage';
+import { AtelierSidebar } from './AtelierSidebar';
+import { AdvisorStrip } from './AdvisorStrip';
 import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
@@ -526,99 +527,7 @@ export default function ClawMode() {
         )}
 
         {/* Thread Sidebar */}
-        {sidebarOpen && (
-          <div
-            className={`${isMobile ? 'absolute inset-y-0 left-0 z-30 w-56 max-w-[80vw] shadow-2xl' : 'w-56 flex-shrink-0'} border-r border-white/[0.06] overflow-y-auto py-2 claw-sidebar`}
-            style={{ background: 'rgba(0,0,0,0.15)' }}
-            aria-label="Thread sidebar"
-          >
-            {/* Thread groups */}
-            {THREAD_GROUPS.map(group => {
-              const GroupIcon = group.Icon;
-              const threads = threadGroups[group.type] || [];
-              if (threads.length === 0 && group.type !== 'concierge') return null;
-              return (
-                <div key={group.type} className="mb-1">
-                  <div className="px-3 py-1.5 text-[10px] text-white/55 uppercase tracking-widest font-medium flex items-center gap-1.5">
-                    <GroupIcon size={11} />
-                    {group.label}
-                  </div>
-                  {threads.length === 0 && (
-                    <div className="px-3 py-1 text-[11px] text-white/50 italic">No threads yet</div>
-                  )}
-                  {threads.map(thread => {
-                    const isActive = state.activeThread?.id === thread.id;
-                    const agent = thread.agent_id ? state.agents.find(a => a.id === thread.agent_id) : null;
-                    const threadLabel = thread.title || agent?.display_name || agent?.name || group.label;
-                    const ThreadIcon = thread.type === 'execution'
-                      ? Zap
-                      : thread.type === 'broadcast'
-                        ? Radio
-                        : thread.type === 'direct'
-                          ? MessageSquare
-                          : Mic;
-                    const activeClasses = thread.type === 'execution'
-                      ? 'bg-signal-warn/10 text-signal-warn/95 border-l-2 border-signal-warn/50'
-                      : 'bg-gold/10 text-gold/90 border-l-2 border-gold/40';
-                    const inactiveClasses = thread.type === 'execution'
-                      ? 'text-white/70 hover:bg-signal-warn/10 hover:text-signal-warn/90 border-l-2 border-transparent'
-                      : 'text-white/70 hover:bg-white/[0.04] hover:text-white/85 border-l-2 border-transparent';
-                    return (
-                      <button
-                        key={thread.id}
-                        onClick={() => handleThreadClick(thread)}
-                        className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors rounded-md mx-1 
-                          ${isActive
-                            ? activeClasses
-                            : inactiveClasses
-                          } ${focusRingClass}`}
-                        style={{ width: 'calc(100% - 8px)' }}
-                        aria-current={isActive ? 'true' : undefined}
-                      >
-                        <div className="truncate flex items-center gap-1.5">
-                          {thread.type === 'direct' && agent ? (
-                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: agent.color }} />
-                          ) : (
-                            <ThreadIcon
-                              size={12}
-                              className={thread.type === 'execution' ? 'text-signal-warn/90 flex-shrink-0' : 'text-white/45 flex-shrink-0'}
-                            />
-                          )}
-                          {threadLabel}
-                          {thread.type === 'execution' && (
-                            <span className="ml-auto text-[9px] uppercase tracking-[0.18em] text-signal-warn/80">
-                              Run
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })}
-
-            {/* Carousel shortcut */}
-            {latestResponses.length > 0 && (
-              <div className="mt-2 border-t border-white/[0.04] pt-2">
-                <button
-                  onClick={() => { dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' }); }}
-                  className={`w-full text-left px-3 py-1.5 text-[12px] transition-colors rounded-md mx-1 
-                    ${clawView === 'carousel'
-                      ? 'bg-white/[0.06] text-white/70'
-                      : 'text-white/65 hover:bg-white/[0.04] hover:text-white/80'
-                    } ${focusRingClass}`}
-                  style={{ width: 'calc(100% - 8px)' }}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <LayoutGrid size={12} />
-                    Carousel ({latestResponses.length})
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <AtelierSidebar open={sidebarOpen} onThreadClick={handleThreadClick} />
 
         {/* Main Content Area */}
         <div className="flex-1 overflow-hidden flex flex-col">
@@ -673,69 +582,20 @@ export default function ClawMode() {
                 <FolioCarousel />
               </div>
 
-              {/* Agent quick-focus bar */}
-              {latestResponses.length > 0 && (
-                <div className="flex items-center gap-2 px-6 py-2 border-t border-white/[0.06] overflow-x-auto flex-shrink-0">
-                  <MessageSquare size={12} className="text-white/60 flex-shrink-0" />
-                  <span className="text-[10px] text-white/60 mr-1 flex-shrink-0">Direct chat:</span>
-                  {latestResponses.map(r => (
-                    <button
-                      key={r.id}
-                      onClick={() => r.agent_id && handleFocusAgent(r.agent_id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] 
-                                 text-[11px] text-white/70 hover:text-white/85 transition-all flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: r.agent_color }} />
-                      {r.agent_name}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 
-          {/* Focus View — Direct agent chat */}
-          {clawView === 'focus' && (
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 claw-view-enter">
-              {messages.length === 0 && !state.isConciergeSending && focusedAgent && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                   <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-                        style={{ backgroundColor: `${focusedAgent.color}15` }}>
-                     <Bot size={28} style={{ color: `${focusedAgent.color}90` }} />
-                   </div>
-                   <h3 className="text-lg font-medium text-white/70 mb-2">
-                     {focusedAgent.display_name || focusedAgent.name}
-                   </h3>
-                   <p className="text-sm text-white/60 max-w-md">
-                     Direct conversation. This thread is preserved and included in synthesis.
-                   </p>
-                 </div>
-              )}
-
-              {messages.map(msg => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  modelLabel={focusedAgent?.display_name || focusedAgent?.name || 'Agent'}
-                  agentColor={focusedAgent?.color}
-                />
-              ))}
-
-              {state.isConciergeSending && focusedAgent && (
-                <div className="flex items-start gap-3">
-                   <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                        style={{ backgroundColor: `${focusedAgent.color}15` }}>
-                     <Bot size={14} style={{ color: `${focusedAgent.color}90` }} />
-                   </div>
-                   <div className="flex items-center gap-2 py-3 text-white/60 text-sm">
-                     <Loader2 size={14} className="animate-spin" />
-                     Thinking...
-                   </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
+          {/* Persistent Advisor Strip for active council floors */}
+          {(clawView === 'carousel' || clawView === 'focus') && latestRound && (
+            <AdvisorStrip
+              focusedAgentId={clawView === 'focus' ? state.focusedAgentId : null}
+              onFocusAgent={handleFocusAgent}
+              onSynthesize={handleSynthesize}
+              isSynthesizing={state.isSynthesizing}
+              agents={councilAgents}
+              latestResponses={latestResponses}
+              roundNumber={latestRound.round_number}
+            />
           )}
         </div>
       </div>

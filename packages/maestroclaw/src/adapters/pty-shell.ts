@@ -1,6 +1,7 @@
 import pty from "@lydell/node-pty";
 import type { Adapter, AdapterResult } from "./types.js";
 import { analyzeShellCommand } from "../lib/kernel/shell-analyzer.js";
+import { getIncidentService } from "../executor.js";
 
 const TRUSTED_COMMANDS = new Set([
   "git", "npm", "ls", "pwd", "cd", "mkdir", "rm", "cp", "mv", "cat", 
@@ -32,6 +33,13 @@ export class PtyShellAdapter implements Adapter {
     // 1. Analyze command via Kernel
     const analysis = analyzeShellCommand(command);
     if (!analysis.ok) {
+      getIncidentService()?.report({
+        severity: "high",
+        category: "kernel_violation",
+        title: "Kernel Violation (pty_shell)",
+        message: analysis.reason ?? "Command failed kernel analysis",
+        metadata: { command },
+      });
       return { success: false, output: "", error: `Kernel Violation: ${analysis.reason}` };
     }
 
@@ -39,6 +47,13 @@ export class PtyShellAdapter implements Adapter {
     for (const segment of analysis.segments) {
       const binary = segment.argv[0]?.toLowerCase();
       if (!binary || !TRUSTED_COMMANDS.has(binary)) {
+        getIncidentService()?.report({
+          severity: "critical",
+          category: "security_violation",
+          title: "Blocked Binary (pty_shell)",
+          message: `Binary '${binary}' is not on the workstation allowlist.`,
+          metadata: { command, binary },
+        });
         return { 
           success: false, 
           output: "", 

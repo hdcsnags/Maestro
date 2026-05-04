@@ -1,5 +1,6 @@
 import { useMaestro } from '../../context/MaestroContext';
 import { AuditEvent } from '../../types';
+import SecurityPanel from './SecurityPanel';
 
 export default function TrustDrawer() {
   const { state, dispatch } = useMaestro();
@@ -67,6 +68,9 @@ export default function TrustDrawer() {
 
       <div className="reveal-label mb-3">Run Timeline</div>
       <AuditList events={state.auditEvents} />
+
+      <div className="reveal-label mb-3 mt-6">Security Incidents</div>
+      <SecurityPanel />
     </aside>
   );
 }
