@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (REL-01 phantom agent fix); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
-| Unapplied migrations | None (20260504000000_executor_incidents.sql applied 2026-05-04) |
+| Last verified deploy | `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (DIFF-03: two-call structured plan + lane-scoped prompt enrichment); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
+| Unapplied migrations | None (20260504010000_architect_plan.sql applied 2026-05-04) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -91,6 +91,7 @@ GitHub: repo_connections, execution_runs, approval_requests
 Security: provider_connections, encrypted_secrets, audit_events
 Sprint B: design_artifacts, build_lanes, bouncer_events, build_reports, concierge_decisions
 Build v2: build_tasks (per-file task queue — status, prompt_slice, retry/reroute metadata)
+Build v2 DIFF-03: sessions.architect_plan (structured lane plan JSON), build_prompt_logs (prompt diagnostics)
 MaestroClaw: executors, executor_jobs, executor_job_events
 Claw Mode: threads (type: concierge|broadcast|direct|execution), thread_messages
 Legacy (unused): agent_skills, flags
@@ -305,6 +306,31 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-04 — Claude Sonnet 4.6 — DIFF-03 lane-scoped prompt slicing implementation
+
+**What was done**:
+1. **Migration `20260504010000_architect_plan.sql`**: adds `sessions.architect_plan jsonb` column (structured build plan) and `build_prompt_logs` diagnostics table with SELECT/INSERT-only RLS policies. Applied to remote.
+2. **`_shared/builder-prompt.ts`** (new): inlined Deno-compatible types (`ArchitectPlan`, `ArchitectLane`, `ArchitectLaneSlice`, `LaneApiExport/Import`, `BuildTaskPromptSlice`) + two exports: `getCrossLaneExports()` and `renderBuilderSystemPrompt()`. The renderer produces a self-contained 3–5k token prompt from lane context (vs ~15k monolithic today). Types inlined — no `src/` imports allowed in Deno edge runtime.
+3. **`architect/index.ts`**: added a second API call (Haiku 4.5 — cheap, fast) after successful ARCHITECT.md generation and lane assignment. Input: the generated ARCHITECT.md + lane table. Output: `ArchitectPlan` JSON written to `sessions.architect_plan`. Failure is non-fatal — build continues with legacy prompt path. Response now includes `architect_plan_generated` boolean.
+4. **`concierge/index.ts`**: decompose_tasks now reads `sessions.architect_plan`. When valid plan present, builds a per-file lookup from `lane.slice.file_subtree` and for each covered file: calls `getCrossLaneExports()`, constructs `BuildTaskPromptSlice`, and calls `renderBuilderSystemPrompt()` to produce a fully-rendered enriched prompt. Files not in any subtree keep existing LLM/deterministic instruction text. `is_structured_prompt` flag on TaskPlan controls which tasks get the prefix wrapper vs. the full rendered template. Added structured enrichment import from `_shared/builder-prompt.ts`. Added `structured_prompt_count` to response.
+5. **`src/types/index.ts`**: added six new interfaces for frontend use: `FileTreeNode`, `LaneApiExport`, `LaneApiImport`, `ArchitectLaneSlice`, `ArchitectLane`, `ArchitectPlan`, `BuildTaskPromptSlice`.
+6. Deployed `architect` and `concierge` to Supabase. Committed + pushed (commit `d44f4a4`).
+
+**Files touched**: `supabase/migrations/20260504010000_architect_plan.sql` (new), `supabase/functions/_shared/builder-prompt.ts` (new), `supabase/functions/architect/index.ts`, `supabase/functions/concierge/index.ts`, `src/types/index.ts`, `MAESTRO_STATE.md`, `IMPLEMENTATION_PLAN_STATUS.md`
+
+**Decisions made**:
+- **Two-call architect approach**: call 1 = ARCHITECT.md generation (unchanged); call 2 = structured plan derivation from generated markdown + lanes. Avoids single-call truncation risk at 8192 tokens.
+- **`prompt_slice` stays plain text throughout**: enrichment is rendered at decompose time and stored as text. No format changes for edge or Claw executor paths — both consume rendered text unchanged.
+- **Additive enrichment, not authoritative file list**: parsed ARCHITECT.md tree remains the canonical file source. `file_subtree` from structured plan is advisory enrichment only. No coverage threshold needed — partial coverage is fine.
+- **Haiku for plan call**: cheaper + faster than Sonnet; the task is structuring already-known information, not creative generation.
+- **`is_structured_prompt` flag on TaskPlan**: clean separation between fully-rendered structured prompts and legacy prefix-wrapped prompts.
+- **Types inlined in `_shared/builder-prompt.ts`**: cannot import from `src/types/index.ts` in Deno. Source of truth is the shared file; `src/types/index.ts` mirrors it.
+
+**What didn't work / notes**:
+- `architect_plan` not yet visible in ArchitectCard UI (deferred per spec — lowest priority, touches Gemini-touched files).
+- `build_prompt_logs` table exists but nothing writes to it yet — the `MAESTRO_BUILD_PROMPT_DEBUG` env-flag–triggered writes are a v1.1 addition.
+- First real DIFF-03 build is still untested — structured plan quality depends on Haiku following the JSON schema correctly. Watch the first decompose_tasks response for `structured_prompt_count > 0`.
 
 ### 2026-05-04 — Opus 4.7 — MULTIEXEC-01 multi-executor routing spec
 
