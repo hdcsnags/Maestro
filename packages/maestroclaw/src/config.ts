@@ -13,6 +13,8 @@ export interface ClawConfig {
   enableCheckpoints: boolean;
   /** How many jobs to run in parallel (default: 3). Set to 1 for sequential (legacy) behaviour. */
   maxConcurrentJobs: number;
+  /** Base directory for iteration loops; defaults to process.cwd() */
+  workDir?: string;
 }
 
 function required(key: string): string {
@@ -40,5 +42,6 @@ export function loadConfig(): ClawConfig {
     enableCheckpoints:
       (process.env.ENABLE_CHECKPOINTS ?? "true").toLowerCase() === "true",
     maxConcurrentJobs: parseInt(process.env.MAX_CONCURRENT_JOBS ?? "3", 10),
+    workDir: process.env.WORK_DIR,
   };
 }

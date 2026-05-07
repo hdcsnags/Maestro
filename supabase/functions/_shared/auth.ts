@@ -42,6 +42,7 @@ const RATE_LIMIT_POLICIES: Record<string, RateLimitPolicy> = {
   "github-read": { maxRequests: 120, windowSeconds: 60 },
   "github-repos": { maxRequests: 60, windowSeconds: 60 },
   intake: { maxRequests: 6, windowSeconds: 300 },
+  "iteration-init": { maxRequests: 30, windowSeconds: 300 },
   orchestrate: { maxRequests: 30, windowSeconds: 60 },
   synthesize: { maxRequests: 20, windowSeconds: 60 },
   vault: { maxRequests: 20, windowSeconds: 300 },

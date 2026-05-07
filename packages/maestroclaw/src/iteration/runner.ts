@@ -1,0 +1,477 @@
+// PRO-02: Iteration loop driver.
+// Runs the read → propose → apply → verify cycle, handling abort signals,
+// concurrent control polling, and stale-diff detection.
+//
+// The callAgent() function is a stub that returns a give_up response.
+// Wire the real claude_code adapter once the loop mechanics are e2e validated.
+
+import { execFileSync, spawn } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
+import type { ClawConfig } from "../config.js";
+import {
+  reportStep, completeLoop,
+  pollLoopControls, applyLoopControl,
+  type IterationLoopRecord, type IterationStepReport, type IterationControlRecord
+} from "../api.js";
+import {
+  getIterationSystemPrompt, renderIterationUserMessage,
+  parseIterationStepOutput, hashDiff, detectAgentStuck,
+  type FileSnapshot, type PriorStepSummary
+} from "./prompt.js";
+import {
+  applyDiffWithCheckpoint, rollbackStep, commitStep
+} from "./apply-diff.js";
+import { acquireIterationLocks, releaseIterationLocks } from "./locks.js";
+
+const CONTROL_POLL_INTERVAL_MS = 2_000;
+const MAX_STDOUT_BYTES = 8 * 1024;
+const MAX_CONTENT_BYTES = 32 * 1024;
+
+interface LoopState {
+  loop: IterationLoopRecord;
+  workDir: string;
+  priorSteps: PriorStepSummary[];
+  diffHashes: string[];
+  autoApply: boolean;
+  aborted: boolean;
+  paused: boolean;
+}
+
+export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRecord, workDir: string): Promise<void> {
+  const state: LoopState = {
+    loop,
+    workDir,
+    priorSteps: [],
+    diffHashes: [],
+    autoApply: loop.auto_apply,
+    aborted: false,
+    paused: false,
+  };
+
+  // For lock acquisition: use session_id as repo identifier when real repo context is unavailable.
+  const repoFullName = loop.session_id;
+  try {
+    // Acquire locks on literal paths
+    try {
+      await acquireIterationLocks(config, loop.id, loop.scope_paths, repoFullName);
+    } catch (lockErr) {
+      await completeLoop(config, loop.id, "failed", `lock_acquisition_failed: ${lockErr instanceof Error ? lockErr.message : String(lockErr)}`);
+      return;
+    }
+
+    // Record starting commit (best-effort)
+    let startingSha = "";
+    try {
+      startingSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workDir, encoding: "utf8" }).trim();
+    } catch { /* not a git repo or no commits yet */ }
+    void startingSha;
+
+    const timeoutAt = Date.now() + loop.total_timeout_seconds * 1000;
+
+    for (let stepNum = 1; stepNum <= loop.max_steps; stepNum++) {
+      if (state.aborted) break;
+
+      // Busy-wait with control check when paused
+      while (state.paused && !state.aborted) {
+        await sleep(2000);
+        await processControls(config, state);
+      }
+      if (state.aborted) break;
+
+      if (Date.now() > timeoutAt) {
+        await completeLoop(config, loop.id, "failed", "timeout");
+        await releaseIterationLocks(config, loop.id);
+        return;
+      }
+
+      const stepResult = await runStep(config, state, stepNum);
+      if (stepResult === "succeeded") {
+        await completeLoop(config, loop.id, "succeeded", undefined, getCurrentSha(workDir));
+        await releaseIterationLocks(config, loop.id);
+        return;
+      }
+      if (stepResult === "give_up") {
+        await completeLoop(config, loop.id, "unrecoverable", "agent_gave_up");
+        await releaseIterationLocks(config, loop.id);
+        return;
+      }
+      if (stepResult === "aborted") {
+        break;
+      }
+
+      // Check for repeating diff pattern (agent is stuck)
+      const latestHash = state.diffHashes[state.diffHashes.length - 1];
+      if (latestHash !== undefined && detectAgentStuck(state.diffHashes.slice(0, -1), latestHash)) {
+        await completeLoop(config, loop.id, "failed", "agent_stuck");
+        await releaseIterationLocks(config, loop.id);
+        return;
+      }
+    }
+
+    if (state.aborted) {
+      await completeLoop(config, loop.id, "aborted", "user_aborted");
+    } else {
+      await completeLoop(config, loop.id, "failed", "max_steps_exceeded");
+    }
+  } finally {
+    await releaseIterationLocks(config, loop.id).catch(() => {});
+  }
+}
+
+async function runStep(
+  config: ClawConfig,
+  state: LoopState,
+  stepNum: number
+): Promise<"succeeded" | "failed" | "give_up" | "aborted"> {
+  const { loop, workDir } = state;
+
+  // ── reading_files ────────────────────────────────────────────
+  await reportStep(config, loop.id, { step_number: stepNum, state: "reading_files" });
+  await processControls(config, state);
+  if (state.aborted) return "aborted";
+
+  const filesInScope = readFilesInScope(workDir, loop.scope_paths);
+  await reportStep(config, loop.id, {
+    step_number: stepNum,
+    state: "reading_files",
+    files_read: filesInScope.map(f => ({ path: f.path, sha256: f.sha256 })),
+  });
+
+  // ── proposing_diff ────────────────────────────────────────────
+  await reportStep(config, loop.id, { step_number: stepNum, state: "proposing_diff" });
+  await processControls(config, state);
+  if (state.aborted) return "aborted";
+
+  const userMessage = renderIterationUserMessage({
+    goal: loop.goal,
+    scope_paths: loop.scope_paths,
+    verification_command: loop.verification_command ?? undefined,
+    step_number: stepNum,
+    files_in_scope: filesInScope,
+    prior_steps: state.priorSteps,
+    max_steps: loop.max_steps,
+  });
+
+  const systemPrompt = getIterationSystemPrompt();
+  let agentOutput: string;
+  try {
+    agentOutput = await callAgent(config, loop, systemPrompt, userMessage);
+  } catch (err) {
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "failed",
+      terminal_reason: `agent_call_failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    state.priorSteps.push({ step_number: stepNum, diff_summary: "(agent call failed)", apply_result: "failed", verification_result: "skipped" });
+    return "failed";
+  }
+
+  const parsed = parseIterationStepOutput(agentOutput);
+  if (!parsed) {
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "failed",
+      terminal_reason: "agent_output_unparseable",
+    });
+    state.priorSteps.push({ step_number: stepNum, diff_summary: "(unparseable output)", apply_result: "failed", verification_result: "skipped" });
+    return "failed";
+  }
+
+  if (parsed.give_up) {
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "failed",
+      terminal_reason: `agent_gave_up: ${parsed.give_up_rationale ?? "no rationale"}`,
+    });
+    return "give_up";
+  }
+
+  const diffHash = hashDiff(parsed.diff);
+  state.diffHashes.push(diffHash);
+
+  const diffFiles = parsed.diff ? parseDiffFiles(parsed.diff) : [];
+
+  const approvalRequired = !state.autoApply;
+  const stepStateAfterPropose: IterationStepReport = {
+    step_number: stepNum,
+    state: approvalRequired ? "awaiting_approval" : "proposing_diff",
+    proposed_diff: parsed.diff,
+    proposed_diff_hash: diffHash,
+    proposed_diff_files: diffFiles,
+    proposal_rationale: parsed.rationale,
+    approval_required: approvalRequired,
+  };
+  await reportStep(config, loop.id, stepStateAfterPropose);
+
+  // ── awaiting_approval (if required) ──────────────────────────
+  if (approvalRequired) {
+    await reportStep(config, loop.id, { step_number: stepNum, state: "awaiting_approval" });
+    const approvalResult = await waitForApproval(config, state, stepNum);
+    if (approvalResult === "rejected") {
+      await reportStep(config, loop.id, { step_number: stepNum, state: "failed", terminal_reason: "user_rejected_diff" });
+      state.priorSteps.push({ step_number: stepNum, diff_summary: parsed.rationale.slice(0, 60), apply_result: "rejected", verification_result: "skipped" });
+      return "failed";
+    }
+    if (approvalResult === "aborted") return "aborted";
+  }
+
+  // ── applying ─────────────────────────────────────────────────
+  await reportStep(config, loop.id, { step_number: stepNum, state: "applying" });
+  await processControls(config, state);
+  if (state.aborted) return "aborted";
+
+  const applyResult = applyDiffWithCheckpoint({ workDir, diff: parsed.diff, scope_paths: loop.scope_paths });
+  if (!applyResult.ok) {
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "failed",
+      apply_succeeded: false,
+      apply_error: applyResult.details ?? applyResult.reason,
+      terminal_reason: applyResult.reason,
+    });
+    state.priorSteps.push({ step_number: stepNum, diff_summary: parsed.rationale.slice(0, 60), apply_result: "failed", apply_error: applyResult.details, verification_result: "skipped" });
+    return "failed";
+  }
+
+  await reportStep(config, loop.id, {
+    step_number: stepNum,
+    state: "verifying",
+    apply_succeeded: true,
+    pre_apply_commit_sha: applyResult.pre_apply_sha,
+    verification_started_at: new Date().toISOString(),
+  });
+
+  // ── verifying (with concurrent abort watching) ────────────────
+  const verifyResult = await runVerificationWithAbortWatch(
+    config, state, loop.verification_command ?? null, workDir
+  );
+
+  if (state.aborted) {
+    rollbackStep(workDir, applyResult.pre_apply_sha);
+    return "aborted";
+  }
+
+  const now = new Date().toISOString();
+  if (verifyResult.ok) {
+    const commitResult = commitStep(workDir, `iteration-loop/${loop.id}/step/${stepNum}: ${parsed.rationale.slice(0, 72)}`);
+    void commitResult; // ending SHA may be passed to completeLoop in a future improvement
+
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "succeeded",
+      verification_completed_at: now,
+      verification_exit_code: verifyResult.exit_code,
+      verification_stdout: verifyResult.stdout.slice(0, MAX_STDOUT_BYTES),
+      verification_stderr: verifyResult.stderr.slice(0, MAX_STDOUT_BYTES),
+      verification_succeeded: true,
+    });
+
+    state.priorSteps.push({
+      step_number: stepNum,
+      diff_summary: parsed.rationale.slice(0, 60),
+      apply_result: "succeeded",
+      verification_result: "passed",
+    });
+    return "succeeded";
+  } else {
+    rollbackStep(workDir, applyResult.pre_apply_sha);
+    await reportStep(config, loop.id, {
+      step_number: stepNum,
+      state: "failed",
+      verification_completed_at: now,
+      verification_exit_code: verifyResult.exit_code,
+      verification_stdout: verifyResult.stdout.slice(0, MAX_STDOUT_BYTES),
+      verification_stderr: verifyResult.stderr.slice(0, MAX_STDOUT_BYTES),
+      verification_succeeded: false,
+      rolled_back: true,
+    });
+
+    state.priorSteps.push({
+      step_number: stepNum,
+      diff_summary: parsed.rationale.slice(0, 60),
+      apply_result: "succeeded",
+      verification_result: "failed",
+      verification_stderr_tail: verifyResult.stderr.split("\n").slice(-30).join("\n"),
+    });
+    return "failed";
+  }
+}
+
+async function waitForApproval(
+  config: ClawConfig,
+  state: LoopState,
+  _stepNum: number
+): Promise<"approved" | "rejected" | "aborted"> {
+  const timeout = Date.now() + 10 * 60 * 1000; // 10 min wait for human
+  while (Date.now() < timeout) {
+    await processControls(config, state);
+    if (state.aborted) return "aborted";
+    const controls = await pollLoopControls(config, state.loop.id);
+    for (const ctrl of controls) {
+      if (ctrl.control_type === "approve_diff" && ctrl.step_id === null) {
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+        if ((ctrl.payload as Record<string, unknown>).enable_auto_apply === true) {
+          state.autoApply = true;
+        }
+        return "approved";
+      }
+      if (ctrl.control_type === "reject_diff") {
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+        return "rejected";
+      }
+    }
+    await sleep(CONTROL_POLL_INTERVAL_MS);
+  }
+  return "rejected"; // timeout = implicit reject
+}
+
+async function runVerificationWithAbortWatch(
+  config: ClawConfig,
+  state: LoopState,
+  verificationCommand: string | null,
+  workDir: string
+): Promise<{ ok: boolean; exit_code: number; stdout: string; stderr: string }> {
+  if (!verificationCommand) {
+    return { ok: true, exit_code: 0, stdout: "", stderr: "" };
+  }
+
+  return new Promise(resolvePromise => {
+    const parts = verificationCommand.split(/\s+/);
+    const cmd = parts[0];
+    const args = parts.slice(1);
+
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+
+    const child = spawn(cmd, args, {
+      cwd: workDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+
+    child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+    child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+    child.on("close", (code: number | null) => {
+      if (done) return;
+      done = true;
+      resolvePromise({ ok: code === 0, exit_code: code ?? -1, stdout, stderr });
+    });
+
+    child.on("error", (err: Error) => {
+      if (done) return;
+      done = true;
+      resolvePromise({ ok: false, exit_code: -1, stdout, stderr: err.message });
+    });
+
+    // Concurrent control polling: abort check every 2s while verifying
+    const controlInterval = setInterval(() => {
+      processControls(config, state).then(() => {
+        if (state.aborted && !done) {
+          done = true;
+          clearInterval(controlInterval);
+          child.kill("SIGTERM");
+          setTimeout(() => { child.kill("SIGKILL"); }, 3000);
+          resolvePromise({ ok: false, exit_code: -1, stdout, stderr: stderr + "\n[aborted by user]" });
+        }
+      }).catch(() => {});
+    }, CONTROL_POLL_INTERVAL_MS);
+
+    child.on("close", () => {
+      clearInterval(controlInterval);
+    });
+  });
+}
+
+async function processControls(config: ClawConfig, state: LoopState): Promise<void> {
+  try {
+    const controls = await pollLoopControls(config, state.loop.id);
+    for (const ctrl of controls) {
+      if (ctrl.control_type === "abort") {
+        state.aborted = true;
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+      } else if (ctrl.control_type === "pause") {
+        state.paused = true;
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+      } else if (ctrl.control_type === "resume") {
+        state.paused = false;
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+      } else if (ctrl.control_type === "edit_goal") {
+        const newGoal = (ctrl.payload as Record<string, unknown>).new_goal;
+        if (typeof newGoal === "string" && newGoal.trim().length > 0) {
+          state.loop = { ...state.loop, goal: newGoal.trim() };
+        }
+        await applyLoopControl(config, ctrl.id, state.loop.id);
+      }
+    }
+  } catch {
+    // Control poll failure is non-fatal; the loop continues
+  }
+}
+
+function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[] {
+  const result: FileSnapshot[] = [];
+  for (const pattern of scopePaths) {
+    if (pattern.includes("*") || pattern.includes("?")) continue; // glob — skip literal read
+    const fullPath = resolve(workDir, pattern);
+    if (!existsSync(fullPath)) continue;
+    try {
+      const rawContent = readFileSync(fullPath);
+      const sha256 = createHash("sha256").update(rawContent).digest("hex");
+      const content = rawContent.toString("utf8");
+      const truncated = rawContent.byteLength > MAX_CONTENT_BYTES;
+      result.push({
+        path: pattern,
+        sha256,
+        content_for_prompt: truncated ? content.slice(0, MAX_CONTENT_BYTES) : content,
+        truncated,
+        full_size_bytes: rawContent.byteLength,
+      });
+    } catch { /* unreadable — skip */ }
+  }
+  return result;
+}
+
+// callAgent stub — returns a give_up response so the loop terminates cleanly.
+// Wire the real claude_code adapter here once the runner e2e smoke test passes.
+async function callAgent(
+  _config: ClawConfig,
+  _loop: IterationLoopRecord,
+  _systemPrompt: string,
+  _userMessage: string
+): Promise<string> {
+  return JSON.stringify({
+    rationale: "stub: agent integration pending",
+    diff: "",
+    expected_outcome: "n/a",
+    confidence: "low",
+    give_up: true,
+    give_up_rationale: "claude_code adapter integration not yet wired into runner",
+  });
+}
+
+function parseDiffFiles(diff: string): string[] {
+  const paths = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const m = line.match(/^diff --git a\/(\S+) b\/(\S+)/);
+      if (m) paths.add(m[2]);
+    }
+  }
+  return [...paths];
+}
+
+function getCurrentSha(workDir: string): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: workDir, encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}

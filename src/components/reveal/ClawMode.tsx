@@ -6,6 +6,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
+import { useIterationLoop } from '../../hooks/useIterationLoop';
 import { CONCIERGE_MODELS, type ThreadMessage, type ClawView, type Thread } from '../../types';
 import { AtelierSidebar } from './AtelierSidebar';
 import { AdvisorStrip } from './AdvisorStrip';
@@ -17,12 +18,14 @@ import ConciergeEventCard from './ConciergeEventCard';
 import SystemEventCard from './EventCards/SystemEventCard';
 import PlanCardRenderer from './PlanCards/PlanCardRenderer';
 import RevealComposer from './RevealComposer';
+import { IterationCard } from './IterationCard';
 
 export default function ClawMode() {
   const { state, dispatch } = useMaestro();
   const { synthesize } = useOrchestration();
   const { ensureConciergeThread, focusDirectThread, loadThreads, loadThreadMessages } = useThreads();
   const { createSession } = useWorkspace();
+  const { getLoopsForThread } = useIterationLoop();
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
@@ -479,6 +482,11 @@ export default function ClawMode() {
               {activeClawBuildSession && (
                 <BuildRunwayCard session={activeClawBuildSession} />
               )}
+
+              {/* Active iteration loops for this thread */}
+              {state.activeThread && getLoopsForThread(state.activeThread.id).map(loop => (
+                <IterationCard key={loop.id} loop={loop} />
+              ))}
 
               <div ref={messagesEndRef} />
             </div>

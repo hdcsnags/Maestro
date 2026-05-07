@@ -68,6 +68,13 @@ interface ConciergeInvokeResult {
 interface SynthesizeInvokeResult {
   content?: string;
   synthesis?: string;
+  // Deliberation-aware synthesis fields (PRO-01). Empty for classic syntheses.
+  consensus?: string;
+  trade_offs?: unknown[];
+  acknowledged_weaknesses?: unknown[];
+  unresolved_tensions?: string[];
+  recommendation?: string;
+  model_used?: string;
 }
 
 function isEdgeDetails(value: unknown): value is { error?: unknown; message?: unknown } {
@@ -721,8 +728,25 @@ export function useOrchestration() {
 
     try {
       await ensureSession();
-      const result = await invokeEdgeFunction<SynthesizeInvokeResult>('synthesize', { responses: combinedContent });
+      // Pass round_id so the synthesize edge function can detect deliberation
+      // completion and switch to deliberation-aware mode (PRO-01). When the
+      // round has no deliberation, the function falls back to classic mode and
+      // metadata fields are simply absent.
+      const result = await invokeEdgeFunction<SynthesizeInvokeResult>('synthesize', {
+        round_id: roundId,
+        responses: combinedContent,
+      });
       const content = result.content ?? result.synthesis ?? combinedContent;
+
+      // Capture the deliberation-aware fields if any. Classic mode returns
+      // none of these; deliberation mode returns the full set.
+      const metadata: Record<string, unknown> = {};
+      if (typeof result.consensus === 'string' && result.consensus.length > 0) metadata.consensus = result.consensus;
+      if (Array.isArray(result.trade_offs) && result.trade_offs.length > 0) metadata.trade_offs = result.trade_offs;
+      if (Array.isArray(result.acknowledged_weaknesses) && result.acknowledged_weaknesses.length > 0) metadata.acknowledged_weaknesses = result.acknowledged_weaknesses;
+      if (Array.isArray(result.unresolved_tensions) && result.unresolved_tensions.length > 0) metadata.unresolved_tensions = result.unresolved_tensions;
+      if (typeof result.recommendation === 'string' && result.recommendation.length > 0) metadata.recommendation = result.recommendation;
+      if (typeof result.model_used === 'string' && result.model_used.length > 0) metadata.model_used = result.model_used;
 
       const { data: rawSynth } = await supabase
         .from('syntheses')
@@ -731,6 +755,7 @@ export function useOrchestration() {
           user_id: user.id,
           content,
           source_response_ids: toSynthesize.map(r => r.id) as unknown as never,
+          ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         } as never)
         .select()
         .maybeSingle();

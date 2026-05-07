@@ -11,7 +11,7 @@ export type ThreadStatus = 'active' | 'completed' | 'pinned' | 'archived';
 export type ThreadMessageRole = 'user' | 'agent' | 'concierge' | 'system';
 export type ContextWeight = 'primary' | 'supporting' | 'background';
 export type ClawView = 'concierge' | 'carousel' | 'focus';
-export type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build';
+export type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build' | 'iterate';
 
 export interface Workspace {
   id: string;
@@ -465,12 +465,41 @@ export interface BuildPlan {
   model_used?: string;
 }
 
+export interface SynthesisTradeOffSide {
+  agent: string;
+  position: string;
+}
+
+export interface SynthesisTradeOff {
+  axis: string;
+  side_a: SynthesisTradeOffSide;
+  side_b: SynthesisTradeOffSide;
+}
+
+export interface SynthesisAcknowledgedWeakness {
+  agent: string;
+  weakness: string;
+}
+
+export interface SynthesisMetadata {
+  // Populated by the deliberation-aware synthesis path. Empty {} for classic
+  // (non-deliberation) syntheses.
+  consensus?: string;
+  trade_offs?: SynthesisTradeOff[];
+  acknowledged_weaknesses?: SynthesisAcknowledgedWeakness[];
+  unresolved_tensions?: string[];
+  recommendation?: string;
+  // Provider attribution for the synthesis call itself.
+  model_used?: string;
+}
+
 export interface Synthesis {
   id: string;
   round_id: string;
   content: string;
   lead_agent_id: string | null;
   created_at: string;
+  metadata?: SynthesisMetadata;
 }
 
 export interface AuditEvent {
@@ -878,6 +907,81 @@ export interface ExecutionIntent {
   description: string;
 }
 
+// ─── PRO-02: Iteration Loop Primitive ────────────────────────────────────────
 
+export type IterationLoopStatus =
+  | 'pending' | 'running' | 'awaiting_approval' | 'paused'
+  | 'succeeded' | 'failed' | 'aborted' | 'unrecoverable';
 
+export type IterationStepState =
+  | 'pending' | 'reading_files' | 'proposing_diff' | 'awaiting_approval'
+  | 'applying' | 'verifying' | 'succeeded' | 'failed' | 'aborted' | 'rolled_back';
 
+export interface IterationLoop {
+  id: string;
+  session_id: string;
+  user_id: string;
+  thread_id?: string | null;
+  goal: string;
+  scope_paths: string[];
+  verification_command?: string | null;
+  verification_adapter?: string;
+  max_steps: number;
+  total_timeout_seconds: number;
+  auto_apply: boolean;
+  agent_id?: string | null;
+  executor_id?: string | null;
+  status: IterationLoopStatus;
+  step_count: number;
+  current_step_id?: string | null;
+  termination_reason?: string | null;
+  starting_commit_sha?: string | null;
+  ending_commit_sha?: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface IterationStep {
+  id: string;
+  loop_id: string;
+  step_number: number;
+  state: IterationStepState;
+  files_read?: { path: string; sha256: string }[];
+  proposed_diff?: string | null;
+  proposed_diff_hash?: string | null;
+  proposed_diff_files?: string[];
+  proposal_rationale?: string | null;
+  agent_response_id?: string | null;
+  approval_required: boolean;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  apply_succeeded?: boolean | null;
+  apply_error?: string | null;
+  pre_apply_commit_sha?: string | null;
+  verification_started_at?: string | null;
+  verification_completed_at?: string | null;
+  verification_exit_code?: number | null;
+  verification_stdout?: string | null;
+  verification_stderr?: string | null;
+  verification_succeeded?: boolean | null;
+  terminal_reason?: string | null;
+  rolled_back?: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type IterationControlType =
+  | 'pause' | 'resume' | 'abort' | 'edit_goal'
+  | 'approve_diff' | 'reject_diff' | 'approve_step_anyway';
+
+export interface IterationControl {
+  id: string;
+  loop_id: string;
+  control_type: IterationControlType;
+  payload: Record<string, unknown>;
+  step_id?: string | null;
+  applied_at?: string | null;
+  created_at: string;
+}

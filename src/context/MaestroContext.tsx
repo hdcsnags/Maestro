@@ -7,7 +7,7 @@ import {
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
   ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
-  ProviderHealthRecord, RepoMemoryRecord,
+  ProviderHealthRecord, RepoMemoryRecord, IterationLoop, IterationStep,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -73,6 +73,10 @@ export interface MaestroState {
   repoMemory: RepoMemoryRecord | null;
   // PRO-01: true while the deliberate edge function call is in-flight
   isDeliberating: boolean;
+  // PRO-02: iteration loops in this session
+  iterationLoops: IterationLoop[];
+  // steps keyed by loop_id
+  iterationSteps: Record<string, IterationStep[]>;
 }
 
 type Action =
@@ -160,7 +164,14 @@ type Action =
   | { type: 'SET_REPO_MEMORY'; payload: RepoMemoryRecord | null }
   // PRO-01
   | { type: 'SET_IS_DELIBERATING'; payload: boolean }
-  | { type: 'UPDATE_ROUND'; payload: Partial<Round> & { id: string } };
+  | { type: 'UPDATE_ROUND'; payload: Partial<Round> & { id: string } }
+  // PRO-02
+  | { type: 'SET_ITERATION_LOOPS'; payload: IterationLoop[] }
+  | { type: 'ADD_ITERATION_LOOP'; payload: IterationLoop }
+  | { type: 'UPDATE_ITERATION_LOOP'; payload: Partial<IterationLoop> & { id: string } }
+  | { type: 'SET_ITERATION_STEPS'; payload: { loopId: string; steps: IterationStep[] } }
+  | { type: 'ADD_ITERATION_STEP'; payload: IterationStep }
+  | { type: 'UPDATE_ITERATION_STEP'; payload: Partial<IterationStep> & { id: string; loop_id: string } };
 
 const initial: MaestroState = {
   workspace: null,
@@ -217,6 +228,8 @@ const initial: MaestroState = {
   providerHealth: [],
   repoMemory: null,
   isDeliberating: false,
+  iterationLoops: [],
+  iterationSteps: {},
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -276,6 +289,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         jobStreamingOutput: {},
         repoMemory: null,
         isDeliberating: false,
+        iterationLoops: [],
+        iterationSteps: {},
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -451,6 +466,46 @@ function reducer(state: MaestroState, action: Action): MaestroState {
           r.id === action.payload.id ? { ...r, ...action.payload } : r
         ),
       };
+    case 'SET_ITERATION_LOOPS':
+      return { ...state, iterationLoops: action.payload };
+    case 'ADD_ITERATION_LOOP':
+      return { ...state, iterationLoops: [...state.iterationLoops, action.payload] };
+    case 'UPDATE_ITERATION_LOOP':
+      return {
+        ...state,
+        iterationLoops: state.iterationLoops.map(l =>
+          l.id === action.payload.id ? { ...l, ...action.payload } : l
+        ),
+      };
+    case 'SET_ITERATION_STEPS': {
+      return {
+        ...state,
+        iterationSteps: {
+          ...state.iterationSteps,
+          [action.payload.loopId]: action.payload.steps,
+        },
+      };
+    }
+    case 'ADD_ITERATION_STEP': {
+      const loopId = action.payload.loop_id;
+      const prev = state.iterationSteps[loopId] ?? [];
+      const existing = prev.findIndex(s => s.id === action.payload.id);
+      const next = existing >= 0
+        ? prev.map(s => s.id === action.payload.id ? action.payload : s)
+        : [...prev, action.payload];
+      return { ...state, iterationSteps: { ...state.iterationSteps, [loopId]: next } };
+    }
+    case 'UPDATE_ITERATION_STEP': {
+      const loopId = action.payload.loop_id;
+      const prev = state.iterationSteps[loopId] ?? [];
+      return {
+        ...state,
+        iterationSteps: {
+          ...state.iterationSteps,
+          [loopId]: prev.map(s => s.id === action.payload.id ? { ...s, ...action.payload } : s),
+        },
+      };
+    }
     default: return state;
   }
 }

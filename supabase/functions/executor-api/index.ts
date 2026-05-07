@@ -107,6 +107,13 @@ const EXECUTOR_API_BODY_LIMITS = {
   submit: 524_288,
   approve: 16_384,
   report_incident: 32_768,
+  claim_loop: 16_384,
+  report_step: 65_536,
+  complete_loop: 32_768,
+  poll_loop_controls: 16_384,
+  acquire_locks: 32_768,
+  release_locks: 16_384,
+  refresh_loop_lease: 16_384,
 } as const;
 
 function normalizeStringArray(value: unknown): string[] {
@@ -297,6 +304,13 @@ Deno.serve(async (req: Request) => {
 
       if (leaseErr) return err(leaseErr.message, 500);
 
+      // Also refresh iteration loop leases
+      await adminClient
+        .from("iteration_loops")
+        .update({ lease_expires_at: leaseExpiryIso(), updated_at: now })
+        .eq("executor_id", executor.id)
+        .in("status", ["running", "awaiting_approval", "paused"]);
+
       return json({ ok: true, executor_id: executor.id });
     }
 
@@ -305,6 +319,16 @@ Deno.serve(async (req: Request) => {
       if (executor instanceof Response) return executor;
       await reclaimStaleJobs(adminClient, executor.owner_user_id);
       await reclaimStaleBuildTasks(adminClient, executor.owner_user_id);
+
+      // Reclaim stale iteration loops (lease expired while running/paused/awaiting_approval)
+      const staleLoopCutoff = new Date().toISOString();
+      await adminClient
+        .from("iteration_loops")
+        .update({ status: "failed", termination_reason: "lease_expired", completed_at: staleLoopCutoff, updated_at: staleLoopCutoff, lease_expires_at: null })
+        .eq("user_id", executor.owner_user_id)
+        .in("status", ["running", "awaiting_approval", "paused"])
+        .lt("lease_expires_at", staleLoopCutoff);
+
       const now = new Date().toISOString();
       const capabilities = normalizeExecutorCapabilities(executor.capabilities);
 
@@ -516,6 +540,372 @@ Deno.serve(async (req: Request) => {
         .eq("id", executor.id);
 
       return json({ ok: true, status: finalStatus });
+    }
+
+    // ── POLL_LOOP ──────────────────────────────────────────────
+    // GET ?action=poll_loop  — poll for a pending iteration loop
+    if (req.method === "GET" && action === "poll_loop") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const { data: loops } = await adminClient
+        .from("iteration_loops")
+        .select("*")
+        .eq("status", "pending")
+        .eq("user_id", executor.owner_user_id)
+        .or(`executor_id.eq.${executor.id},executor_id.is.null`)
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      return json({ loop: loops?.[0] ?? null });
+    }
+
+    // ── CLAIM_LOOP ─────────────────────────────────────────────
+    // POST ?action=claim_loop  body: { loop_id }
+    if (req.method === "POST" && action === "claim_loop") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<{ loop_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.claim_loop,
+        label: "Claim loop body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const { loop_id } = bodyResult;
+      if (!loop_id) return err("loop_id is required");
+
+      const now = new Date().toISOString();
+      const { data: loop, error: claimErr } = await adminClient
+        .from("iteration_loops")
+        .update({
+          status: "running",
+          executor_id: executor.id,
+          started_at: now,
+          lease_expires_at: leaseExpiryIso(),
+          updated_at: now,
+        })
+        .eq("id", loop_id)
+        .eq("status", "pending")
+        .eq("user_id", executor.owner_user_id)
+        .select()
+        .maybeSingle();
+
+      if (claimErr) return err(claimErr.message, 500);
+      if (!loop) return err("Loop not available for claiming", 409);
+
+      return json({ loop });
+    }
+
+    // ── REPORT_STEP ────────────────────────────────────────────
+    // POST ?action=report_step  body: { loop_id, step_number, state, ...fields }
+    if (req.method === "POST" && action === "report_step") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<Record<string, unknown>>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.report_step,
+        label: "Report step body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+
+      const loop_id = typeof body.loop_id === "string" ? body.loop_id : "";
+      const step_number = typeof body.step_number === "number" ? body.step_number : null;
+      const state = typeof body.state === "string" ? body.state : "";
+
+      if (!loop_id || step_number === null || !state) {
+        return err("loop_id, step_number, and state are required");
+      }
+
+      // Verify loop belongs to executor
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, executor_id, step_count")
+        .eq("id", loop_id)
+        .eq("executor_id", executor.id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or not assigned to this executor", 404);
+
+      const now = new Date().toISOString();
+      const MAX_STDOUT = 8192;
+
+      // Upsert the step
+      const stepData: Record<string, unknown> = {
+        loop_id,
+        step_number,
+        state,
+        updated_at: now,
+      };
+      const optionalFields = [
+        "files_read", "proposed_diff", "proposed_diff_hash", "proposed_diff_files",
+        "proposal_rationale", "approval_required", "approved_at", "apply_succeeded",
+        "apply_error", "pre_apply_commit_sha", "verification_started_at",
+        "verification_completed_at", "verification_exit_code", "verification_stdout",
+        "verification_stderr", "verification_succeeded", "terminal_reason", "rolled_back",
+      ];
+      for (const field of optionalFields) {
+        if (field in body) {
+          let val = body[field];
+          // Truncate verbose text fields server-side
+          if ((field === "verification_stdout" || field === "verification_stderr") && typeof val === "string") {
+            val = val.slice(0, MAX_STDOUT);
+          }
+          stepData[field] = val;
+        }
+      }
+
+      const { data: step, error: upsertErr } = await adminClient
+        .from("iteration_steps")
+        .upsert(stepData, { onConflict: "loop_id,step_number" })
+        .select()
+        .single();
+
+      if (upsertErr) return err(upsertErr.message, 500);
+
+      // Update loop step_count (high-watermark) and updated_at
+      const newStepCount = Math.max(
+        typeof loop.step_count === "number" ? loop.step_count : 0,
+        step_number,
+      );
+      const loopUpdate: Record<string, unknown> = { step_count: newStepCount, updated_at: now };
+
+      // If step state is terminal for loop, also finalize loop status
+      const STEP_TO_LOOP_STATUS: Record<string, string> = {
+        succeeded: "succeeded",
+        failed: "failed",
+        aborted: "aborted",
+      };
+      if (state in STEP_TO_LOOP_STATUS) {
+        loopUpdate.status = STEP_TO_LOOP_STATUS[state];
+        loopUpdate.completed_at = now;
+        loopUpdate.lease_expires_at = null;
+      }
+
+      await adminClient.from("iteration_loops").update(loopUpdate).eq("id", loop_id);
+
+      return json({ step });
+    }
+
+    // ── COMPLETE_LOOP ──────────────────────────────────────────
+    // POST ?action=complete_loop  body: { loop_id, status, termination_reason?, ending_commit_sha? }
+    if (req.method === "POST" && action === "complete_loop") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<{
+        loop_id?: string;
+        status?: string;
+        termination_reason?: string;
+        ending_commit_sha?: string;
+      }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.complete_loop,
+        label: "Complete loop body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+
+      const loop_id = typeof body.loop_id === "string" ? body.loop_id : "";
+      const status = typeof body.status === "string" ? body.status : "";
+      if (!loop_id || !status) return err("loop_id and status are required");
+
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, executor_id")
+        .eq("id", loop_id)
+        .eq("executor_id", executor.id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or not assigned to this executor", 404);
+
+      const now = new Date().toISOString();
+      const { error: updateErr } = await adminClient
+        .from("iteration_loops")
+        .update({
+          status,
+          completed_at: now,
+          lease_expires_at: null,
+          termination_reason: body.termination_reason ?? null,
+          ending_commit_sha: body.ending_commit_sha ?? null,
+          updated_at: now,
+        })
+        .eq("id", loop_id);
+      if (updateErr) return err(updateErr.message, 500);
+
+      // Release all locks for this loop
+      await adminClient.from("iteration_locks").delete().eq("loop_id", loop_id);
+
+      return json({ ok: true });
+    }
+
+    // ── POLL_LOOP_CONTROLS ────────────────────────────────────
+    // GET ?action=poll_loop_controls&loop_id=<id>
+    if (req.method === "GET" && action?.startsWith("poll_loop_controls")) {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const loopId = url.searchParams.get("loop_id") ?? "";
+      if (!loopId) return err("loop_id query parameter is required");
+
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, executor_id")
+        .eq("id", loopId)
+        .eq("executor_id", executor.id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or not assigned to this executor", 404);
+
+      const { data: controls } = await adminClient
+        .from("iteration_controls")
+        .select("*")
+        .eq("loop_id", loopId)
+        .is("applied_at", null)
+        .order("created_at", { ascending: true });
+
+      return json({ controls: controls ?? [] });
+    }
+
+    // ── APPLY_LOOP_CONTROL ────────────────────────────────────
+    // POST ?action=apply_loop_control  body: { control_id, loop_id }
+    if (req.method === "POST" && action === "apply_loop_control") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<{ control_id?: string; loop_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.claim_loop,
+        label: "Apply loop control body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const { control_id, loop_id } = bodyResult;
+      if (!control_id || !loop_id) return err("control_id and loop_id are required");
+
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, executor_id")
+        .eq("id", loop_id)
+        .eq("executor_id", executor.id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or not assigned to this executor", 404);
+
+      const now = new Date().toISOString();
+      const { error: updateErr } = await adminClient
+        .from("iteration_controls")
+        .update({ applied_at: now })
+        .eq("id", control_id)
+        .eq("loop_id", loop_id)
+        .is("applied_at", null);
+      if (updateErr) return err(updateErr.message, 500);
+
+      return json({ ok: true });
+    }
+
+    // ── ACQUIRE_LOCKS ─────────────────────────────────────────
+    // POST ?action=acquire_locks  body: { loop_id, paths: string[], repo_full_name }
+    if (req.method === "POST" && action === "acquire_locks") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<{
+        loop_id?: string;
+        paths?: unknown;
+        repo_full_name?: string;
+      }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.acquire_locks,
+        label: "Acquire locks body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+
+      const loop_id = typeof body.loop_id === "string" ? body.loop_id : "";
+      const repo_full_name = typeof body.repo_full_name === "string" ? body.repo_full_name : "";
+      const paths = normalizeStringArray(body.paths);
+      if (!loop_id || !repo_full_name || paths.length === 0) {
+        return err("loop_id, paths, and repo_full_name are required");
+      }
+
+      // Verify loop belongs to executor's owner
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, user_id")
+        .eq("id", loop_id)
+        .eq("user_id", executor.owner_user_id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or access denied", 404);
+
+      const userId = executor.owner_user_id;
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const now = new Date().toISOString();
+
+      for (const path of paths) {
+        // Check for existing lock
+        const { data: existing } = await adminClient
+          .from("iteration_locks")
+          .select("path, loop_id, expires_at")
+          .eq("path", path)
+          .eq("user_id", userId)
+          .eq("repo_full_name", repo_full_name)
+          .maybeSingle();
+
+        if (existing) {
+          if (existing.expires_at < now) {
+            // Lock expired — delete and re-insert
+            await adminClient
+              .from("iteration_locks")
+              .delete()
+              .eq("path", path)
+              .eq("user_id", userId)
+              .eq("repo_full_name", repo_full_name);
+          } else if (existing.loop_id !== loop_id) {
+            return json({
+              error: "file_locked",
+              locked_path: path,
+              blocking_loop_id: existing.loop_id,
+            }, 409);
+          } else {
+            // Same loop already holds this lock — refresh expiry
+            await adminClient
+              .from("iteration_locks")
+              .update({ expires_at: expiresAt })
+              .eq("path", path)
+              .eq("user_id", userId)
+              .eq("repo_full_name", repo_full_name);
+            continue;
+          }
+        }
+
+        const { error: insertErr } = await adminClient
+          .from("iteration_locks")
+          .insert({ path, user_id: userId, repo_full_name, loop_id, expires_at: expiresAt });
+        if (insertErr) return err(insertErr.message, 500);
+      }
+
+      return json({ ok: true, locked_paths: paths });
+    }
+
+    // ── RELEASE_LOCKS ─────────────────────────────────────────
+    // POST ?action=release_locks  body: { loop_id }
+    if (req.method === "POST" && action === "release_locks") {
+      const executor = await validateExecutorToken(req, adminClient, corsHeaders);
+      if (executor instanceof Response) return executor;
+
+      const bodyResult = await readJsonBody<{ loop_id?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.release_locks,
+        label: "Release locks body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const { loop_id } = bodyResult;
+      if (!loop_id) return err("loop_id is required");
+
+      // Verify loop belongs to executor's owner
+      const { data: loop } = await adminClient
+        .from("iteration_loops")
+        .select("id, user_id")
+        .eq("id", loop_id)
+        .eq("user_id", executor.owner_user_id)
+        .maybeSingle();
+      if (!loop) return err("Loop not found or access denied", 404);
+
+      await adminClient.from("iteration_locks").delete().eq("loop_id", loop_id);
+
+      return json({ ok: true });
     }
 
     const auth = await requireAuthenticatedRequest(
@@ -753,6 +1143,22 @@ Deno.serve(async (req: Request) => {
 
       const now = new Date().toISOString();
       const status = approvalRequired ? "queued" : "approved";
+
+      // Check iteration_locks for path conflicts
+      const loopAllowedPaths = normalizeStringArray(body.allowed_paths);
+      if (loopAllowedPaths.length > 0 && body.repo_name) {
+        const repoFullName = body.repo_name as string;
+        const { data: lockConflicts } = await adminClient
+          .from("iteration_locks")
+          .select("path, loop_id, expires_at")
+          .eq("user_id", userId)
+          .eq("repo_full_name", repoFullName)
+          .in("path", loopAllowedPaths)
+          .gt("expires_at", new Date().toISOString());
+        if (lockConflicts && lockConflicts.length > 0) {
+          return err(`Build blocked: file ${lockConflicts[0].path} is locked by iteration loop ${lockConflicts[0].loop_id}`, 409);
+        }
+      }
 
       const { data: job, error: submitErr } = await adminClient
         .from("executor_jobs")

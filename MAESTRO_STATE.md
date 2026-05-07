@@ -149,6 +149,7 @@ Legacy (unused): agent_skills, flags
 
 | Capability | Verified |
 |------------|----------|
+| **PRO-02 Iteration Loop** | Migration `20260507130000_iteration_loops.sql` (pending apply); `iteration-init` edge function (pending deploy); Claw runner skeleton + controls + locks.ts; frontend `useIterationLoop` hook + IterationCard/IterationStepRow/IterationApprovalPanel UI; executor-api loop actions; RevealComposer Iterate intent | (pending) |
 | **PRO-01 Deliberation — frontend**: `ResponseKind`/`DeliberationPushback` types, extended `Round`+`Response` interfaces, `isDeliberating` state + `UPDATE_ROUND` action in MaestroContext, `useDeliberation` hook, FolioCarousel "Deliberate" pill (gated on ≥3 primary responses + round complete), FolioCard collapsible inbound-pushbacks section. Migration + `deliberate` + `synthesize` edge functions deployed. | 2026-05-07 (`npm run typecheck`, `npm run build`, migration applied, functions deployed, commit `9216ffd`) |
 | **DIFF-02 Repo Memory**: `repo_memory` table, `repo-memory-update` edge function (get/summarize/update_direct/forget), concierge memory injection, `useRepoMemory` hook, `MemoryPanel` TrustDrawer tab, 📝 StatusChip indicator | 2026-05-06 (`npm run typecheck`, `npm run build`, deployed, migration applied) |
 | Claw frontend shell stabilization: strict TypeScript is clean again; `StatusChip` is restored in the topbar truth layer; carousel/focus synthesis handler is wired; ClawMode no longer presents the main workspace as a modal; invalid Tailwind `/8` and `/12` opacity classes now emit in production CSS | 2026-05-04 (`npm run typecheck`, `npm run build`) |
@@ -311,6 +312,75 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-07 — Copilot CLI (Sonnet 4.6) — PRO-02 Iteration Loop Primitive
+
+**What was done**:
+1. Migration `supabase/migrations/20260507130000_iteration_loops.sql`: 4 tables (`iteration_loops`, `iteration_steps`, `iteration_controls`, `iteration_locks`) with RLS, indices, circular FK (`current_step_id → iteration_steps.id DEFERRABLE INITIALLY DEFERRED`), `lease_expires_at` on `iteration_loops`, Realtime publication for `iteration_loops` + `iteration_steps`.
+2. `src/types/index.ts`: added `IterationLoopStatus`, `IterationStepState`, `IterationLoop`, `IterationStep`, `IterationControlType`, `IterationControl` types.
+3. `src/context/MaestroContext.tsx`: added `iterationLoops: IterationLoop[]` and `iterationSteps: Record<string, IterationStep[]>` to `MaestroState`; 6 new action types (`SET/ADD/UPDATE_ITERATION_LOOP`, `SET/ADD/UPDATE_ITERATION_STEP`); reducer cases; reset in `SET_ACTIVE_SESSION`.
+4. `supabase/functions/iteration-init/index.ts`: new edge function — validates goal, scope_paths, session ownership, unsafe verification command syntax, sensitive path patterns; inserts `iteration_loops` row; returns `{ loop_id }`.
+5. `supabase/functions/_shared/trusted-commands.ts`: expanded `TRUSTED_SHELL_COMMANDS` with 12 test/build verification patterns.
+6. `supabase/functions/executor-api/index.ts`: 8 new executor-token actions (`poll_loop`, `claim_loop`, `report_step`, `complete_loop`, `poll_loop_controls`, `apply_loop_control`, `acquire_locks`, `release_locks`); heartbeat refreshes iteration loop leases; poll reclaims stale loops (lease_expired); submit checks `iteration_locks` before job creation.
+7. `packages/maestroclaw/src/api.ts`: iteration loop API helpers (`pollForLoop`, `claimLoop`, `reportStep`, `completeLoop`, `pollLoopControls`, `applyLoopControl`, `acquireLocks`, `releaseLocks`) plus `IterationLoopRecord`, `IterationStepReport`, `IterationControlRecord` interfaces.
+8. `packages/maestroclaw/src/config.ts`: added `workDir?: string` to `ClawConfig`.
+9. `packages/maestroclaw/src/iteration/locks.ts`: `acquireIterationLocks` / `releaseIterationLocks` (filters glob patterns; only literal paths pre-locked).
+10. `packages/maestroclaw/src/iteration/runner.ts`: loop driver — reads files, calls agent stub, proposes diff, awaits approval (if required), applies via `applyDiffWithCheckpoint`, runs verification with concurrent abort watching, rolls back on failure, commits on success; `detectAgentStuck` terminates repeat patterns; `completeLoop` called on all exit paths.
+11. `packages/maestroclaw/src/index.ts`: parallel loop polling alongside job polling; `runningLoopIds` set; `claimLoop`/`runIterationLoop` imports.
+12. `src/hooks/useIterationLoop.ts`: `createLoop`, `sendControl`, `subscribeToLoop`, `getLoopsForThread`, `getStepsForLoop`; Realtime subscriptions for `iteration_loops` + `iteration_steps`.
+13. `src/components/reveal/IterationApprovalPanel.tsx`: diff preview + Approve / Reject / Approve & Auto-Apply buttons.
+14. `src/components/reveal/IterationStepRow.tsx`: state icon, collapsible diff/stderr/reason for terminal steps.
+15. `src/components/reveal/IterationCard.tsx`: loop status, step list, approval panel, stop controls (keep/rollback), terminal state messages.
+16. `src/components/reveal/RevealComposer.tsx`: `useIterationLoop` import + `createLoop`; `iterate` intent added to `INTENT_CONFIG`; iterate form (goal, scope paths, verify cmd, auto-apply, max steps) shown when `composerIntent === 'iterate'`; `handleIterateSubmit` callback.
+17. `src/components/reveal/ClawMode.tsx`: `useIterationLoop` + `IterationCard` import; renders active iteration loops for the current thread.
+18. `supabase/config.toml`: `[functions."iteration-init"]` entry with `verify_jwt = true`.
+
+**Files touched**: `supabase/migrations/20260507130000_iteration_loops.sql` (new), `src/types/index.ts`, `src/context/MaestroContext.tsx`, `supabase/functions/iteration-init/index.ts` (new), `supabase/functions/_shared/trusted-commands.ts`, `supabase/functions/executor-api/index.ts`, `packages/maestroclaw/src/api.ts`, `packages/maestroclaw/src/config.ts`, `packages/maestroclaw/src/iteration/locks.ts` (new), `packages/maestroclaw/src/iteration/runner.ts` (new), `packages/maestroclaw/src/index.ts`, `src/hooks/useIterationLoop.ts` (new), `src/components/reveal/IterationApprovalPanel.tsx` (new), `src/components/reveal/IterationStepRow.tsx` (new), `src/components/reveal/IterationCard.tsx` (new), `src/components/reveal/RevealComposer.tsx`, `src/components/reveal/ClawMode.tsx`, `supabase/config.toml`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- `callAgent` in runner.ts is a stub returning `give_up` — loop terminates cleanly; real claude_code adapter wiring deferred to post-smoke-test.
+- `iteration-init` uses `verify_jwt = true` in config.toml (JWT verified at gateway level) since it's a user-facing function.
+- Glob-only scope paths don't pre-lock (locks are per-literal-path for exact conflict detection; glob paths lock at verify time).
+- Lock expiry = 10 minutes; heartbeat refreshes leases every 15s heartbeat cadence.
+- `poll_loop_controls` GET action uses `action=poll_loop_controls&loop_id=<id>` query string appending in the `api()` helper — works because it appends to `?action=`.
+- `ComposerIntent` union type extended with `'iterate'`; existing intent consumers are unaffected (handleSubmit only branches on chat/broadcast/execute/build; iterate has its own form + submit).
+
+**What didn't work / known gaps**:
+- Migration `20260507130000_iteration_loops.sql` NOT yet applied to remote (requires `supabase db push`).
+- `iteration-init` + `executor-api` NOT yet deployed (requires `supabase functions deploy`).
+- MaestroClaw packages NOT yet built/republished.
+- `npm run typecheck` and `npm run build` must be run to validate zero type errors.
+- Runner `callAgent` stub means loop always terminates with `give_up` — real adapter wiring is a follow-up task.
+
+
+
+**What was done**:
+1. Closed the SynthesisDrawer rendering gap from prior PRO-01 ship. Migration `20260507120000_synthesis_metadata.sql` adds `syntheses.metadata jsonb` (default `'{}'`). Extended `Synthesis` type in `src/types/index.ts` with `SynthesisMetadata`, `SynthesisTradeOff`, `SynthesisTradeOffSide`, `SynthesisAcknowledgedWeakness`. `useOrchestration.synthesize` now passes `round_id` to the synthesize edge function (which switches to deliberation-aware mode when the round has `deliberation_completed_at`), captures the rich response fields (consensus, trade_offs, acknowledged_weaknesses, unresolved_tensions, recommendation, model_used), and persists them to `syntheses.metadata` jsonb. SynthesisDrawer now renders 4 new sections: Recommendation (gold accent), Trade-offs (warn yellow with `side_a` vs `side_b` framing), Unresolved · You decide (red — the differentiating "you make the call" surface that no other tool produces), Acknowledged weaknesses. Falls back gracefully to legacy `content` prose for non-deliberation rounds.
+2. Implemented PRO-02 Opus-owned pieces — the iteration loop primitive's two correctness-critical files. `packages/maestroclaw/src/iteration/prompt.ts`: system prompt with iteration discipline rules (one diff per step, stay in scope, don't retry failed approaches, give_up signal), per-step user message with file snapshots (sha256 + path + truncation marker for files > 32KB) and prior step summaries (apply result + verification result + stderr tail for failed verifications), strict JSON output schema, 3-strategy parser tolerant to markdown fences / surrounding prose / brace-wrapped JSON, `hashDiff` for whitespace-normalized SHA256 of proposed diffs, `detectAgentStuck` for repeat detection (last-3-hashes-equal heuristic).
+3. `packages/maestroclaw/src/iteration/apply-diff.ts`: `parseUnifiedDiffPaths` (extract touched files from `diff --git` / `+++` / `---` headers, handles /dev/null for new files and deletions), glob-based scope matching (supports `**`, `*`, `?` syntax matching `scope_paths` config), `applyDiffWithCheckpoint` (path-validate scope BEFORE any git op → `git rev-parse HEAD` to capture rollback SHA → `git apply --check` dry run that distinguishes `stale_base` errors from generic `git_apply_check_failed` so the runner can decide whether to re-read files vs. tell the agent its diff was malformed → real apply → `git add` but NOT commit; verification phase decides whether to commit/rollback), `rollbackStep` (`git reset --hard <sha>` + `git clean -fd` to remove untracked files the diff created without nuking ignored dirs like `node_modules`), `commitStep` (returns new HEAD SHA so iteration_steps can record the post-step commit).
+4. Updated `IMPLEMENTATION_PLAN_STATUS.md` with both items.
+
+**Files touched**: `supabase/migrations/20260507120000_synthesis_metadata.sql` (new), `src/types/index.ts`, `src/hooks/useOrchestration.ts`, `src/components/reveal/SynthesisDrawer.tsx`, `packages/maestroclaw/src/iteration/prompt.ts` (new), `packages/maestroclaw/src/iteration/apply-diff.ts` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- SynthesisDrawer falls back to `content` when `metadata.consensus` is absent (classic synthesis path) — no UI change for non-deliberation rounds.
+- "Unresolved · You decide" header explicitly framed as user-action, not info dump. The whole point of preserving tension instead of blending it is to surface the calls the user must make.
+- Trade-offs render as `side_a` vs `side_b` cards with axis label header — keeps the disagreement structurally visible rather than collapsed into a paragraph.
+- Recommendation gets the gold accent because it's the synthesis-of-record after deliberation — visually distinct from consensus (which is what survived without dispute) and from trade-offs (which are still contested).
+- For PRO-02 prompt: explicitly tell the agent "if your previous diff did not work, propose a DIFFERENT approach — not the same diff with a small variation. The system tracks repeats and will give up on you if you cycle." This is the productive paranoia that prevents infinite loops.
+- For PRO-02 prompt: file sha256 hashes embedded in the per-file context so the agent can reason about whether their diff is against current vs stale base. Stale-base detection on apply-check returns a distinct reason code so runner can re-read files and re-prompt rather than fail.
+- For PRO-02 apply: stage but don't commit during apply step; verification phase commits on success or rolls back on failure. This means partial diffs from failed verifications never leave the workspace in a worse state than start-of-step.
+- For PRO-02 apply: `git clean -fd` (not `-fdx`) on rollback to remove untracked files the diff created WITHOUT nuking ignored dirs like `node_modules` or `.next/`. Important: spec said this; verified intent in the implementation.
+- For PRO-02 apply: glob match supports `**` (any segments) and `*` (non-slash) and `?` (single non-slash). Reuses the standard subset; doesn't try to be a full minimatch.
+- Did NOT implement PRO-02 file locking (`iteration_locks` table) — that's part of the runner orchestrator which is Sonnet's territory. The Opus-owned files are pure functions / side-effecting helpers without their own lifecycle.
+- `commitStep` does NOT use `--allow-empty`. If a step's diff produces no actual file change, the commit fails loudly and the runner can fail the step rather than create empty history pollution. Fail-loud is correct here.
+
+**What didn't work**:
+- Did not apply the `syntheses.metadata` migration to the remote project (requires `supabase db push` + my running session lacks that capability). Sonnet should apply on next pass.
+- Did not run `npm run typecheck` in this window — the imports and types should be consistent (added `SynthesisMetadata` to types, used through Synthesis interface) but verification is manual. If type errors surface, most likely from the `metadata` jsonb being passed through Supabase client types — the existing `as never` casts in synthesize already tolerate this pattern.
+- Did not validate the iteration prompt against real Claude Code output. The prompt is grounded in spec design + iteration-domain reasoning. Step 5 of PRO-02 impl order is "validate prompt against real model with fixture project before continuing." Sonnet should run this before declaring PRO-02 verified.
+- Did not implement the rest of the iteration loop (runner, frontend, migration, types) — Sonnet's territory per the PRO-02 spec hand-off split. These two files are the security/correctness floor; everything else builds on top of them.
+- The glob matcher in apply-diff.ts is a small custom implementation, not a battle-tested library. Edge cases (e.g., escaped chars in patterns, character classes `[a-z]`) aren't supported. If real-world scope_paths use unsupported glob syntax, Sonnet may swap in `minimatch` or similar.
 
 ### 2026-05-07 — Copilot CLI (Sonnet 4.6) — PRO-01 deliberation frontend — shipped
 

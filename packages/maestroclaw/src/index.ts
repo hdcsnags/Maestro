@@ -2,11 +2,12 @@
 
 import "dotenv/config";
 import { loadConfig } from "./config.js";
-import { heartbeat, pollForJob, claimJob, type ExecutorCapabilities } from "./api.js";
+import { heartbeat, pollForJob, claimJob, pollForLoop, claimLoop, type ExecutorCapabilities } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
 import { executeJob, executeSessionJob } from "./executor.js";
 import { setIncidentService } from "./executor.js";
 import { IncidentService } from "./lib/kernel/incident-service.js";
+import { runIterationLoop } from "./iteration/runner.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -50,6 +51,8 @@ async function main() {
   let activeJobs = 0;
   let consecutiveErrors = 0;
   const MAX_CONSECUTIVE_ERRORS = 10;
+  const runningJobIds = new Set<string>();
+  const runningLoopIds = new Set<string>();
 
   process.on("SIGINT", () => {
     console.log("\n🛑 Shutting down gracefully...");
@@ -74,11 +77,12 @@ async function main() {
       if (activeJobs < config.maxConcurrentJobs) {
         const job = await pollForJob(config);
 
-        if (job) {
+        if (job && !runningJobIds.has(job.id)) {
           console.log(`📋 Job found: ${job.id.slice(0, 8)} [${job.adapter}] "${job.prompt.slice(0, 60)}..."`);
 
           const claimed = await claimJob(config, job.id);
           activeJobs++;
+          runningJobIds.add(claimed.id);
           console.log(`  🔒 Claimed: ${claimed.id.slice(0, 8)} [${activeJobs}/${config.maxConcurrentJobs} active]`);
 
           // Fire-and-forget — do not await; poll loop continues immediately
@@ -93,8 +97,21 @@ async function main() {
             })
             .finally(() => {
               activeJobs--;
+              runningJobIds.delete(claimed.id);
               console.log(`  🏁 Job ${claimed.id.slice(0, 8)} done [${activeJobs}/${config.maxConcurrentJobs} active]`);
             });
+        }
+
+        // Poll for iteration loops
+        const pendingLoop = await pollForLoop(config).catch(() => null);
+        if (pendingLoop && !runningLoopIds.has(pendingLoop.id)) {
+          const claimedLoop = await claimLoop(config, pendingLoop.id).catch(() => null);
+          if (claimedLoop) {
+            runningLoopIds.add(claimedLoop.id);
+            const workDir = config.workDir ?? process.cwd();
+            void runIterationLoop(config, claimedLoop, workDir)
+              .finally(() => runningLoopIds.delete(claimedLoop.id));
+          }
         }
 
         consecutiveErrors = 0;

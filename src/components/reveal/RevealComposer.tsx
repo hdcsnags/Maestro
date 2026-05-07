@@ -3,6 +3,7 @@ import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
+import { useIterationLoop } from '../../hooks/useIterationLoop';
 import {
   AlertTriangle, ChevronDown, Hammer, MessageSquare, Radio,
   RefreshCw, Zap,
@@ -53,6 +54,13 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
     color: 'var(--ok)',
     bg: 'rgba(110, 168, 138, 0.15)', // ok soft
   },
+  iterate: {
+    label: 'Iterate',
+    consequence: 'Starts an AI-driven iteration loop',
+    Icon: Zap,
+    color: 'var(--gold)',
+    bg: 'rgba(214, 178, 74, 0.12)',
+  },
 };
 
 const routingKeys = Object.keys(INTENT_CONFIG) as ComposerIntent[];
@@ -71,10 +79,18 @@ export default function RevealComposer(_props: Props) {
     buildFromChat,
   } = useThreads();
   const { createSession } = useWorkspace();
+  const { createLoop } = useIterationLoop();
   const [prompt, setPrompt] = useState('');
   const [elevatedCapAck, setElevatedCapAck] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<SessionMode>('ask');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Iterate form state
+  const [iterateGoal, setIterateGoal] = useState('');
+  const [iterateScopePaths, setIterateScopePaths] = useState('');
+  const [iterateVerifyCmd, setIterateVerifyCmd] = useState('');
+  const [iterateAutoApply, setIterateAutoApply] = useState(false);
+  const [iterateMaxSteps, setIterateMaxSteps] = useState(10);
+  const [iterateSubmitting, setIterateSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
@@ -307,6 +323,37 @@ export default function RevealComposer(_props: Props) {
     await synthesize(latestRound.id);
   }, [state.isSynthesizing, latestRound, synthesize]);
 
+  const handleIterateSubmit = useCallback(async () => {
+    const goal = iterateGoal.trim();
+    const scopePaths = iterateScopePaths.split('\n').map(p => p.trim()).filter(Boolean);
+    if (!goal || scopePaths.length === 0 || !state.activeSession) return;
+    setIterateSubmitting(true);
+    try {
+      const onlineExecutor = state.executors?.find(e => e.status === 'online');
+      const loopId = await createLoop({
+        sessionId: state.activeSession.id,
+        threadId: state.activeThread?.id,
+        goal,
+        scopePaths,
+        verificationCommand: iterateVerifyCmd.trim() || undefined,
+        autoApply: iterateAutoApply,
+        maxSteps: iterateMaxSteps,
+        executorId: onlineExecutor?.id,
+      });
+      dispatch({ type: 'SHOW_TOAST', payload: `Iteration loop ${loopId.slice(0, 8)} created` });
+      setIterateGoal('');
+      setIterateScopePaths('');
+      setIterateVerifyCmd('');
+      setIterateAutoApply(false);
+      setIterateMaxSteps(10);
+      dispatch({ type: 'SET_COMPOSER_INTENT', payload: 'chat' });
+    } catch (e) {
+      dispatch({ type: 'SHOW_TOAST', payload: e instanceof Error ? e.message : 'Failed to create iteration loop' });
+    } finally {
+      setIterateSubmitting(false);
+    }
+  }, [iterateGoal, iterateScopePaths, iterateVerifyCmd, iterateAutoApply, iterateMaxSteps, state.activeSession, state.activeThread?.id, state.executors, createLoop, dispatch]);
+
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
 
@@ -469,9 +516,98 @@ export default function RevealComposer(_props: Props) {
               background: 'transparent', border: 'none', outline: 'none',
               fontFamily: 'var(--serif)', fontSize: 16, fontWeight: 300,
               color: 'var(--ink-0)', lineHeight: 1.5,
-              padding: '2px 0', minHeight: '24px', maxHeight: '200px'
+              padding: '2px 0', minHeight: '24px', maxHeight: '200px',
+              display: composerIntent === 'iterate' ? 'none' : undefined,
             }}
           />
+
+          {/* Iterate form — shown when intent is 'iterate' */}
+          {composerIntent === 'iterate' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <textarea
+                value={iterateGoal}
+                onChange={e => setIterateGoal(e.target.value)}
+                placeholder="Goal: what should the agent achieve? (e.g. 'Fix all TypeScript errors in src/auth.ts')"
+                rows={3}
+                style={{
+                  width: '100%', resize: 'none',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--edge-1)',
+                  borderRadius: 8, outline: 'none', padding: '8px 10px',
+                  fontFamily: 'var(--serif)', fontSize: 14, fontWeight: 300,
+                  color: 'var(--ink-0)', lineHeight: 1.5,
+                }}
+              />
+              <textarea
+                value={iterateScopePaths}
+                onChange={e => setIterateScopePaths(e.target.value)}
+                placeholder={'Scope paths (one per line):\nsrc/auth.ts\nsrc/auth.test.ts'}
+                rows={2}
+                style={{
+                  width: '100%', resize: 'none',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--edge-1)',
+                  borderRadius: 8, outline: 'none', padding: '8px 10px',
+                  fontFamily: 'var(--mono)', fontSize: 12,
+                  color: 'var(--ink-1)', lineHeight: 1.5,
+                }}
+              />
+              <input
+                type="text"
+                value={iterateVerifyCmd}
+                onChange={e => setIterateVerifyCmd(e.target.value)}
+                placeholder="Verification command (optional): npm test src/auth.test.ts"
+                style={{
+                  width: '100%',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--edge-1)',
+                  borderRadius: 8, outline: 'none', padding: '7px 10px',
+                  fontFamily: 'var(--mono)', fontSize: 12,
+                  color: 'var(--ink-1)',
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  <input
+                    type="checkbox"
+                    checked={iterateAutoApply}
+                    onChange={e => setIterateAutoApply(e.target.checked)}
+                    style={{ accentColor: 'var(--gold)', width: 13, height: 13 }}
+                  />
+                  Auto-apply
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  Max steps
+                  <input
+                    type="number"
+                    value={iterateMaxSteps}
+                    min={1}
+                    max={20}
+                    onChange={e => setIterateMaxSteps(Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 10)))}
+                    style={{
+                      width: 48,
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid var(--edge-1)',
+                      borderRadius: 4, outline: 'none', padding: '2px 6px',
+                      fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--ink-1)',
+                      textAlign: 'center',
+                    }}
+                  />
+                </label>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={() => { void handleIterateSubmit(); }}
+                  disabled={!iterateGoal.trim() || !iterateScopePaths.trim() || iterateSubmitting || !state.activeSession}
+                  style={{
+                    padding: '6px 18px', borderRadius: 999,
+                    background: iterateGoal.trim() && iterateScopePaths.trim() && !iterateSubmitting ? 'var(--gold)' : 'var(--surf-2)',
+                    color: iterateGoal.trim() && iterateScopePaths.trim() && !iterateSubmitting ? 'var(--void-0)' : 'var(--ink-3)',
+                    fontSize: 12, fontWeight: 500,
+                    cursor: iterateGoal.trim() && iterateScopePaths.trim() && !iterateSubmitting ? 'pointer' : 'default',
+                    border: 'none', outline: 'none', fontFamily: 'var(--sans)',
+                  }}
+                >
+                  {iterateSubmitting ? 'Creating…' : 'Start Loop'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, marginTop: 6,

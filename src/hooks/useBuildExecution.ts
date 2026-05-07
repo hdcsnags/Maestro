@@ -865,27 +865,40 @@ export function useBuildExecution() {
 
         updateSessionRun(spec.key, { status: 'running', errorText: null });
 
-        const jobId = await submitBuildSessionJob({
-          executors: state.executors,
-          sessionId: state.activeSession?.id,
-          repoConnection: state.activeRepoConnection,
-          refreshExecutors,
-          adapter: spec.adapter,
-          prompt,
-          scope: spec.scopePaths.join(', '),
-          allowedPaths: spec.scopePaths,
-          architectMd,
-          contextBundle: {
-            scope_paths: spec.scopePaths,
-            builder_name: spec.builderName,
-            builder_instruction: spec.instruction ?? null,
-            expected_files: expectedFiles.length > 0 ? expectedFiles : undefined,
-            context_files: contextFiles.length > 0 ? contextFiles : undefined,
-          },
-        });
+        // submitBuildSessionJob now throws on real errors (DB violations,
+        // 500s) instead of silently returning null. Null is reserved for the
+        // legitimate "no online executor advertises this adapter" case.
+        let jobId: string | null = null;
+        let submitError: string | null = null;
+        try {
+          jobId = await submitBuildSessionJob({
+            executors: state.executors,
+            sessionId: state.activeSession?.id,
+            repoConnection: state.activeRepoConnection,
+            refreshExecutors,
+            adapter: spec.adapter,
+            prompt,
+            scope: spec.scopePaths.join(', '),
+            allowedPaths: spec.scopePaths,
+            architectMd,
+            contextBundle: {
+              scope_paths: spec.scopePaths,
+              builder_name: spec.builderName,
+              builder_instruction: spec.instruction ?? null,
+              expected_files: expectedFiles.length > 0 ? expectedFiles : undefined,
+              context_files: contextFiles.length > 0 ? contextFiles : undefined,
+            },
+          });
+        } catch (err) {
+          submitError = err instanceof Error ? err.message : String(err);
+        }
 
         if (!jobId) {
-          const errorText = `No online executor advertises adapter "${spec.adapter}"`;
+          // Distinguish: null = genuinely no executor matches; submitError set = the
+          // submit call itself failed (DB error, network, validation, etc.).
+          const errorText = submitError
+            ? `Failed to submit build session job: ${submitError}`
+            : `No online executor advertises adapter "${spec.adapter}"`;
           updateSessionRun(spec.key, { status: 'failed', errorText });
           return {
             success: false,

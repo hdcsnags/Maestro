@@ -172,8 +172,81 @@ export default function SynthesisDrawer() {
             <div className="reveal-card">
               <div className="reveal-label mb-2">Consensus</div>
               <p style={{ color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>
-                {latestSynthesis.content}
+                {latestSynthesis.metadata?.consensus || latestSynthesis.content}
               </p>
+              {latestSynthesis.metadata?.recommendation && (
+                <>
+                  <div className="reveal-label mt-3 mb-2" style={{ color: 'var(--gold)' }}>Recommendation</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.6, margin: 0 }}>
+                    {latestSynthesis.metadata.recommendation}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {latestSynthesis?.metadata?.trade_offs && latestSynthesis.metadata.trade_offs.length > 0 && (
+            <div className="reveal-card">
+              <div className="reveal-label mb-3" style={{ color: 'var(--warn)' }}>
+                Trade-offs · {latestSynthesis.metadata.trade_offs.length}
+              </div>
+              <div className="flex flex-col gap-3">
+                {latestSynthesis.metadata.trade_offs.map((trade, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl p-3"
+                    style={{ background: 'rgba(224,169,74,0.05)', border: '1px solid rgba(224,169,74,0.15)' }}
+                  >
+                    <div
+                      className="font-mono-dm mb-2"
+                      style={{ fontSize: '9px', letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: 'var(--warn)' }}
+                    >
+                      {trade.axis}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 500 }}>{trade.side_a.agent}:</span> {trade.side_a.position}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', textAlign: 'center' }}>vs</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        <span style={{ color: 'var(--text)', fontWeight: 500 }}>{trade.side_b.agent}:</span> {trade.side_b.position}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {latestSynthesis?.metadata?.unresolved_tensions && latestSynthesis.metadata.unresolved_tensions.length > 0 && (
+            <div
+              className="rounded-xl p-3"
+              style={{ background: 'rgba(224,90,90,0.05)', border: '1px solid rgba(224,90,90,0.18)' }}
+            >
+              <div
+                className="font-mono-dm mb-2"
+                style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: 'var(--risk)' }}
+              >
+                Unresolved · You decide
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-muted)', fontSize: '13px', lineHeight: 1.6 }}>
+                {latestSynthesis.metadata.unresolved_tensions.map((tension, i) => (
+                  <li key={i} style={{ marginBottom: '4px' }}>{tension}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {latestSynthesis?.metadata?.acknowledged_weaknesses && latestSynthesis.metadata.acknowledged_weaknesses.length > 0 && (
+            <div className="reveal-card">
+              <div className="reveal-label mb-2">Acknowledged weaknesses</div>
+              <div className="flex flex-col gap-2">
+                {latestSynthesis.metadata.acknowledged_weaknesses.map((aw, i) => (
+                  <div key={i} style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    <span style={{ color: 'var(--text)', fontWeight: 500 }}>{aw.agent}:</span> {aw.weakness}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

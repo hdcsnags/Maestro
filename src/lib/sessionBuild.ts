@@ -81,27 +81,30 @@ export async function submitBuildSessionJob({
     ? `https://github.com/${repoConnection.owner}/${repoConnection.repo}.git`
     : null;
 
-  try {
-    const result = await invokeEdgeFunction<{ job: ExecutorJob }>('executor-api?action=submit', {
-      session_id: sessionId,
-      job_type: 'build_session',
-      adapter,
-      prompt,
-      repo_url: cloneUrl,
-      repo_name: repoConnection?.repo ?? null,
-      branch: repoConnection?.default_branch ?? null,
-      allowed_paths: allowedPaths.length > 0 ? allowedPaths : ['**'],
-      timeout_seconds: 1800,
-      context_bundle: {
-        scope,
-        ...(architectMd ? { architect_content: architectMd } : {}),
-        ...contextBundle,
-      },
-    });
-    return result.job?.id ?? null;
-  } catch {
-    return null;
-  }
+  // NOTE: errors here propagate to the caller. Earlier versions of this
+  // function had a bare `catch { return null; }` that silently swallowed
+  // real errors (DB constraint violations, 500s from executor-api) and
+  // surfaced them as the misleading "No online executor advertises adapter"
+  // message — which lied because we already proved an executor exists by
+  // selecting one above. The caller now wraps this in a try/catch and shows
+  // the actual error.
+  const result = await invokeEdgeFunction<{ job: ExecutorJob }>('executor-api?action=submit', {
+    session_id: sessionId,
+    job_type: 'build_session',
+    adapter,
+    prompt,
+    repo_url: cloneUrl,
+    repo_name: repoConnection?.repo ?? null,
+    branch: repoConnection?.default_branch ?? null,
+    allowed_paths: allowedPaths.length > 0 ? allowedPaths : ['**'],
+    timeout_seconds: 1800,
+    context_bundle: {
+      scope,
+      ...(architectMd ? { architect_content: architectMd } : {}),
+      ...contextBundle,
+    },
+  });
+  return result.job?.id ?? null;
 }
 
 export function normalizeSessionManifest(raw: unknown): SessionBuildManifestEntry[] {
