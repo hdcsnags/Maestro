@@ -308,6 +308,63 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-05-06 — Opus 4.7 — Intelligence layer brainstorm review
+
+**What was done**:
+1. Returned after 2-day gap. Status check: no new implementations from Sonnet during the gap; same 9 specs sitting ready. Conductor flagged `MAESTRO_INTELLIGENCE_LAYER_SPEC.md` (codename PROJECT COUNCIL, v1.0, authored by Michael-Thomas via Copilot synthesis) for review.
+2. Read the brainstorm doc end-to-end. The vision: ingest Devpost-winner repos into a knowledge graph (Graphify), feed the graphRAG corpus into a multi-agent council (with new agent roles), train a local Maestro LLM to represent the user's judgment, integrate Obsidian as the human-readable layer.
+3. Authored `INTELLIGENCE_LAYER_REVIEW.md` — critical council review. Approved the thesis (storytelling gap is real, audit-annotated corpus is genuinely the right pattern); rejected the scope as too large for current state (3-5 months of new infrastructure on top of existing 9-spec backlog).
+4. Identified specific structural concerns: naming collision ("PROJECT COUNCIL" vs existing Maestro "Council"); Devpost as primary corpus has signal-quality problems (judges optimize for demo polish + novelty, not architecture); audit step requires ~50+ hours of manual annotation at planned scale; local Maestro LLM is a multi-month sub-project; Graphify dependency unverified; Zep + MCP + Obsidian + Graphify together = four new external dependencies for a "self-enriching local" layer; two parallel agent models with overlapping but slightly different roles; transport layer mismatch (existing Maestro uses Supabase edge functions, doc proposes MCP).
+5. Designed a tight v1 scope that preserves the thesis: Storytelling Agent role added to `AGENT_DEFAULTS`; 20 hand-curated READMEs (NOT batch Devpost ingest) in a `storytelling_examples` Postgres table; one new edge function `storytelling-query` for retrieval; new `composer intent` `Story`; opt-in user-driven corpus growth via post-build "Add this README to your storytelling corpus?" card with single `why_admired` annotation; new thread message kind `storytelling_review`. Ships in 3-4 weeks inside existing architecture, no new transport, no new external dependencies.
+6. Mapped composition with all 9 existing ready specs — Storytelling Agent slots cleanly into PRO-01 (deliberation), DIFF-02 (memory), LIVE-01 (coordinator narration), PRO-02 (iteration on README). Genuinely orthogonal; no spec re-do needed.
+7. Surfaced 10 decision questions the Conductor needs to answer before committing to v1 (naming, categories, annotation voice, cloud vs local, scope of auto-ingest, Devpost yes/no for v1, etc.) with my recommendations on each.
+8. Identified preserve-for-v2 elements (audit schema concept, closed-loop pattern, WHY/NOTE/HACK/DECISION inline markers, MiroFish as future reference, institutional-memory principle) so the bigger vision isn't lost — just deferred.
+9. Updated `IMPLEMENTATION_PLAN_STATUS.md` append log.
+
+**Files touched**: `INTELLIGENCE_LAYER_REVIEW.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Critical review delivered as a persisted doc (vs chat reply) — the Conductor is pacing across days; written review survives session resets and serves as reference for future agents picking up this thread.
+- Recommended SMALLEST version that proves the thesis. If "agents grounded in curated storytelling examples produce noticeably better narrative output" is true, 20 entries demonstrate it in 2 weeks. If false, no point in the 100-entry pipeline.
+- Did NOT write `STORYTELLING_AGENT_SPEC.md` yet — flagged that specs sitting unimplemented are technical debt; 9 existing specs already exceed Sonnet pickup velocity. Spec writes only when Conductor commits to ship.
+- Recommended "Library" as v1 codename to avoid PROJECT COUNCIL naming collision with existing Council.
+- Recommended dropping Devpost batch ingest from v1 entirely — hand-curate 20 things the user personally admires; revisit Devpost only after schema and querying are validated.
+- Recommended dropping local Maestro LLM fine-tuning entirely from v1 — defer until 6+ months of session decision logs exist for eval data.
+- Recommended skipping Graphify, Obsidian, Zep, MCP server for v1 — pgvector + Supabase Postgres is plenty for a 20-row corpus.
+- Recommended Conductor ship LIVE-01 OR SANDBOX-01 Phase 1 from existing backlog FIRST before opening the intelligence layer workstream.
+
+**What didn't work**:
+- Could not validate Graphify itself (commit history, license, single-maintainer status) without WebFetch / repo access — flagged as a Conductor decision.
+- Did not draft the v1 STORYTELLING_AGENT_SPEC.md as a deliverable — intentionally held back per "specs without ship commitment are debt" policy. Will write when/if the Conductor confirms scope.
+- Did not address the Conductor's "streaming and a few other things" hint — those map to existing sprint items (UX-02 streaming is already shipped; LIVE-01 + DIFF-02 + MULTIEXEC-01 are the "few other things" probably referenced; covered in `NEXT_SPRINT.md`).
+- The review doc is opinion-heavy. The Conductor explicitly asked for thoughts but should push back if my scope-cutting goes too aggressive — the original brainstorm had real signal that I'm trying to preserve in a smaller form, not dismiss.
+
+### 2026-05-04 — Opus 4.7 — Sprint priority + backlog ordering
+
+**What was done**:
+1. Reviewed status logs: Phase 1 ✅ 7/7, Phase 2 ✅ 4/4, Phase 3 ✅ 3/4 (DIFF-02 spec ready), Phase 4 0/2 (PRO-01 + PRO-02 specs ready). Nine specs sitting ready for implementation pickup with no curated priority order.
+2. Authored `NEXT_SPRINT.md` — prioritized backlog of the 9 ready specs into a recommended ship order with reasoning. Tiered into immediate (SEC-02 deploy gap), high-impact (SANDBOX-01 Phase 1, LIVE-01), strong-value parallel (DIFF-02, MULTIEXEC-01, BOUNCER-01), Phase 4 (PRO-01, PRO-02), chains-behind (BOUNCER-02), and tech debt (TD-01, TD-02, TD-03).
+3. Documented pragmatic deviations Sonnet made during implementation (DIFF-03 "additive enrichment with graceful fallback for uncovered files" instead of strict validate-and-fail). The deviation is fine — LLMs miss files and rigid failure would be brittle — but flagged so the next session knows the actual shipped behavior. Watch for: token-reduction goal (50%+ per builder) needs measurement on next live build.
+4. Documented cross-spec composition notes (SANDBOX-01 + MULTIEXEC-01 share capability advertising format; LIVE-01 + DIFF-04 share reroute approval card; LIVE-01 + BOUNCER-02 share trigger emission pattern; PRO-01 + PRO-02 spec'd independently with v1.2 integration as a future enhancement).
+5. Flagged the SEC-02 deploy gap as the highest-priority immediate action — code is merged, but `APPROVAL_TOKEN_SECRET` is not set in Supabase secrets, so the legacy queued-job path is still in effect. Server-authoritative trust gate isn't actually live yet. Trivial 5-minute fix per `DEPLOY_RUNBOOK.md`.
+6. Documented unspec'd items for future Opus sessions: auto-pilot vs manual mode, SANDBOX-01 Phase 2 (Docker per-job) and Phase 3 (persistent dev containers), CTF flag-handling validation. None blocking; all flagged as v1.x or v2 work.
+
+**Files touched**: `NEXT_SPRINT.md` (new), `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- LIVE-01 prioritized higher than DIFF-02 / MULTIEXEC-01 in the ship order — biggest product-feel change ("Maestro is alive during builds") and unlocks the coordinator narration that BOUNCER-02 depends on. DIFF-02 and MULTIEXEC-01 are independently valuable but can run in parallel windows.
+- SANDBOX-01 Phase 1 prioritized as the second item — biggest security hardening available, no hard dependencies, foundation for Phase 2 Docker work later. Independently shippable from LIVE-01.
+- PRO-01 + PRO-02 (Phase 4) called out as Opus territory — bigger architectural work, prompt-engineering steps suit Opus rather than Sonnet. Phase 4 won't ship as fast as Phase 1-3.
+- BOUNCER-01 → BOUNCER-02 ship order recommended — BOUNCER-02 imports BOUNCER-01's reclassification matrix; shipping reverse order means a temporary stub.
+- Tech debt (TD-01, TD-02, TD-03) explicitly LOW priority. Useful to address but should never block product features. TD-02 (split useBuildExecution) is easier AFTER PRO-02 ships so iteration patterns are in scope.
+- This doc is curated forward-looking, NOT historical — `IMPLEMENTATION_PLAN_STATUS.md` remains the raw append-only ledger. They serve different purposes.
+
+**What didn't work**:
+- Did not write yet another spec — the backlog is already large enough that adding a 10th wouldn't unblock anything. Implementation velocity is the bottleneck, not spec availability.
+- Did not validate any of the unverified-prompt designs against real model output (LIVE-01 coordinator, BOUNCER-02 watcher, DIFF-02 summarizer, DIFF-03 architect plan extractor) — needs API access in a real session, deferred to whichever session actually implements those steps.
+- Did not deep-review Sonnet's DIFF-03 implementation code beyond surfacing the documented deviation. Code review of verified-shipped work could catch latent issues but wasn't critical-path right now.
+- This doc requires maintenance — it goes stale fast as items ship. Asked the next sessions to refresh it.
+
 ### 2026-05-04 — Opus 4.7 — SANDBOX-01 sandbox sequence spec + DIFF-02 repo memory spec
 
 **What was done**:

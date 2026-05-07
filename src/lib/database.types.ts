@@ -287,6 +287,39 @@ export interface Database {
         };
         Relationships: [];
       };
+      repo_memory: {
+        Row: {
+          user_id: string;
+          repo_full_name: string;
+          content: string;
+          metadata: Json;
+          byte_count: number;
+          last_session_id: string | null;
+          last_summarized_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          repo_full_name: string;
+          content?: string;
+          metadata?: Json;
+          byte_count?: number;
+          last_session_id?: string | null;
+          last_summarized_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          content?: string;
+          metadata?: Json;
+          byte_count?: number;
+          last_session_id?: string | null;
+          last_summarized_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

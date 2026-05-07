@@ -7,7 +7,7 @@ import {
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
   ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
-  ProviderHealthRecord,
+  ProviderHealthRecord, RepoMemoryRecord,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -69,6 +69,8 @@ export interface MaestroState {
   jobStreamingOutput: Record<string, string[]>;
   // DIFF-04: provider health snapshot (loaded + updated by useProviderHealth)
   providerHealth: ProviderHealthRecord[];
+  // DIFF-02: per-repo project memory (null when no session repo bound)
+  repoMemory: RepoMemoryRecord | null;
 }
 
 type Action =
@@ -152,7 +154,8 @@ type Action =
   | { type: 'SET_IS_SESSION_BUILD_RUNNING'; payload: boolean }
   | { type: 'STREAMING_APPEND'; payload: { jobId: string; lines: string[] } }
   | { type: 'STREAMING_CLEAR'; payload: string }
-  | { type: 'SET_PROVIDER_HEALTH'; payload: ProviderHealthRecord[] };
+  | { type: 'SET_PROVIDER_HEALTH'; payload: ProviderHealthRecord[] }
+  | { type: 'SET_REPO_MEMORY'; payload: RepoMemoryRecord | null };
 
 const initial: MaestroState = {
   workspace: null,
@@ -207,6 +210,7 @@ const initial: MaestroState = {
   sessionBuildState: createEmptySessionBuildState(),
   jobStreamingOutput: {},
   providerHealth: [],
+  repoMemory: null,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -264,6 +268,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         clawBuildSession: null,
         sessionBuildState: createEmptySessionBuildState(),
         jobStreamingOutput: {},
+        repoMemory: null,
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -428,6 +433,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     }
     case 'SET_PROVIDER_HEALTH':
       return { ...state, providerHealth: action.payload };
+    case 'SET_REPO_MEMORY':
+      return { ...state, repoMemory: action.payload };
     default: return state;
   }
 }

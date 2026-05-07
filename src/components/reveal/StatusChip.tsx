@@ -108,6 +108,17 @@ export default function StatusChip({
             <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--risk)' }}>{unackCritical}</span>
           </button>
         )}
+        {state.repoMemory && (
+          <button
+            type="button"
+            title={`Project memory loaded (${state.repoMemory.byte_count} B) — click to view`}
+            onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'trust' })}
+            className="flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.06] px-2 py-1"
+            style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--gold)' }}
+          >
+            📝
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}

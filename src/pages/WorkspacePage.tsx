@@ -18,10 +18,12 @@ import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import Toast from '../components/ui/Toast';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useRepoMemory } from '../hooks/useRepoMemory';
 export default function WorkspacePage() {
   const { state, dispatch } = useMaestro();
   const { signOut } = useAuth();
   useWorkspace();
+  useRepoMemory();
 
   const drawerOpen = state.activeDrawer !== null;
   const overlayOpen = state.shortcutOverlayOpen;

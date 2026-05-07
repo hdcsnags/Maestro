@@ -1,11 +1,16 @@
+import { useState } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { AuditEvent } from '../../types';
 import HealthPanel from './HealthPanel';
 import SecurityPanel from './SecurityPanel';
+import MemoryPanel from './MemoryPanel';
+
+type TrustTab = 'overview' | 'memory';
 
 export default function TrustDrawer() {
   const { state, dispatch } = useMaestro();
   const isOpen = state.activeDrawer === 'trust';
+  const [activeTab, setActiveTab] = useState<TrustTab>('overview');
 
   const mainBranchWrite = state.executionMode === 'elevated';
 
@@ -24,57 +29,95 @@ export default function TrustDrawer() {
         <button className="keycap" onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}>Esc</button>
       </div>
 
-      <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '20px' }}>
-        Everything here is essential once action begins. It stays offstage during
-        planning so you can think clearly.
-      </p>
-
-      <div className="flex flex-col gap-3 mb-5">
-        <div
-          onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })}
-          style={{ cursor: 'pointer' }}
-        >
-          <TrustCard
-            label="Vault"
-            chip={`${state.providerConnections.filter(p => p.is_connected).length} keys`}
-            chipAccent
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '1px' }}>
+        {(['overview', 'memory'] as TrustTab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: '4px 10px',
+              borderRadius: '6px 6px 0 0',
+              fontSize: '12px',
+              fontWeight: 500,
+              background: activeTab === tab ? 'rgba(255,255,255,0.06)' : 'transparent',
+              color: activeTab === tab ? 'var(--text)' : 'var(--text-dim)',
+              border: 'none',
+              cursor: 'pointer',
+              textTransform: 'capitalize',
+            }}
           >
-            Provider keys stored encrypted at rest. Click to manage keys.
-          </TrustCard>
-        </div>
-        <TrustCard
-          label="Repo Mode"
-          chip={state.executionMode === 'pr_flow' ? 'PR Only' : state.executionMode === 'analyze' ? 'Analyze' : 'Elevated'}
-        >
-          {state.activeRepoConnection
-            ? `Connected to ${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo} (${state.activeRepoConnection.default_branch}). Action path: branch, patch, PR, approve, merge.`
-            : 'No repository connected. Open the Vault (V) to connect GitHub.'}
-        </TrustCard>
-        <TrustCard label="Permissions" chip="Scoped">
-          Agents can inspect broadly, but writes stay limited to approved lanes and workflows.
-        </TrustCard>
+            {tab === 'memory' ? (
+              <span>Memory {state.repoMemory ? <span style={{ color: 'var(--gold)' }}>·</span> : null}</span>
+            ) : tab}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <StatCell label="Connected providers" value={String(state.providerConnections.filter(p => p.is_connected).length)} />
-        <StatCell
-          label="Current mode"
-          value={state.executionMode === 'pr_flow' ? 'PR Flow' : state.executionMode === 'analyze' ? 'Analyze' : 'Elevated'}
-        />
-        <StatCell label="Write access" value={mainBranchWrite ? 'Open' : 'Locked'} color={mainBranchWrite ? 'var(--risk)' : undefined} />
-        <StatCell label="Execution runs" value={String(state.executionRuns.length)} />
-        <StatCell label="Audit events" value={String(state.auditEvents.length)} />
-        <StatCell label="Repo" value={state.activeRepoConnection ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}` : 'None'} />
-      </div>
+      {activeTab === 'overview' && (
+        <>
+          <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '20px' }}>
+            Everything here is essential once action begins. It stays offstage during
+            planning so you can think clearly.
+          </p>
 
-      <div className="reveal-label mb-3">Run Timeline</div>
-      <AuditList events={state.auditEvents} />
+          <div className="flex flex-col gap-3 mb-5">
+            <div
+              onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: 'vault' })}
+              style={{ cursor: 'pointer' }}
+            >
+              <TrustCard
+                label="Vault"
+                chip={`${state.providerConnections.filter(p => p.is_connected).length} keys`}
+                chipAccent
+              >
+                Provider keys stored encrypted at rest. Click to manage keys.
+              </TrustCard>
+            </div>
+            <TrustCard
+              label="Repo Mode"
+              chip={state.executionMode === 'pr_flow' ? 'PR Only' : state.executionMode === 'analyze' ? 'Analyze' : 'Elevated'}
+            >
+              {state.activeRepoConnection
+                ? `Connected to ${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo} (${state.activeRepoConnection.default_branch}). Action path: branch, patch, PR, approve, merge.`
+                : 'No repository connected. Open the Vault (V) to connect GitHub.'}
+            </TrustCard>
+            <TrustCard label="Permissions" chip="Scoped">
+              Agents can inspect broadly, but writes stay limited to approved lanes and workflows.
+            </TrustCard>
+          </div>
 
-      <div className="reveal-label mb-3 mt-6">Security Incidents</div>
-      <SecurityPanel />
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <StatCell label="Connected providers" value={String(state.providerConnections.filter(p => p.is_connected).length)} />
+            <StatCell
+              label="Current mode"
+              value={state.executionMode === 'pr_flow' ? 'PR Flow' : state.executionMode === 'analyze' ? 'Analyze' : 'Elevated'}
+            />
+            <StatCell label="Write access" value={mainBranchWrite ? 'Open' : 'Locked'} color={mainBranchWrite ? 'var(--risk)' : undefined} />
+            <StatCell label="Execution runs" value={String(state.executionRuns.length)} />
+            <StatCell label="Audit events" value={String(state.auditEvents.length)} />
+            <StatCell label="Repo" value={state.activeRepoConnection ? `${state.activeRepoConnection.owner}/${state.activeRepoConnection.repo}` : 'None'} />
+          </div>
 
-      <div className="reveal-label mb-3 mt-6">Provider Health</div>
-      <HealthPanel />
+          <div className="reveal-label mb-3">Run Timeline</div>
+          <AuditList events={state.auditEvents} />
+
+          <div className="reveal-label mb-3 mt-6">Security Incidents</div>
+          <SecurityPanel />
+
+          <div className="reveal-label mb-3 mt-6">Provider Health</div>
+          <HealthPanel />
+        </>
+      )}
+
+      {activeTab === 'memory' && (
+        <>
+          <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, fontSize: '14px', marginBottom: '16px' }}>
+            Per-repo memory that persists across sessions. Concierge reads this at the start of each session.
+          </p>
+          <MemoryPanel />
+        </>
+      )}
     </aside>
   );
 }

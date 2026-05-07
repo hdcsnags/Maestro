@@ -825,6 +825,30 @@ export const PROVIDER_REGISTRY = [
   { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli', 'gemini_cli'] },
 ];
 
+// ─── DIFF-02: Per-repo project memory ─────────────────────────────────────────
+
+export interface RepoMemoryMetadata {
+  project_type?: string;
+  primary_language?: string;
+  frameworks?: string[];
+  package_manager?: string;
+  test_runner?: string;
+  preferred_patterns?: string[];
+  do_not_touch?: string[];
+}
+
+export interface RepoMemoryRecord {
+  user_id: string;
+  repo_full_name: string;
+  content: string;
+  metadata: RepoMemoryMetadata | null;
+  byte_count: number;
+  last_session_id: string | null;
+  last_summarized_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Execution in Chat (Phase 2) ──────────────────────────────
 
 export type ExecutionCommandTrust = 'trusted' | 'approval_required';
