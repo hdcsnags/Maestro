@@ -4,6 +4,7 @@ import { Response as MaestroResponse } from '../../types';
 import { supabase } from '../../lib/supabase';
 import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
+import { useDeliberation } from '../../hooks/useDeliberation';
 import FolioCard, { getFolioDisplayContent } from './FolioCard';
 import StreamingFolio from './StreamingFolio';
 import OrbitDots from './OrbitDots';
@@ -32,6 +33,7 @@ export default function FolioCarousel() {
   const { state, dispatch } = useMaestro();
   const { synthesize } = useOrchestration();
   const { askFollowUp, compareResponses, extractDecision, pinResponse } = useThreads();
+  const { triggerDeliberation } = useDeliberation();
   const [compareSourceId, setCompareSourceId] = useState<string | null>(null);
   const [compareTargetId, setCompareTargetId] = useState<string | null>(null);
   const [savingComparison, setSavingComparison] = useState(false);
@@ -45,7 +47,9 @@ export default function FolioCarousel() {
   const isViewingLatest = !selectedRound || selectedRound.id === latestRound?.id;
 
   const selectedResponses = useMemo(
-    () => selectedRound ? (state.responses || []).filter(r => r.round_id === selectedRound.id) : [],
+    () => selectedRound
+      ? (state.responses || []).filter(r => r.round_id === selectedRound.id && r.kind !== 'deliberation')
+      : [],
     [selectedRound, state.responses],
   );
   const roundNumber = selectedRound?.round_number ?? 0;
@@ -85,6 +89,15 @@ export default function FolioCarousel() {
   const compareTarget = compareTargetId
     ? selectedResponses.find((response) => response.id === compareTargetId) ?? null
     : null;
+
+  const canDeliberate =
+    !compareSourceId &&
+    !!selectedRound &&
+    selectedRound.status === 'complete' &&
+    !selectedRound.deliberation_completed_at &&
+    selectedResponses.length >= 3 &&
+    !state.isBroadcasting;
+  const deliberated = !!selectedRound?.deliberation_completed_at;
 
   useEffect(() => {
     setCompareSourceId(null);
@@ -207,6 +220,63 @@ export default function FolioCarousel() {
             >
               Cancel
             </button>
+          </div>
+        )}
+
+        {(canDeliberate || state.isDeliberating) && (
+          <div
+            className="absolute"
+            style={{
+              top: '-52px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '10px 14px',
+              borderRadius: '999px',
+              background: 'rgba(15,18,24,0.88)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: 'var(--text)',
+              zIndex: 30,
+            }}
+          >
+            <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' as const }}>
+              Council deliberation
+            </span>
+            <button
+              type="button"
+              className="reveal-chip accent"
+              disabled={state.isDeliberating}
+              onClick={() => void triggerDeliberation(selectedRound!.id)}
+              style={{ cursor: state.isDeliberating ? 'default' : 'pointer' }}
+            >
+              {state.isDeliberating ? 'Deliberating…' : 'Deliberate'}
+            </button>
+          </div>
+        )}
+
+        {deliberated && !compareSourceId && !state.isDeliberating && (
+          <div
+            className="absolute"
+            style={{
+              top: '-52px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 14px',
+              borderRadius: '999px',
+              background: 'rgba(15,18,24,0.88)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              zIndex: 30,
+            }}
+          >
+            <span style={{ color: 'var(--ok)', fontSize: '12px', lineHeight: 1 }}>✓</span>
+            <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
+              Deliberated
+            </span>
           </div>
         )}
 

@@ -164,6 +164,8 @@ export interface Database {
           target_agents: Json;
           status: string;
           created_at: string;
+          deliberation_enabled: boolean | null;
+          deliberation_completed_at: string | null;
         };
         Insert: {
           id?: string;
@@ -174,10 +176,14 @@ export interface Database {
           target_agents?: Json;
           status?: string;
           created_at?: string;
+          deliberation_enabled?: boolean;
+          deliberation_completed_at?: string;
         };
         Update: {
           status?: string;
           target_agents?: Json;
+          deliberation_enabled?: boolean;
+          deliberation_completed_at?: string;
         };
         Relationships: [];
       };
@@ -199,6 +205,9 @@ export interface Database {
           is_lead: boolean;
           tokens_used: number;
           created_at: string;
+          kind: string | null;
+          deliberation_targets: Json | null;
+          deliberation_pushbacks: Json | null;
         };
         Insert: {
           id?: string;
@@ -217,12 +226,16 @@ export interface Database {
           is_lead?: boolean;
           tokens_used?: number;
           created_at?: string;
+          kind?: string;
+          deliberation_targets?: Json;
+          deliberation_pushbacks?: Json;
         };
         Update: {
           is_flagged?: boolean;
           is_lead?: boolean;
           title?: string;
           signals?: Json;
+          kind?: string;
         };
         Relationships: [];
       };

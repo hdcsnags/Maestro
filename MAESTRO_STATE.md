@@ -311,6 +311,42 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-05-07 — Opus 4.7 — PRO-01 deliberation backend implementation
+
+**What was done**:
+1. Implemented the Opus-owned pieces of PRO-01 (the inter-agent deliberation round) — moving from spec-only to actual TypeScript files under `supabase/functions/deliberate/`. Per the spec, Opus owns the prompt template, redaction logic, and synthesis prompt update; Sonnet owns the data model migration, frontend hook, and UI components. This pass shipped Opus's half end-to-end so Sonnet can pick up the front half cleanly.
+2. New file `supabase/functions/deliberate/redact.ts`: deterministic voice mapping (A/B/C/D, sortable by response.id so all agents in a round see the same labels for the same other-agent responses), redaction by collected identity tokens (agent name, provider, model family + universal model-family wordlist), self-attribution opener stripping. Style leakage is accepted as a documented v1 limitation; v2 may add neutral-voice rewriting.
+3. New file `supabase/functions/deliberate/prompt.ts`: deliberation system prompt + 3-question user message (objection / agreement / self-critique with explicit "no significant weakness is not acceptable" guard against soft self-critiques), strict-JSON output contract, 3-strategy parser (direct → fence-strip → first-balanced-braces → raw fallback) with shape normalization for tolerant cross-provider behavior.
+4. New file `supabase/functions/deliberate/index.ts`: full orchestrator. Auth → fetch round + verify ownership via session/workspace join → fetch primary responses → 3+ agent gate → mark round.deliberation_enabled → parallel dispatch per agent (Anthropic inline + OpenAI inline + skip with `provider_not_supported_v1` for Gemini/OpenRouter) → reverse-resolve voice labels into pushback rows → batch insert deliberation rows → mark round.deliberation_completed_at. Idempotent on already-completed rounds. Per-agent failures isolated (one timeout doesn't kill others' contributions).
+5. Updated `supabase/functions/synthesize/index.ts`: detects `rounds.deliberation_completed_at` and switches to deliberation-aware mode. Output JSON shape is `{ consensus, trade_offs, acknowledged_weaknesses, unresolved_tensions, recommendation, content }` — content stays as the legacy plain-prose field for UI surfaces that don't render structured fields. Synthesis prompt explicitly instructs the model NOT to manufacture consensus; preserves tension. Falls back gracefully to classic mode when no deliberation has run on the round.
+6. Migration `supabase/migrations/20260507000000_pro_01_deliberation.sql`: adds `responses.kind` (default 'primary', check 'primary'|'deliberation'), `responses.deliberation_targets uuid[]`, `responses.deliberation_pushbacks jsonb`, `rounds.deliberation_enabled`, `rounds.deliberation_completed_at`. Index on `(round_id, kind)` for efficient deliberation-row lookups. Backfill `kind='primary'` for existing rows.
+7. Registered `deliberate` in `supabase/config.toml` (verify_jwt = false to enter shared in-function auth) and in `_shared/auth.ts` rate limit map (10 req / 300s, same tier as architect — deliberation is an expensive multi-agent dispatch).
+8. Updated `IMPLEMENTATION_PLAN_STATUS.md` with both the Phase 4 row update and append log entry. Status is `partial` because Sonnet's frontend pieces are still pending.
+
+**Files touched**: `supabase/functions/deliberate/index.ts` (new), `supabase/functions/deliberate/prompt.ts` (new), `supabase/functions/deliberate/redact.ts` (new), `supabase/functions/synthesize/index.ts` (rewritten with deliberation-aware mode), `supabase/migrations/20260507000000_pro_01_deliberation.sql` (new), `supabase/config.toml`, `supabase/functions/_shared/auth.ts`, `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Anthropic + OpenAI inline routing only for v1; Gemini/OpenRouter agents are recorded as deliberation rows with `signals.deliberation_status: 'skipped'` and `skipped_reason: 'provider_not_supported_v1: <provider>'` rather than skipped silently. Sonnet's follow-up: route through `orchestrate` to inherit multi-provider routing.
+- Voice labels are deterministic per-round (sorted by response.id). All agents in the round see the same letter for the same other-agent response. Cross-agent reasoning consistency.
+- Voice "self" used in pushbacks for self_critique entries (no real target, no agent_id). Differentiates from voice-A objections cleanly.
+- Per-agent timeout 45 seconds. Long enough for Sonnet/Opus deliberation responses; short enough that one stuck agent doesn't block the round.
+- Deliberation rows insert with `agent_role: 'deliberator'` and `agent_color: '#5a8fe0'` so the existing carousel/folio rendering can distinguish them. Sonnet may want to adjust this when adding UI.
+- Synthesis output format is JSON-with-content: structured fields for the new UI surfaces, `content` plain prose for legacy ones. Backwards-compat gracefully without UI changes.
+- `claude-haiku-4-5` for synthesis call (matches AGENT_DEFAULTS canonical) — the existing synthesize was using `claude-haiku-3-5`, which I treated as drift and updated. If the project doesn't have haiku-4-5 access, Sonnet should revert this single string.
+- `claude-sonnet-4-6` for the deliberation-aware synthesis (richer reasoning required for tension preservation). Same model the council uses for build leads.
+- Trim summary to 600 chars to keep `deliberation_pushbacks` jsonb manageable; full text lives in `content` markdown.
+- 3+ agents required to deliberate (less than that, deliberation collapses to 1-on-1 critique with different dynamics) — enforced server-side with explicit error.
+
+**What didn't work**:
+- Did NOT validate the prompt template against real Anthropic output. The spec said "Step 5 of impl order: validate prompt against real model with fixture before continuing." That validation needs a real round_id and live API access. Sonnet should run a controlled test (contentious prompt across 3 council agents → invoke deliberate → inspect deliberation_pushbacks for sane shape) before declaring verified.
+- Style leakage in redaction is real. Sonnet writes differently from GPT writes differently from Gemini. Accepted v1 limitation. If real-world deliberations show the leakage materially defeats the redaction, v2 adds neutral-voice rewriting (extra Haiku call per primary response before redaction).
+- Did NOT call orchestrate from deliberate; chose inline Anthropic+OpenAI. Trade-off: faster ship, smaller surface area, fewer providers supported. Sonnet's follow-up to extend.
+- Did NOT add the frontend Deliberate pill, the PushbacksSection on FolioCard, or the trade_offs/unresolved_tensions surface on the synthesis card. Those are explicitly Sonnet-owned per the spec's hand-off split.
+- Did NOT implement Mode 2 (concierge-suggested post-R1 triage) or Mode 3 (auto-trigger for high-stakes prompts). v1 ships with Mode 1 (manual toggle) only via Sonnet's frontend work; Modes 2 & 3 layer on after Mode 1 is verified.
+- TypeScript types for `ResponseKind`, `DeliberationPushback`, the extended `Response` interface, and the new `Round` fields are NOT yet added to `src/types/index.ts`. Sonnet's first step. The deliberate function uses inline shapes that match what the spec types should be — kept in sync via comments.
+- The migration assumes `responses.signals` jsonb already exists (it does per existing schema). I overload `signals` for deliberation status metadata when an agent fails or skips; cleaner would be a new column but `signals` is the existing audit-channel and didn't want to grow the schema unnecessarily.
+- `claude-sonnet-4-6` model id selection is the canonical doc value but I have not confirmed it's deployed in this project's Anthropic access. Sonnet should verify on first live test.
+
 ### 2026-05-06 — Copilot CLI (Sonnet 4.6) — DIFF-02 Repo Memory — shipped
 
 **What was done**:

@@ -1,4 +1,4 @@
-import { Response as MaestroResponse, FileManifestEntry } from '../../types';
+import { Response as MaestroResponse, FileManifestEntry, DeliberationPushback } from '../../types';
 import { useMaestro } from '../../context/MaestroContext';
 import { supabase } from '../../lib/supabase';
 import { useState, useEffect, useMemo } from 'react';
@@ -86,16 +86,18 @@ export default function FolioCard({
   compareActive = false,
   compareDisabled = false,
 }: Props) {
-  const { dispatch } = useMaestro();
+  const { state, dispatch } = useMaestro();
   const [flagging, setFlagging] = useState(false);
   const [busyChip, setBusyChip] = useState<'lead' | 'pin' | null>(null);
   const [signalsExpanded, setSignalsExpanded] = useState(false);
   const [manifestExpanded, setManifestExpanded] = useState(false);
+  const [pushbacksExpanded, setPushbacksExpanded] = useState(false);
   const [busyAction, setBusyAction] = useState<'pin' | 'followup' | 'decision' | 'synthesize' | null>(null);
 
   useEffect(() => {
     setSignalsExpanded(false);
     setManifestExpanded(false);
+    setPushbacksExpanded(false);
   }, [response.id]);
 
   const handleFlag = async () => {
@@ -165,6 +167,22 @@ export default function FolioCard({
   const artifacts = response.artifacts || [];
   const displayContent = getFolioDisplayContent(response.content);
   const remarkPlugins = useMemo(() => [remarkGfm], []);
+
+  const inboundPushbacks = useMemo<Array<DeliberationPushback & { from_agent_name: string }>>(() => {
+    const deliberationRows = (state.responses || []).filter(
+      r => r.round_id === response.round_id && r.kind === 'deliberation',
+    );
+    const result: Array<DeliberationPushback & { from_agent_name: string }> = [];
+    for (const row of deliberationRows) {
+      const pbs: DeliberationPushback[] = (row.deliberation_pushbacks as DeliberationPushback[]) ?? [];
+      for (const pb of pbs) {
+        if (pb.target_response_id === response.id) {
+          result.push({ ...pb, from_agent_name: row.agent_name });
+        }
+      }
+    }
+    return result;
+  }, [state.responses, response.round_id, response.id]);
 
   const runThreadAction = async (
     action: 'pin' | 'followup' | 'decision' | 'synthesize',
@@ -334,6 +352,47 @@ export default function FolioCard({
         )}
 
         <ArtifactDownload artifacts={artifacts} agentColor={response.agent_color} />
+
+        {inboundPushbacks.length > 0 && (
+          <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.045)', paddingTop: '16px' }}>
+            <button
+              onClick={() => setPushbacksExpanded(p => !p)}
+              className="flex items-center gap-2 w-full"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-dim)' }}
+            >
+              <span style={{ fontSize: '12px', lineHeight: 1 }}>💬</span>
+              <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.18em', textTransform: 'uppercase' as const }}>
+                Deliberation · {inboundPushbacks.length}
+              </span>
+              {pushbacksExpanded ? <ChevronUp size={10} style={{ marginLeft: 'auto' }} /> : <ChevronDown size={10} style={{ marginLeft: 'auto' }} />}
+            </button>
+            {pushbacksExpanded && (
+              <div className="flex flex-col gap-2" style={{ marginTop: '12px' }}>
+                {inboundPushbacks.map((pb, i) => {
+                  const stanceColor = pb.stance === 'disagree' ? 'var(--risk)' : pb.stance === 'agree' ? 'var(--ok)' : 'var(--warn)';
+                  const stanceIcon = pb.stance === 'disagree' ? '✗' : pb.stance === 'agree' ? '✓' : '~';
+                  const kindLabel = pb.kind === 'self_critique' ? 'self-critique' : pb.kind;
+                  return (
+                    <div key={i} style={{ padding: '10px 14px', borderRadius: '12px', background: 'rgba(255,255,255,0.025)', border: `1px solid color-mix(in srgb, ${stanceColor} 20%, transparent)` }}>
+                      <div className="flex items-center gap-2" style={{ marginBottom: '6px' }}>
+                        <span style={{ fontWeight: 700, color: stanceColor, fontSize: '12px', lineHeight: 1 }}>{stanceIcon}</span>
+                        <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: 'var(--text-dim)' }}>
+                          {pb.from_agent_name}
+                        </span>
+                        <span style={{ fontSize: '10px', color: stanceColor, marginLeft: '2px' }}>
+                          · {kindLabel}
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: 'rgba(232,230,224,0.82)' }}>
+                        {pb.summary}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* F1.1 — Signals below body, collapsed by default. F1.5 — hidden when empty */}
         {signalEntries.length > 0 && (

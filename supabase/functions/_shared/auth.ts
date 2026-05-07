@@ -33,6 +33,7 @@ const RATE_LIMIT_POLICIES: Record<string, RateLimitPolicy> = {
   bouncer: { maxRequests: 30, windowSeconds: 60 },
   concierge: { maxRequests: 30, windowSeconds: 60 },
   "concierge-triage": { maxRequests: 30, windowSeconds: 60 },
+  deliberate: { maxRequests: 10, windowSeconds: 300 },
   design: { maxRequests: 8, windowSeconds: 300 },
   "executor-api": { maxRequests: 120, windowSeconds: 60 },
   "github-auth": { maxRequests: 20, windowSeconds: 300 },

@@ -180,6 +180,19 @@ export interface Round {
   target_agents: string[];
   status: RoundStatus;
   created_at: string;
+  deliberation_enabled?: boolean;
+  deliberation_completed_at?: string | null;
+}
+
+export type ResponseKind = 'primary' | 'deliberation';
+
+export interface DeliberationPushback {
+  target_response_id: string | null;
+  target_voice: string;
+  stance: 'agree' | 'disagree' | 'partial';
+  summary: string;
+  agent_id: string | null;
+  kind: 'objection' | 'agreement' | 'self_critique';
 }
 
 export interface ResponseSignals {
@@ -228,6 +241,9 @@ export interface Response {
   is_pinned?: boolean;
   tokens_used: number;
   created_at: string;
+  kind?: ResponseKind;
+  deliberation_targets?: string[];
+  deliberation_pushbacks?: DeliberationPushback[];
 }
 
 export type SessionPhase = 'analysis' | 'design' | 'pre_build' | 'build' | 'bouncer' | 'complete';

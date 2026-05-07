@@ -71,6 +71,8 @@ export interface MaestroState {
   providerHealth: ProviderHealthRecord[];
   // DIFF-02: per-repo project memory (null when no session repo bound)
   repoMemory: RepoMemoryRecord | null;
+  // PRO-01: true while the deliberate edge function call is in-flight
+  isDeliberating: boolean;
 }
 
 type Action =
@@ -155,7 +157,10 @@ type Action =
   | { type: 'STREAMING_APPEND'; payload: { jobId: string; lines: string[] } }
   | { type: 'STREAMING_CLEAR'; payload: string }
   | { type: 'SET_PROVIDER_HEALTH'; payload: ProviderHealthRecord[] }
-  | { type: 'SET_REPO_MEMORY'; payload: RepoMemoryRecord | null };
+  | { type: 'SET_REPO_MEMORY'; payload: RepoMemoryRecord | null }
+  // PRO-01
+  | { type: 'SET_IS_DELIBERATING'; payload: boolean }
+  | { type: 'UPDATE_ROUND'; payload: Partial<Round> & { id: string } };
 
 const initial: MaestroState = {
   workspace: null,
@@ -211,6 +216,7 @@ const initial: MaestroState = {
   jobStreamingOutput: {},
   providerHealth: [],
   repoMemory: null,
+  isDeliberating: false,
 };
 
 function reducer(state: MaestroState, action: Action): MaestroState {
@@ -269,6 +275,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         sessionBuildState: createEmptySessionBuildState(),
         jobStreamingOutput: {},
         repoMemory: null,
+        isDeliberating: false,
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -435,6 +442,15 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       return { ...state, providerHealth: action.payload };
     case 'SET_REPO_MEMORY':
       return { ...state, repoMemory: action.payload };
+    case 'SET_IS_DELIBERATING':
+      return { ...state, isDeliberating: action.payload };
+    case 'UPDATE_ROUND':
+      return {
+        ...state,
+        rounds: state.rounds.map(r =>
+          r.id === action.payload.id ? { ...r, ...action.payload } : r
+        ),
+      };
     default: return state;
   }
 }
