@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | ~~GPT OSS phantom agent~~ ✅ fixed (2026-05-04); ~~legacy broadcast includes Claw agents~~ ✅ fixed (2026-05-04); Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `repo-memory-update` deployed 2026-05-06 (DIFF-02); `concierge` deployed 2026-05-06 (DIFF-02: memory injection); `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (DIFF-03: two-call structured plan + lane-scoped prompt enrichment); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
-| Unapplied migrations | None (20260506000000_repo_memory.sql applied 2026-05-06) |
+| Last verified deploy | `deliberate` + `synthesize` deployed 2026-05-07 (PRO-01 frontend); `repo-memory-update` deployed 2026-05-06 (DIFF-02); `concierge` deployed 2026-05-06 (DIFF-02: memory injection); `executor-api` deployed 2026-05-XX (UX-03: kick_job + reclaimStaleBuildTasks; SEC-04: report_incident action + executor_incidents migration applied); `architect` + `concierge` deployed 2026-05-04 (DIFF-03: two-call structured plan + lane-scoped prompt enrichment); `orchestrate` redeployed 2026-04-17; `bouncer` redeployed 2026-04-16 |
+| Unapplied migrations | None (20260507000000_pro_01_deliberation.sql applied 2026-05-07) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 (artifact pipeline working, needs version bump) |
 
@@ -149,6 +149,7 @@ Legacy (unused): agent_skills, flags
 
 | Capability | Verified |
 |------------|----------|
+| **PRO-01 Deliberation — frontend**: `ResponseKind`/`DeliberationPushback` types, extended `Round`+`Response` interfaces, `isDeliberating` state + `UPDATE_ROUND` action in MaestroContext, `useDeliberation` hook, FolioCarousel "Deliberate" pill (gated on ≥3 primary responses + round complete), FolioCard collapsible inbound-pushbacks section. Migration + `deliberate` + `synthesize` edge functions deployed. | 2026-05-07 (`npm run typecheck`, `npm run build`, migration applied, functions deployed, commit `9216ffd`) |
 | **DIFF-02 Repo Memory**: `repo_memory` table, `repo-memory-update` edge function (get/summarize/update_direct/forget), concierge memory injection, `useRepoMemory` hook, `MemoryPanel` TrustDrawer tab, 📝 StatusChip indicator | 2026-05-06 (`npm run typecheck`, `npm run build`, deployed, migration applied) |
 | Claw frontend shell stabilization: strict TypeScript is clean again; `StatusChip` is restored in the topbar truth layer; carousel/focus synthesis handler is wired; ClawMode no longer presents the main workspace as a modal; invalid Tailwind `/8` and `/12` opacity classes now emit in production CSS | 2026-05-04 (`npm run typecheck`, `npm run build`) |
 | GitHub OAuth authorize + token exchange path exists in code | 2026-04-12 (code verified) |
@@ -310,6 +311,31 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries.*
+
+### 2026-05-07 — Copilot CLI (Sonnet 4.6) — PRO-01 deliberation frontend — shipped
+
+**What was done**:
+1. Added `ResponseKind`, `DeliberationPushback` types and extended `Round`/`Response` interfaces in `src/types/index.ts`.
+2. Updated `src/lib/database.types.ts` — added `deliberation_enabled`, `deliberation_completed_at` to rounds; `kind`, `deliberation_targets`, `deliberation_pushbacks` to responses.
+3. Extended `MaestroContext`: `isDeliberating: boolean` state, `SET_IS_DELIBERATING` action, `UPDATE_ROUND` action (patch-merge by id). Both added to initial state and `SET_ACTIVE_SESSION` reset.
+4. Created `src/hooks/useDeliberation.ts` — `triggerDeliberation(roundId)` calls `deliberate` edge fn, loads new deliberation rows into state via `ADD_RESPONSE`, patches round via `UPDATE_ROUND`, toasts on success/failure.
+5. Updated `FolioCarousel.tsx`: `selectedResponses` filter excludes `kind='deliberation'` rows (keeps them out of card items); "Deliberate" pill shows above carousel when round is complete + ≥3 primary responses + not already deliberated; shows "Deliberating…" (disabled) while in flight; shows "✓ Deliberated" badge after completion. Gated behind `!compareSourceId` to avoid z-index conflict with the compare banner.
+6. Updated `FolioCard.tsx`: `inboundPushbacks` useMemo scans `state.responses` for deliberation rows targeting this card (by `target_response_id === response.id`); collapsible "Deliberation · N" section renders below ArtifactDownload with stance icon (✓/✗/~), from-agent name, kind label, and summary.
+7. Applied migration `20260507000000_pro_01_deliberation.sql` to remote (db push). Deployed `deliberate` + `synthesize` edge functions.
+
+**Files touched**: `src/types/index.ts`, `src/lib/database.types.ts`, `src/context/MaestroContext.tsx`, `src/hooks/useDeliberation.ts` (new), `src/components/reveal/FolioCarousel.tsx`, `src/components/reveal/FolioCard.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made**:
+- Pushbacks section shows inbound pushbacks (what OTHER agents said about THIS card), not outbound (what this agent said about others). More useful from the reader's perspective.
+- "Deliberate" button hidden while compare mode is active (both use the same top: -52px floating pill position).
+- Deduplication of deliberation rows on reload is not needed in practice since `triggerDeliberation` is gated by `deliberation_completed_at` — the deliberate function is idempotent server-side anyway.
+
+**Known limitations / next steps**:
+- PRO-01 prompt has NOT been validated against a real model with a fixture yet (Opus noted this). First live deliberation call is the moment of truth.
+- Synthesis card `trade_offs`/`unresolved_tensions` fields from the deliberation-aware synthesize output are NOT yet rendered in SynthesisDrawer — only the `content` prose field is shown. This is the remaining PRO-01 frontend gap.
+- Gemini/OpenRouter agents skip deliberation with `provider_not_supported_v1` — extend `deliberate` to route through `orchestrate` for full provider coverage (v2).
+
+
 
 ### 2026-05-07 — Opus 4.7 — PRO-01 deliberation backend implementation
 
