@@ -600,20 +600,37 @@ export default function BuildWorkspace() {
   // Sprint C · F2 — Auto-call concierge on build phase entry
   useEffect(() => {
     if (!session || !isVisible || !stageHydrated || stage !== 'preparing' || preparingTriggered.current) return;
+    // When the thread-native RunwayCard is active for this thread, it owns the
+    // concierge call. Let it load the plan so both surfaces read from the same
+    // state.buildPlan without double-firing.
+    if (state.clawBuildSession && state.clawBuildSession.threadId === state.activeThread?.id) return;
     preparingTriggered.current = true;
+    let stale = false;
 
     (async () => {
       try {
         const plan = await invokeEdgeFunction<BuildPlan>('concierge', { session_id: session.id, phase: 'pre_build_complete' });
+        if (stale) return;
         dispatch({ type: 'SET_BUILD_PLAN', payload: plan });
         setStage('plan_review');
       } catch (err) {
+        if (stale) return;
         console.warn('Concierge build plan error:', err);
         setError(err instanceof Error ? err.message : 'Concierge could not prepare a build plan.');
         setStage('plan_review');
       }
     })();
-  }, [session, isVisible, stage, stageHydrated, dispatch]);
+
+    return () => { stale = true; };
+  }, [session, isVisible, stage, stageHydrated, dispatch, state.clawBuildSession, state.activeThread?.id]);
+
+  // When plan arrives externally (e.g. loaded by the in-thread RunwayCard),
+  // advance out of 'preparing' without re-calling concierge.
+  useEffect(() => {
+    if (stage !== 'preparing' || !stageHydrated || !normalizedBuildPlan || preparingTriggered.current) return;
+    preparingTriggered.current = true;
+    setStage('plan_review');
+  }, [stage, stageHydrated, normalizedBuildPlan]);
   // Approve build plan and start broadcasting
   const handleApprovePlan = useCallback(async () => {
     const buildPlan = normalizedBuildPlan;

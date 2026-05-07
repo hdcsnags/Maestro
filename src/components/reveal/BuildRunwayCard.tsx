@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   AlertCircle, CheckCircle2, Cloud, ExternalLink, FileCode, Files,
   GitBranch, Hammer, LayoutPanelTop, Loader2, Monitor, Play, RefreshCw,
@@ -106,6 +106,7 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
   const [planError, setPlanError] = useState('');
   const [retryNonce, setRetryNonce] = useState(0);
   const [pushResult, setPushResult] = useState<PushResultState>(createEmptyPushState());
+  const planFetchTokenRef = useRef(0);
 
   const currentSession = state.activeSession;
   const normalizedBuildPlan = useMemo<NormalizedBuildPlan | null>(() => {
@@ -241,6 +242,7 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
   useEffect(() => {
     if (!currentSession || normalizedBuildPlan) return;
     let cancelled = false;
+    const token = ++planFetchTokenRef.current;
     setPlanLoading(true);
     setPlanError('');
 
@@ -254,7 +256,13 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
       if (cancelled) return;
       setPlanError(error instanceof Error ? error.message : 'Concierge could not prepare a build plan.');
     }).finally(() => {
-      if (!cancelled) setPlanLoading(false);
+      // Only clear loading if this is still the latest request.
+      // Using a token ref instead of `cancelled` prevents a newer in-flight
+      // request from having its spinner cleared by an older resolving fetch.
+      // When `normalizedBuildPlan` becomes truthy (e.g. BuildWorkspace won the
+      // race), cleanup sets cancelled=true but no new effect starts (early-return
+      // guard), so token still matches and loading clears correctly.
+      if (planFetchTokenRef.current === token) setPlanLoading(false);
     });
 
     return () => { cancelled = true; };
