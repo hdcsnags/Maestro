@@ -722,6 +722,11 @@ select option:checked {
   50% { box-shadow: 0 0 12px 2px rgba(255,255,255,0.06); }
 }
 
+@keyframes build-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
 /* ═══ Responsive ═══ */
 
 @media (max-width: 980px) {

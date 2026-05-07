@@ -12,6 +12,7 @@ export default function RevealTopbar() {
   const repoName = activeRepo?.repo ?? null;
   const isExecutionSurface = state.activeThread?.type === 'execution' || !!state.pendingExecution;
   const isBuildSurface = !!state.clawBuildSession || state.activeSession?.current_phase === 'build' || state.activeSession?.current_phase === 'bouncer';
+  const isBuildRunning = state.sessionBuildState.isRunning;
   const statusKind = isExecutionSurface ? 'execute' : isBuildSurface ? 'build' : 'default';
   const statusLabel = isExecutionSurface
     ? 'Execution'
@@ -67,8 +68,36 @@ export default function RevealTopbar() {
 
       <div style={{ flex: 1 }} />
 
-      {/* Drawer hotkey caps */}
-      <div className="flex items-center gap-2">
+      {/* Build log button — visible when a local build is running or build surface active */}
+        {(isBuildSurface || isBuildRunning) && (
+          <>
+            <button
+              onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'build-log' ? null : 'build-log' })}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                height: 28, padding: '0 10px', borderRadius: 6, cursor: 'pointer',
+                border: activeDrawer === 'build-log' ? '1px solid rgba(90,184,142,0.4)' : '1px solid var(--edge-1)',
+                background: activeDrawer === 'build-log' ? 'rgba(90,184,142,0.1)' : 'var(--surf-0)',
+                color: activeDrawer === 'build-log' ? 'var(--ok)' : 'var(--ink-2)',
+                fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase',
+                transition: 'all 0.2s ease',
+              }}
+              title="Build log"
+            >
+              {isBuildRunning && (
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', background: 'var(--ok)',
+                  animation: 'build-pulse 1.2s ease-in-out infinite',
+                }} />
+              )}
+              Log
+            </button>
+            <div style={{ width: 1, height: 18, background: 'var(--edge-1)' }} />
+          </>
+        )}
+
+        {/* Drawer hotkey caps */}
+        <div className="flex items-center gap-2">
         <button
           onClick={() => dispatch({ type: 'OPEN_DRAWER', payload: activeDrawer === 'synthesis' ? null : 'synthesis' })}
           style={{

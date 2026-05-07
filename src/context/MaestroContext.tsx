@@ -11,7 +11,7 @@ import {
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
-export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | 'pre-build' | null;
+export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | 'pre-build' | 'build-log' | null;
 
 export interface MaestroState {
   workspace: Workspace | null;
@@ -57,6 +57,7 @@ export interface MaestroState {
   activeThread: Thread | null;
   clawView: ClawView;
   composerIntent: ComposerIntent;
+  composerDraft: string;
   focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
@@ -147,6 +148,7 @@ type Action =
   | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
   | { type: 'SET_COMPOSER_INTENT'; payload: ComposerIntent }
+  | { type: 'SET_COMPOSER_DRAFT'; payload: string }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
@@ -217,6 +219,7 @@ const initial: MaestroState = {
   activeThread: null,
   clawView: 'concierge' as ClawView,
   composerIntent: 'chat',
+  composerDraft: '',
   focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
@@ -284,6 +287,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         threadMessages: [],
         activeThread: null,
         composerIntent: 'chat',
+        composerDraft: '',
         clawBuildSession: null,
         sessionBuildState: createEmptySessionBuildState(),
         jobStreamingOutput: {},
@@ -406,6 +410,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
     case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
     case 'SET_COMPOSER_INTENT': return { ...state, composerIntent: action.payload };
+    case 'SET_COMPOSER_DRAFT': return { ...state, composerDraft: action.payload };
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };

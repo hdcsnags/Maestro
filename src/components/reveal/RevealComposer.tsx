@@ -121,6 +121,15 @@ export default function RevealComposer(_props: Props) {
     }
   }, [state.activeSession?.id, state.activeSession?.mode]);
 
+  // Sync external composer draft (set by quick-start chips in EmptyStage)
+  useEffect(() => {
+    if (state.composerDraft) {
+      setPrompt(state.composerDraft);
+      dispatch({ type: 'SET_COMPOSER_DRAFT', payload: '' });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, [state.composerDraft, dispatch]);
+
   useEffect(() => {
     // Focus text area if we just opened the shell or thread changes
     textareaRef.current?.focus();

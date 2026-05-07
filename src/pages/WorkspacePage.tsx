@@ -16,6 +16,7 @@ import PreBuildPanel from '../components/reveal/PreBuildPanel';
 import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
+import BuildLogDrawer from '../components/reveal/BuildLogDrawer';
 import Toast from '../components/ui/Toast';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useRepoMemory } from '../hooks/useRepoMemory';
@@ -239,6 +240,7 @@ export default function WorkspacePage() {
       <TrustDrawer />
       <SynthesisDrawer />
       <VaultDrawer />
+      <BuildLogDrawer />
       <ShortcutOverlay />
       <PatchModal />
       <ExecutionModal />
