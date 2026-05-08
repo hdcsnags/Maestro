@@ -313,6 +313,28 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries.*
 
+### 2026-05-08 — Copilot CLI (Sonnet 4.6) — PRO-02 callAgent wired (iteration loop now runs)
+
+**What was done**:
+- Replaced the `give_up` stub in `packages/maestroclaw/src/iteration/runner.ts` with a real adapter-backed implementation.
+- Added `timeoutAt: number` to `LoopState` (computed once at loop start, eliminates the duplicate local var).
+- Per-step timeout now uses remaining-budget math: `max(30s, min(3min, floor(remaining * 0.8)))` — fixes the prior formula that could yield ~3s on default settings (60s total / 20 steps).
+- Concurrent control poll during agent call: a background loop calls `processControls` every 2s while the adapter runs, so abort/pause are detected mid-step. Adapter can't be killed mid-run (no process handle exposed), so abort surfaces after the call returns via a `give_up` signal.
+- Combined prompt format: `SYSTEM INSTRUCTIONS:\n{systemPrompt}\n\nUSER TASK:\n{userMessage}` — explicit headers instead of ambiguous `---` separator.
+- Adapter selected via `CLAW_ITERATION_ADAPTER` env var, defaults to `claude_code`.
+- Non-zero exit code with non-empty output still accepted (`parseIterationStepOutput` decides validity).
+
+**Verification**: `npx tsc --noEmit` in `packages/maestroclaw` (0 errors) + `npm run typecheck` in root (0 errors). Committed `1c9d3a6`, pushed to GitHub.
+
+**Decisions made**:
+- Did NOT add per-loop adapter routing from `agent_id` in this pass — would require an API call to resolve the agent record. Added env var override as a practical alternative. Future: resolve adapter from `agents.provider_group` when the loop record includes it.
+- abort signal during agent call returns a `give_up` (not "aborted") so the loop terminates through the standard `runStep` → `completeLoop("unrecoverable", "agent_gave_up")` path rather than a special case.
+
+**What's next for PRO-02**:
+1. Deploy `iteration-init` + `executor-api` updates (`supabase functions deploy iteration-init executor-api`)
+2. Apply migration `20260507130000_iteration_loops.sql` to remote (`supabase db push`)
+3. Smoke test: set "Iterate" intent in RevealComposer, submit a goal + scope, watch Claw pick up the loop and run a real step
+
 ### 2026-05-07 — Copilot CLI (Sonnet 4.6) — PRO-02 Iteration Loop Primitive
 
 **What was done**:
@@ -350,7 +372,7 @@ These areas change often and should be re-verified after any significant work se
 - `iteration-init` + `executor-api` NOT yet deployed (requires `supabase functions deploy`).
 - MaestroClaw packages NOT yet built/republished.
 - `npm run typecheck` and `npm run build` must be run to validate zero type errors.
-- Runner `callAgent` stub means loop always terminates with `give_up` — real adapter wiring is a follow-up task.
+- Runner `callAgent` stub means loop always terminates with `give_up` — ~~real adapter wiring is a follow-up task.~~ ✅ **Fixed (2026-05-08, commit `1c9d3a6`)**: `callAgent` now calls the real `claude_code` adapter with remaining-budget timeout, concurrent control polling, and structured prompt format.
 
 
 
