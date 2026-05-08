@@ -15,6 +15,7 @@ import {
   pollLoopControls, applyLoopControl,
   type IterationLoopRecord, type IterationStepReport, type IterationControlRecord
 } from "../api.js";
+import { getAdapter, type AdapterResult } from "../adapters/index.js";
 import {
   getIterationSystemPrompt, renderIterationUserMessage,
   parseIterationStepOutput, hashDiff, detectAgentStuck,
@@ -37,6 +38,7 @@ interface LoopState {
   autoApply: boolean;
   aborted: boolean;
   paused: boolean;
+  timeoutAt: number;
 }
 
 export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRecord, workDir: string): Promise<void> {
@@ -48,6 +50,7 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
     autoApply: loop.auto_apply,
     aborted: false,
     paused: false,
+    timeoutAt: Date.now() + loop.total_timeout_seconds * 1000,
   };
 
   // For lock acquisition: use session_id as repo identifier when real repo context is unavailable.
@@ -68,7 +71,7 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
     } catch { /* not a git repo or no commits yet */ }
     void startingSha;
 
-    const timeoutAt = Date.now() + loop.total_timeout_seconds * 1000;
+    const timeoutAt = state.timeoutAt;
 
     for (let stepNum = 1; stepNum <= loop.max_steps; stepNum++) {
       if (state.aborted) break;
@@ -157,7 +160,7 @@ async function runStep(
   const systemPrompt = getIterationSystemPrompt();
   let agentOutput: string;
   try {
-    agentOutput = await callAgent(config, loop, systemPrompt, userMessage);
+    agentOutput = await callAgent(config, loop, systemPrompt, userMessage, workDir, state);
   } catch (err) {
     await reportStep(config, loop.id, {
       step_number: stepNum,
@@ -435,22 +438,64 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
   return result;
 }
 
-// callAgent stub — returns a give_up response so the loop terminates cleanly.
-// Wire the real claude_code adapter here once the runner e2e smoke test passes.
+// callAgent — runs the iteration adapter and returns its raw text output.
+// Uses claude_code by default; override via CLAW_ITERATION_ADAPTER env var.
+// Polls loop controls concurrently so abort/pause are detected even while the
+// adapter is running. Mid-run kill isn't supported (adapter doesn't expose the
+// child process handle), so an abort takes effect after this call returns.
 async function callAgent(
-  _config: ClawConfig,
+  config: ClawConfig,
   _loop: IterationLoopRecord,
-  _systemPrompt: string,
-  _userMessage: string
+  systemPrompt: string,
+  userMessage: string,
+  workDir: string,
+  state: LoopState
 ): Promise<string> {
-  return JSON.stringify({
-    rationale: "stub: agent integration pending",
-    diff: "",
-    expected_outcome: "n/a",
-    confidence: "low",
-    give_up: true,
-    give_up_rationale: "claude_code adapter integration not yet wired into runner",
-  });
+  const adapterName = process.env.CLAW_ITERATION_ADAPTER ?? "claude_code";
+  const adapter = getAdapter(adapterName);
+
+  const combined =
+    `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER TASK:\n${userMessage}`;
+
+  // Remaining-budget aware per-step timeout.
+  // Floor: 30 s (model needs time to respond); cap: 3 min; uses 80% of remaining.
+  const remainingMs = Math.max(0, state.timeoutAt - Date.now());
+  const perStepMs = Math.max(30_000, Math.min(180_000, Math.floor(remainingMs * 0.8)));
+
+  // Poll loop controls concurrently while the adapter runs.
+  let controlPollDone = false;
+  const controlPoll = (async () => {
+    while (!controlPollDone && !state.aborted) {
+      await sleep(CONTROL_POLL_INTERVAL_MS);
+      if (!controlPollDone) await processControls(config, state).catch(() => {});
+    }
+  })();
+
+  let result: AdapterResult;
+  try {
+    result = await adapter.run(combined, workDir, perStepMs);
+  } finally {
+    controlPollDone = true;
+    await controlPoll.catch(() => {});
+  }
+
+  // If abort was detected during the agent call, signal give_up so the loop
+  // terminates cleanly via the standard path.
+  if (state.aborted) {
+    return JSON.stringify({
+      rationale: "user_aborted_during_agent_call",
+      diff: "",
+      expected_outcome: "n/a",
+      confidence: "low",
+      give_up: true,
+      give_up_rationale: "user_aborted",
+    });
+  }
+
+  if (!result.success && !result.output?.trim()) {
+    throw new Error(result.error ?? "agent returned no output");
+  }
+  return result.output ?? "";
 }
 
 function parseDiffFiles(diff: string): string[] {
