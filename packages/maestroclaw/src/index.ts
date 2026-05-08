@@ -108,8 +108,7 @@ async function main() {
           const claimedLoop = await claimLoop(config, pendingLoop.id).catch(() => null);
           if (claimedLoop) {
             runningLoopIds.add(claimedLoop.id);
-            const workDir = config.workDir ?? process.cwd();
-            void runIterationLoop(config, claimedLoop, workDir)
+            void runIterationLoop(config, claimedLoop)
               .finally(() => runningLoopIds.delete(claimedLoop.id));
           }
         }

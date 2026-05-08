@@ -1,14 +1,11 @@
 // PRO-02: Iteration loop driver.
 // Runs the read → propose → apply → verify cycle, handling abort signals,
 // concurrent control polling, and stale-diff detection.
-//
-// The callAgent() function is a stub that returns a give_up response.
-// Wire the real claude_code adapter once the loop mechanics are e2e validated.
 
 import { execFileSync, spawn } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync, renameSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { resolve, join, relative } from "node:path";
 import type { ClawConfig } from "../config.js";
 import {
   reportStep, completeLoop,
@@ -22,7 +19,7 @@ import {
   type FileSnapshot, type PriorStepSummary
 } from "./prompt.js";
 import {
-  applyDiffWithCheckpoint, rollbackStep, commitStep
+  applyDiffWithCheckpoint, rollbackStep, commitStep, matchesAnyScope
 } from "./apply-diff.js";
 import { acquireIterationLocks, releaseIterationLocks } from "./locks.js";
 
@@ -41,22 +38,13 @@ interface LoopState {
   timeoutAt: number;
 }
 
-export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRecord, workDir: string): Promise<void> {
-  const state: LoopState = {
-    loop,
-    workDir,
-    priorSteps: [],
-    diffHashes: [],
-    autoApply: loop.auto_apply,
-    aborted: false,
-    paused: false,
-    timeoutAt: Date.now() + loop.total_timeout_seconds * 1000,
-  };
-
-  // For lock acquisition: use session_id as repo identifier when real repo context is unavailable.
+export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRecord): Promise<void> {
   const repoFullName = loop.session_id;
+  let workDir = "";
+  let ownedWorkspace = false;
+
   try {
-    // Acquire locks on literal paths
+    // 1. Acquire locks FIRST — don't touch disk until we own the right to run
     try {
       await acquireIterationLocks(config, loop.id, loop.scope_paths, repoFullName);
     } catch (lockErr) {
@@ -64,7 +52,32 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
       return;
     }
 
-    // Record starting commit (best-effort)
+    // 2. Set up workspace (after locks succeed)
+    try {
+      if (config.workDir) {
+        workDir = resolve(config.workDir);
+      } else {
+        workDir = setupLoopWorkspace(config, loop.id);
+        ownedWorkspace = true;
+      }
+      console.log(`  🔧 [loop] workspace: ${workDir}`);
+    } catch (wsErr) {
+      await completeLoop(config, loop.id, "failed", `workspace_setup_failed: ${wsErr instanceof Error ? wsErr.message : String(wsErr)}`);
+      return;
+    }
+
+    const state: LoopState = {
+      loop,
+      workDir,
+      priorSteps: [],
+      diffHashes: [],
+      autoApply: loop.auto_apply,
+      aborted: false,
+      paused: false,
+      timeoutAt: Date.now() + loop.total_timeout_seconds * 1000,
+    };
+
+    // Record starting commit (best-effort; setupLoopWorkspace creates an empty one)
     let startingSha = "";
     try {
       startingSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workDir, encoding: "utf8" }).trim();
@@ -120,6 +133,22 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
     }
   } finally {
     await releaseIterationLocks(config, loop.id).catch(() => {});
+    if (ownedWorkspace && workDir) {
+      const loopDir = resolve(join(config.workspaceDir, loop.id));
+      if (existsSync(loopDir)) {
+        if (config.keepSucceededWorkspaces) {
+          try {
+            const namedDir = join(config.workspaceDir, `loop-${loop.id.slice(0, 8)}`);
+            renameSync(loopDir, namedDir);
+            console.log(`  📁 [loop] Workspace preserved: loop-${loop.id.slice(0, 8)}`);
+          } catch {
+            console.warn(`  ⚠ Could not rename loop workspace ${loopDir}`);
+          }
+        } else {
+          try { rmSync(loopDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+        }
+      }
+    }
   }
 }
 
@@ -415,11 +444,69 @@ async function processControls(config: ClawConfig, state: LoopState): Promise<vo
   }
 }
 
+// ── Workspace setup ──────────────────────────────────────────────────────────
+
+function setupLoopWorkspace(config: ClawConfig, loopId: string): string {
+  const workDir = resolve(join(config.workspaceDir, loopId, "repo"));
+  mkdirSync(workDir, { recursive: true });
+
+  const gitDir = join(workDir, ".git");
+  if (!existsSync(gitDir)) {
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd: workDir, stdio: "pipe" });
+    execFileSync("git", ["config", "user.email", "claw@maestro.local"], { cwd: workDir, stdio: "pipe" });
+    execFileSync("git", ["config", "user.name", "MaestroClaw"], { cwd: workDir, stdio: "pipe" });
+    // Initial empty commit so git rev-parse HEAD succeeds and rollbacks work from step 1
+    execFileSync("git", ["commit", "--allow-empty", "-m", "claw:init"], { cwd: workDir, stdio: "pipe" });
+  }
+  return workDir;
+}
+
+// ── File reading ──────────────────────────────────────────────────────────────
+
+/** Recursively walks a directory, skipping hidden dirs and common build artifacts. */
+function walkTree(dir: string, baseDir: string): string[] {
+  const results: string[] = [];
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") continue;
+      const fullPath = join(dir, entry.name);
+      const relPath = relative(baseDir, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        results.push(...walkTree(fullPath, baseDir));
+      } else {
+        results.push(relPath);
+      }
+    }
+  } catch { /* skip unreadable dirs */ }
+  return results;
+}
+
 function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[] {
   const result: FileSnapshot[] = [];
+  const seen = new Set<string>();
+  const resolvedWorkDir = resolve(workDir);
+
+  // Collect candidate relative paths — literal paths directly, glob patterns via dir walk
+  const candidates = new Set<string>();
+  const hasGlob = scopePaths.some(p => p.includes("*") || p.includes("?"));
+
   for (const pattern of scopePaths) {
-    if (pattern.includes("*") || pattern.includes("?")) continue; // glob — skip literal read
-    const fullPath = resolve(workDir, pattern);
+    if (!pattern.includes("*") && !pattern.includes("?")) {
+      candidates.add(pattern);
+    }
+  }
+
+  if (hasGlob) {
+    for (const p of walkTree(resolvedWorkDir, resolvedWorkDir)) {
+      if (matchesAnyScope(p, scopePaths)) candidates.add(p);
+    }
+  }
+
+  for (const relPath of candidates) {
+    if (seen.has(relPath)) continue;
+    seen.add(relPath);
+    const fullPath = resolve(resolvedWorkDir, relPath);
     if (!existsSync(fullPath)) continue;
     try {
       const rawContent = readFileSync(fullPath);
@@ -427,7 +514,7 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
       const content = rawContent.toString("utf8");
       const truncated = rawContent.byteLength > MAX_CONTENT_BYTES;
       result.push({
-        path: pattern,
+        path: relPath,
         sha256,
         content_for_prompt: truncated ? content.slice(0, MAX_CONTENT_BYTES) : content,
         truncated,
@@ -435,6 +522,7 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
       });
     } catch { /* unreadable — skip */ }
   }
+
   return result;
 }
 
