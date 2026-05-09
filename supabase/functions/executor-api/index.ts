@@ -662,12 +662,16 @@ Deno.serve(async (req: Request) => {
 
       if (upsertErr) return err(upsertErr.message, 500);
 
-      // Update loop step_count (high-watermark) and updated_at
+      // Update loop step_count (high-watermark), current_step_id, and updated_at
       const newStepCount = Math.max(
         typeof loop.step_count === "number" ? loop.step_count : 0,
         step_number,
       );
-      const loopUpdate: Record<string, unknown> = { step_count: newStepCount, updated_at: now };
+      const loopUpdate: Record<string, unknown> = {
+        step_count: newStepCount,
+        current_step_id: step.id,
+        updated_at: now,
+      };
 
       // If step state is terminal for loop, also finalize loop status
       const STEP_TO_LOOP_STATUS: Record<string, string> = {

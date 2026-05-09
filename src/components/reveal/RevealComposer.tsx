@@ -4,6 +4,7 @@ import { useOrchestration } from '../../hooks/useOrchestration';
 import { useThreads } from '../../hooks/useThreads';
 import { useWorkspace } from '../../hooks/useWorkspace';
 import { useIterationLoop } from '../../hooks/useIterationLoop';
+import { supabase } from '../../lib/supabase';
 import {
   AlertTriangle, ChevronDown, Hammer, MessageSquare, Radio,
   RefreshCw, Zap,
@@ -79,11 +80,12 @@ export default function RevealComposer(_props: Props) {
     buildFromChat,
   } = useThreads();
   const { createSession } = useWorkspace();
-  const { createLoop } = useIterationLoop();
+  const { createLoop, getStepsForLoop } = useIterationLoop();
   const [prompt, setPrompt] = useState('');
   const [elevatedCapAck, setElevatedCapAck] = useState(false);
   const [pendingSessionMode, setPendingSessionMode] = useState<SessionMode>('ask');
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [scopeFilling, setScopeFilling] = useState(false);
   // Iterate form state
   const [iterateGoal, setIterateGoal] = useState('');
   const [iterateScopePaths, setIterateScopePaths] = useState('');
@@ -355,13 +357,50 @@ export default function RevealComposer(_props: Props) {
       setIterateVerifyCmd('');
       setIterateAutoApply(false);
       setIterateMaxSteps(10);
-      dispatch({ type: 'SET_COMPOSER_INTENT', payload: 'chat' });
+      // Stay in iterate mode so the user can see the active loop progress below
     } catch (e) {
       dispatch({ type: 'SHOW_TOAST', payload: e instanceof Error ? e.message : 'Failed to create iteration loop' });
     } finally {
       setIterateSubmitting(false);
     }
   }, [iterateGoal, iterateScopePaths, iterateVerifyCmd, iterateAutoApply, iterateMaxSteps, state.activeSession, state.activeThread?.id, state.executors, createLoop, dispatch]);
+
+  const fillScopeFromLanes = useCallback(async () => {
+    if (!state.activeSession) return;
+    setScopeFilling(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: lanes } = await (supabase as any)
+        .from('build_lanes')
+        .select('lane_paths, role')
+        .eq('session_id', state.activeSession.id)
+        .in('role', ['builder', 'reviewer']);
+      if (lanes && lanes.length > 0) {
+        const paths = (lanes as { lane_paths: string[] }[])
+          .flatMap(l => l.lane_paths)
+          .filter((p, i, arr) => arr.indexOf(p) === i); // dedupe
+        setIterateScopePaths(paths.join('\n'));
+        return;
+      }
+      // Fallback: parse ARCHITECT.md lane table
+      const md = state.activeSession.architect_md;
+      if (!md) return;
+      const paths: string[] = [];
+      for (const line of md.split('\n')) {
+        const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+        if (cells.length < 2) continue;
+        // Look for cells that contain path-like tokens (contain / or *)
+        for (const cell of cells.slice(1)) {
+          const parts = cell.split(',').map(p => p.trim()).filter(p => p.includes('/') || p.includes('*'));
+          paths.push(...parts);
+        }
+      }
+      const dedupedPaths = [...new Set(paths)];
+      if (dedupedPaths.length > 0) setIterateScopePaths(dedupedPaths.join('\n'));
+    } catch { /* best-effort */ } finally {
+      setScopeFilling(false);
+    }
+  }, [state.activeSession]);
 
   const handleSubmit = useCallback(async () => {
     if (!canSend) return;
@@ -559,6 +598,20 @@ export default function RevealComposer(_props: Props) {
                   color: 'var(--ink-1)', lineHeight: 1.5,
                 }}
               />
+              {(state.activeSession?.architect_md || true) && (
+                <button
+                  onClick={() => { void fillScopeFromLanes(); }}
+                  disabled={scopeFilling || !state.activeSession}
+                  style={{
+                    alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 6,
+                    background: 'var(--surf-1)', border: '1px solid var(--edge-1)',
+                    fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
+                    letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', outline: 'none',
+                  }}
+                >
+                  {scopeFilling ? 'Filling…' : 'Fill from ARCHITECT.md lanes'}
+                </button>
+              )}
               <input
                 type="text"
                 value={iterateVerifyCmd}
@@ -617,6 +670,43 @@ export default function RevealComposer(_props: Props) {
               </div>
             </div>
           )}
+
+          {/* Active loop progress banner */}
+          {composerIntent === 'iterate' && state.iterationLoops.length > 0 && (() => {
+            const activeLoops = state.iterationLoops
+              .filter(l => l.session_id === state.activeSession?.id)
+              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            if (activeLoops.length === 0) return null;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                {activeLoops.slice(0, 3).map(loop => {
+                  const steps = getStepsForLoop(loop.id);
+                  const latestStep = steps[steps.length - 1];
+                  const isTerminal = ['succeeded', 'failed', 'aborted', 'unrecoverable'].includes(loop.status);
+                  const statusColor = loop.status === 'succeeded' ? 'var(--ok)' : isTerminal ? 'var(--risk)' : 'var(--gold)';
+                  return (
+                    <div key={loop.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px',
+                      borderRadius: 6, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--edge-0)',
+                      fontFamily: 'var(--mono)', fontSize: 11,
+                    }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+                      <span style={{ color: 'var(--ink-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {loop.goal.slice(0, 48)}{loop.goal.length > 48 ? '…' : ''}
+                      </span>
+                      <span style={{ color: statusColor, flexShrink: 0 }}>
+                        {isTerminal ? loop.status : (
+                          latestStep
+                            ? `step ${loop.step_count}/${loop.max_steps} · ${latestStep.state.replace('_', ' ')}`
+                            : `step ${loop.step_count}/${loop.max_steps}`
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
 
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10, marginTop: 6,

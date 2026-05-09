@@ -119,7 +119,7 @@ export function useIterationLoop() {
     if (error) throw new Error((error as { message: string }).message);
   }, []);
 
-  // Load active loops for current session on mount/session change
+  // Load active + recently completed loops for current session on mount/session change
   useEffect(() => {
     const sessionId = state.activeSession?.id;
     if (!sessionId) return;
@@ -129,8 +129,8 @@ export function useIterationLoop() {
       .from('iteration_loops')
       .select('*')
       .eq('session_id', sessionId)
-      .not('status', 'in', '("succeeded","failed","aborted","unrecoverable")')
       .order('created_at', { ascending: false })
+      .limit(20)
       .then(({ data }: { data: IterationLoop[] | null }) => {
         if (data && data.length > 0) {
           dispatch({ type: 'SET_ITERATION_LOOPS', payload: data });
