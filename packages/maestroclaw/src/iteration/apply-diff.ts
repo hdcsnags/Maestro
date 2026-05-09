@@ -267,6 +267,8 @@ export function parseUnifiedDiffPaths(diff: string): string[] {
 export function matchesAnyScope(filePath: string, scopePaths: string[]): boolean {
   if (scopePaths.length === 0) return false;
   const normalized = filePath.replace(/^\.\//, "").replace(/\\/g, "/");
+  // "." / "./" / "" all mean "entire workspace — no restriction"
+  if (scopePaths.some(p => p === "." || p === "" || p === "./" || p === "**")) return true;
   return scopePaths.some(pattern => globMatch(normalized, pattern));
 }
 

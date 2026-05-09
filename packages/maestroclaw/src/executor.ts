@@ -874,7 +874,9 @@ export async function executeSessionJob(
       console.log(`  📝 [session] After fix pass: ${totalPaths.length} file(s) total`);
     }
 
-    const allowedScope = job.allowed_paths?.length ? job.allowed_paths : ["**"];
+    // Normalize "." and "" to "**" — means "entire workspace, no restriction"
+    const allowedScope = (job.allowed_paths?.length ? job.allowed_paths : ["**"])
+      .map(p => (p === "." || p === "" || p === "./") ? "**" : p);
     const { kept: scopedWritten, rejected: rejectedPaths } = enforceArtifactScope(written, allowedScope);
 
     if (rejectedPaths.length > 0) {
