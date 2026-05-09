@@ -97,7 +97,6 @@ export class ClaudeCodeAdapter implements Adapter {
         ["--print", "--output-format", "text", "--model", model],
         {
           cwd: workDir,
-          timeout: timeoutMs,
           shell: true,
           env: { ...process.env },
         }
@@ -105,8 +104,22 @@ export class ClaudeCodeAdapter implements Adapter {
 
       let stdout = "";
       let stderr = "";
+      let timedOut = false;
       const stdoutSplitter = onLine ? new LineSplitter() : null;
       const stderrSplitter = onLine ? new LineSplitter() : null;
+
+      // Manual timeout — spawn's built-in timeout with shell:true doesn't kill
+      // the claude subprocess on Windows (kills cmd.exe but leaves claude.exe orphaned).
+      const killTimer = setTimeout(() => {
+        timedOut = true;
+        try { proc.kill(); } catch { /* best effort */ }
+        // Windows: kill the whole process tree so claude.exe doesn't linger
+        if (process.platform === "win32" && proc.pid) {
+          try {
+            spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], { shell: false }).unref();
+          } catch { /* best effort */ }
+        }
+      }, timeoutMs);
 
       proc.stdout.on("data", (data: Buffer) => {
         const chunk = data.toString();
@@ -123,18 +136,20 @@ export class ClaudeCodeAdapter implements Adapter {
       proc.stdin.end();
 
       proc.on("close", (code) => {
+        clearTimeout(killTimer);
         if (onLine) {
           stdoutSplitter?.drain((line) => onLine("stdout", line));
           stderrSplitter?.drain((line) => onLine("stderr", line));
         }
         resolve({
-          success: code === 0,
+          success: code === 0 && !timedOut,
           output: stdout,
           ...(stderr ? { error: stderr } : {}),
         });
       });
 
       proc.on("error", (err) => {
+        clearTimeout(killTimer);
         resolve({
           success: false,
           output: stdout,
@@ -153,14 +168,11 @@ export class ClaudeCodeAdapter implements Adapter {
     console.log(`  🤖 claude_code [session]: running in ${workDir} (model: ${model})`);
 
     return new Promise((resolve) => {
-      // --dangerously-skip-permissions: Claude writes files without asking for approval.
-      // --output-format omitted: executor collects files via dir-diff, not stdout parsing.
       const proc = spawn(
         "claude",
         ["--dangerously-skip-permissions", "--model", model],
         {
           cwd: workDir,
-          timeout: timeoutMs,
           shell: true,
           env: { ...process.env },
         }
@@ -168,6 +180,17 @@ export class ClaudeCodeAdapter implements Adapter {
 
       let stdout = "";
       let stderr = "";
+      let timedOut = false;
+
+      const killTimer = setTimeout(() => {
+        timedOut = true;
+        try { proc.kill(); } catch { /* best effort */ }
+        if (process.platform === "win32" && proc.pid) {
+          try {
+            spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], { shell: false }).unref();
+          } catch { /* best effort */ }
+        }
+      }, timeoutMs);
 
       proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
       proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
@@ -176,14 +199,16 @@ export class ClaudeCodeAdapter implements Adapter {
       proc.stdin.end();
 
       proc.on("close", (code) => {
+        clearTimeout(killTimer);
         resolve({
-          success: code === 0,
+          success: code === 0 && !timedOut,
           output: stdout,
           ...(stderr ? { error: stderr } : {}),
         });
       });
 
       proc.on("error", (err) => {
+        clearTimeout(killTimer);
         resolve({
           success: false,
           output: stdout,

@@ -139,10 +139,14 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
         if (config.keepSucceededWorkspaces) {
           try {
             const namedDir = join(config.workspaceDir, `loop-${loop.id.slice(0, 8)}`);
+            // On Windows renameSync fails if destination exists — remove it first
+            if (existsSync(namedDir)) {
+              rmSync(namedDir, { recursive: true, force: true });
+            }
             renameSync(loopDir, namedDir);
             console.log(`  📁 [loop] Workspace preserved: loop-${loop.id.slice(0, 8)}`);
           } catch {
-            console.warn(`  ⚠ Could not rename loop workspace ${loopDir}`);
+            console.warn(`  ⚠ Could not rename loop workspace ${loopDir} (preserved at original path)`);
           }
         } else {
           try { rmSync(loopDir, { recursive: true, force: true }); } catch { /* best-effort */ }
