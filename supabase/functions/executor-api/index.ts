@@ -662,7 +662,11 @@ Deno.serve(async (req: Request) => {
 
       if (upsertErr) return err(upsertErr.message, 500);
 
-      // Update loop step_count (high-watermark), current_step_id, and updated_at
+      // Update loop step_count (high-watermark), current_step_id, and updated_at.
+      // NOTE: Do NOT mirror step terminal states to the loop here.
+      // A step can fail and the runner continues to the next step.
+      // Only complete_loop (called explicitly by the runner) should set loop terminal status.
+      // The sole exception is "succeeded" — a succeeded step means the loop is done.
       const newStepCount = Math.max(
         typeof loop.step_count === "number" ? loop.step_count : 0,
         step_number,
@@ -673,14 +677,8 @@ Deno.serve(async (req: Request) => {
         updated_at: now,
       };
 
-      // If step state is terminal for loop, also finalize loop status
-      const STEP_TO_LOOP_STATUS: Record<string, string> = {
-        succeeded: "succeeded",
-        failed: "failed",
-        aborted: "aborted",
-      };
-      if (state in STEP_TO_LOOP_STATUS) {
-        loopUpdate.status = STEP_TO_LOOP_STATUS[state];
+      if (state === "succeeded") {
+        loopUpdate.status = "succeeded";
         loopUpdate.completed_at = now;
         loopUpdate.lease_expires_at = null;
       }

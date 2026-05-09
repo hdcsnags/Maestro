@@ -531,10 +531,13 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
 }
 
 // callAgent — runs the iteration adapter and returns its raw text output.
-// Uses claude_code by default; override via CLAW_ITERATION_ADAPTER env var.
+// Uses claude_code by default; falls back through codex_cli → copilot_cli → gemini_cli
+// if the primary adapter fails (e.g. rate limit). Override primary via CLAW_ITERATION_ADAPTER env var.
 // Polls loop controls concurrently so abort/pause are detected even while the
 // adapter is running. Mid-run kill isn't supported (adapter doesn't expose the
 // child process handle), so an abort takes effect after this call returns.
+const ITERATION_ADAPTER_FALLBACK_CHAIN = ["claude_code", "codex_cli", "copilot_cli", "gemini_cli"];
+
 async function callAgent(
   config: ClawConfig,
   _loop: IterationLoopRecord,
@@ -543,8 +546,9 @@ async function callAgent(
   workDir: string,
   state: LoopState
 ): Promise<string> {
-  const adapterName = process.env.CLAW_ITERATION_ADAPTER ?? "claude_code";
-  const adapter = getAdapter(adapterName);
+  const primary = process.env.CLAW_ITERATION_ADAPTER ?? "claude_code";
+  // Build the fallback chain: primary first, then the rest in order (deduped)
+  const chain = [primary, ...ITERATION_ADAPTER_FALLBACK_CHAIN.filter(a => a !== primary)];
 
   const combined =
     `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER TASK:\n${userMessage}`;
@@ -563,9 +567,31 @@ async function callAgent(
     }
   })();
 
-  let result: AdapterResult;
+  let lastError: string | undefined;
+  let result: AdapterResult | undefined;
+
   try {
-    result = await adapter.run(combined, workDir, perStepMs);
+    for (const adapterName of chain) {
+      let adapter;
+      try {
+        adapter = getAdapter(adapterName);
+      } catch {
+        // Adapter not registered (e.g. not installed) — skip silently
+        continue;
+      }
+
+      result = await adapter.run(combined, workDir, perStepMs);
+
+      if (result.success || result.output?.trim()) {
+        if (adapterName !== primary) {
+          console.log(`  ↩ [iterate] fell back from ${primary} → ${adapterName}`);
+        }
+        break; // Got usable output
+      }
+
+      lastError = result.error ?? `${adapterName} returned no output`;
+      console.warn(`  ⚠ [iterate] ${adapterName} failed: ${lastError} — trying next adapter`);
+    }
   } finally {
     controlPollDone = true;
     await controlPoll.catch(() => {});
@@ -584,8 +610,8 @@ async function callAgent(
     });
   }
 
-  if (!result.success && !result.output?.trim()) {
-    throw new Error(result.error ?? "agent returned no output");
+  if (!result || (!result.success && !result.output?.trim())) {
+    throw new Error(lastError ?? "all adapters returned no output");
   }
   return result.output ?? "";
 }
