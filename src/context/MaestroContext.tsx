@@ -8,6 +8,7 @@ import {
   ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
   ProviderHealthRecord, RepoMemoryRecord, IterationLoop, IterationStep,
+  VerbosityTier,
 } from '../types';
 
 export type ViewMode = 'stacked' | 'carousel';
@@ -50,6 +51,7 @@ export interface MaestroState {
   selectedRoundIndex: number; // -1 = auto-follow latest round
   patchModalOpen: boolean;
   executionModalOpen: boolean;
+  commandPaletteOpen: boolean;
   focusMode: boolean;
   // Claw Mode — thread state
   threads: Thread[];
@@ -58,6 +60,7 @@ export interface MaestroState {
   clawView: ClawView;
   composerIntent: ComposerIntent;
   composerDraft: string;
+  verbosityTier: VerbosityTier;
   focusedAgentId: string | null;
   conciergeModel: string;
   isConciergeSending: boolean;
@@ -137,6 +140,7 @@ type Action =
   | { type: 'SET_SELECTED_ROUND'; payload: number }
   | { type: 'SET_PATCH_MODAL'; payload: boolean }
   | { type: 'SET_EXECUTION_MODAL'; payload: boolean }
+  | { type: 'SET_COMMAND_PALETTE'; payload: boolean }
   | { type: 'TOGGLE_FOCUS_MODE' }
   | { type: 'SET_INIT_ERROR'; payload: string | null }
   // Claw Mode — thread actions
@@ -149,6 +153,7 @@ type Action =
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
   | { type: 'SET_COMPOSER_INTENT'; payload: ComposerIntent }
   | { type: 'SET_COMPOSER_DRAFT'; payload: string }
+  | { type: 'SET_VERBOSITY_TIER'; payload: VerbosityTier }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
@@ -212,6 +217,7 @@ const initial: MaestroState = {
   selectedRoundIndex: -1,
   patchModalOpen: false,
   executionModalOpen: false,
+  commandPaletteOpen: false,
   focusMode: false,
   // Claw Mode
   threads: [],
@@ -220,6 +226,7 @@ const initial: MaestroState = {
   clawView: 'concierge' as ClawView,
   composerIntent: 'chat',
   composerDraft: '',
+  verbosityTier: 'standard',
   focusedAgentId: null,
   conciergeModel: 'claude-haiku-4-5',
   isConciergeSending: false,
@@ -377,12 +384,13 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       const isSame = state.activeDrawer === action.payload;
       return { ...state, activeDrawer: isSame ? null : action.payload, shortcutOverlayOpen: false };
     }
-    case 'CLOSE_TRANSIENT': return { ...state, activeDrawer: null, shortcutOverlayOpen: false };
+    case 'CLOSE_TRANSIENT': return { ...state, activeDrawer: null, shortcutOverlayOpen: false, commandPaletteOpen: false };
     case 'TOGGLE_SHORTCUTS': return { ...state, shortcutOverlayOpen: !state.shortcutOverlayOpen, activeDrawer: null };
     case 'SET_FOLIO_INDEX': return { ...state, folioIndex: action.payload };
     case 'SET_SELECTED_ROUND': return { ...state, selectedRoundIndex: action.payload, folioIndex: 0 };
     case 'SET_PATCH_MODAL': return { ...state, patchModalOpen: action.payload };
     case 'SET_EXECUTION_MODAL': return { ...state, executionModalOpen: action.payload };
+    case 'SET_COMMAND_PALETTE': return { ...state, commandPaletteOpen: action.payload };
     case 'TOGGLE_FOCUS_MODE': return { ...state, focusMode: !state.focusMode };
     case 'SET_INIT_ERROR': return { ...state, initError: action.payload };
     // Claw Mode — thread reducers
@@ -411,6 +419,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
     case 'SET_COMPOSER_INTENT': return { ...state, composerIntent: action.payload };
     case 'SET_COMPOSER_DRAFT': return { ...state, composerDraft: action.payload };
+    case 'SET_VERBOSITY_TIER': return { ...state, verbosityTier: action.payload };
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };

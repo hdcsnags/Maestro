@@ -45,7 +45,7 @@ Maestro is not a chat app with tabs. It is a **Society of Mind** — a team of a
 **Types:** `tool_use`, `file_write`, `file_read`, `test_run`, `error`, `complete`, `give_up`  
 
 **Files:** `packages/maestroclaw/src/adapters/claude-code.ts`, `copilot-cli.ts`, `codex-cli.ts`, `gemini-cli.ts`, `packages/maestroclaw/src/iteration/runner.ts`  
-**Owner:** GPT-5.5 (Codex CLI adapter fluency) or Sonnet
+**Owner:** OpenAI / Codex / GPT (adapter code + defensive review) or Sonnet
 
 ---
 
@@ -136,7 +136,7 @@ These behaviors mean the UX has failed:
 | **Sonnet (Copilot CLI)** | Lead implementer | All wiring, schema changes, executor logic, FLOW-02, AGENT-01, SOM-02, MEM-02 |
 | **Opus (Claude CLI)** | Prompt author + critic | SOM-04 persona voices + routing rules, agent_query detection signal, `deliberate` prompt refinement, FLOW-01 classification prompt |
 | **Gemini 2.5 Pro** | Large-context UI | FLOW-04 verbosity tiers, FLOW-06 command palette, REFERENCE.md completeness review |
-| **GPT-5.5 / Codex** | Adapter code + defensive review | AGENT-01 structured logging in adapters, security review of agent_query routing (SOM-02), DIFF-04 fallback matrix |
+| **OpenAI / Codex / GPT** | Adapter specialist + defensive reviewer | AGENT-01 structured logging in Claw adapters, security review of agent_query routing (SOM-02), DIFF-04 provider fallback matrix, validation of Codex CLI execution paths |
 
 **How they coordinate:**
 - Each agent reads `MAESTRO_STATE.md` + `AGENTS.md` on start.
@@ -157,7 +157,7 @@ Sprint Round 1 (parallel):
 Sprint Round 2 (parallel):
   Sonnet:   AGENT-01 (structured session log in runner + adapters)
   Gemini:   FLOW-06 (command palette)
-  GPT-5.5:  DIFF-04 provider fallback matrix (if not already done)
+  OpenAI / Codex / GPT: DIFF-04 provider fallback matrix (if not already done)
 
 Sprint Round 3 (sequential):
   Sonnet:   SOM-02 agent_query detection (depends on Opus persona signal format)

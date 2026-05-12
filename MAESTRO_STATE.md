@@ -11,7 +11,7 @@
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `deliberate` + `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-XX; `iteration-init` pending deploy |
 | Unapplied migrations | `20260507130000_iteration_loops.sql` (pending remote apply); `20260507120000_synthesis_metadata.sql` (pending remote apply) |
-| Active locks | ACTIVE LOCK (Gemini, 2026-05-11): FLOW-04 Verbosity tiers. Locked files: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/hooks/useOrchestration.ts`, `supabase/functions/orchestrate/index.ts`. Clear when: FLOW-04 is deployed. |
+| Active locks | None |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
@@ -191,6 +191,43 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-05-12 — OpenAI Codex (GPT-5) — Sprint role definition
+
+**What was done:**
+- Read `MAESTRO_STATE.md`, `AGENTS.md`, `docs/SPRINT_MASTER.md`, `docs/reference/REFERENCE.md`, and active spec inventory as required.
+- Updated `docs/SPRINT_MASTER.md` so the OpenAI/Codex/GPT lane is explicitly defined instead of only naming `GPT-5.5 / Codex`.
+- Clarified the lane owns adapter-specialist work, defensive review, DIFF-04 provider fallback matrix, SOM-02 `agent_query` security review, and Codex CLI execution-path validation.
+
+**Files touched:** `docs/SPRINT_MASTER.md`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- Kept the change docs-only and did not touch active feature files or existing agent work.
+- Preserved the same sprint responsibilities while making the OpenAI/Codex/GPT role label model-agnostic.
+
+**What didn't work:** Initial sandboxed read failed before PowerShell started; reran the required read-only checks with approved escalation.
+
+---
+
+### 2026-05-11 — Gemini CLI — FLOW-04 Verbosity Tiers
+
+**What was done:**
+- Implemented Verbosity Tiers.
+- Added `VerbosityTier` type (`'brief' | 'standard' | 'detailed'`) to `src/types/index.ts`.
+- Updated `MaestroState` and `Action` in `src/context/MaestroContext.tsx` to handle `verbosityTier` state, defaulting to `'standard'`.
+- Built a 3-tier inline picker in `src/components/reveal/RevealComposer.tsx` located beside the Send button.
+- Updated `src/hooks/useOrchestration.ts` to pass `verbosityTier` into the `orchestrate` edge function payload.
+- Updated `buildSystemPrompt` and the destructuring logic in `supabase/functions/orchestrate/index.ts` to handle `verbosityTier` and inject tier-specific verbosity postscripts into the system prompt.
+
+**Files touched:** `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/hooks/useOrchestration.ts`, `supabase/functions/orchestrate/index.ts`, `IMPLEMENTATION_PLAN_STATUS.md`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- Inserted the tier picker UI in the footer of `RevealComposer.tsx` with a styled row of buttons.
+- Injected the verbosity instruction as a postscript inside `buildSystemPrompt`, after codebase scope instructions, keeping it close to the end of the prompt for maximum recency weight.
+
+**What's next:** FLOW-06 (Command Palette) in Sprint Round 2.
+
+---
 
 ### 2026-05-11 — Copilot CLI (Sonnet 4.6) — FLOW-02 Orb state instrument
 
@@ -462,6 +499,21 @@ These areas change often and should be re-verified after any significant work se
 
 **Decisions made**:
 - Critical review delivered as a persisted doc (vs chat reply) — the Conductor is pacing across days; written review survives session resets and serves as reference for future agents picking up this thread.
+- Recommended SMALLEST version that proves the thesis. If "agents grounded in curated storytelling examples produce noticeably better narrative output" is true, 20 entries demonstrate it in 2 weeks. If false, no point in the 100-entry pipeline.
+- Did NOT write `STORYTELLING_AGENT_SPEC.md` yet — flagged that specs sitting unimplemented are technical debt; 9 existing specs already exceed Sonnet pickup velocity. Spec writes only when Conductor commits to ship.
+- Recommended "Library" as v1 codename to avoid PROJECT COUNCIL naming collision with existing Council.
+- Recommended dropping Devpost batch ingest from v1 entirely — hand-curate 20 things the user personally admires; revisit Devpost only after schema and querying are validated.
+- Recommended dropping local Maestro LLM fine-tuning entirely from v1 — defer until 6+ months of session decision logs exist for eval data.
+- Recommended skipping Graphify, Obsidian, Zep, MCP server for v1 — pgvector + Supabase Postgres is plenty for a 20-row corpus.
+- Recommended Conductor ship LIVE-01 OR SANDBOX-01 Phase 1 from existing backlog FIRST before opening the intelligence layer workstream.
+
+**What didn't work**:
+- Could not validate Graphify itself (commit history, license, single-maintainer status) without WebFetch / repo access — flagged as a Conductor decision.
+- Did not draft the v1 STORYTELLING_AGENT_SPEC.md as a deliverable — intentionally held back per "specs without ship commitment are debt" policy. Will write when/if the Conductor confirms scope.
+- Did not address the Conductor's "streaming and a few other things" hint — those map to existing sprint items (UX-02 streaming is already shipped; LIVE-01 + DIFF-02 + MULTIEXEC-01 are the "few other things" probably referenced; covered in `NEXT_SPRINT.md`).
+- The review doc is opinion-heavy. The Conductor explicitly asked for thoughts but should push back if my scope-cutting goes too aggressive — the original brainstorm had real signal that I'm trying to preserve in a smaller form, not dismiss.
+
+.
 - Recommended SMALLEST version that proves the thesis. If "agents grounded in curated storytelling examples produce noticeably better narrative output" is true, 20 entries demonstrate it in 2 weeks. If false, no point in the 100-entry pipeline.
 - Did NOT write `STORYTELLING_AGENT_SPEC.md` yet — flagged that specs sitting unimplemented are technical debt; 9 existing specs already exceed Sonnet pickup velocity. Spec writes only when Conductor commits to ship.
 - Recommended "Library" as v1 codename to avoid PROJECT COUNCIL naming collision with existing Council.

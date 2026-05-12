@@ -818,11 +818,34 @@ export default function RevealComposer(_props: Props) {
             </div>
 
             <div style={{ flex: 1 }} />
-            
+
+            <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '999px', marginRight: '8px' }}>
+              {(['brief', 'standard', 'detailed'] as const).map(tier => (
+                <button
+                  key={tier}
+                  onClick={() => dispatch({ type: 'SET_VERBOSITY_TIER', payload: tier })}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: '999px',
+                    background: state.verbosityTier === tier ? 'var(--surf-3)' : 'transparent',
+                    color: state.verbosityTier === tier ? 'var(--ink-1)' : 'var(--ink-3)',
+                    fontFamily: 'var(--mono)',
+                    fontSize: '9px',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {tier}
+                </button>
+              ))}
+            </div>
+
             <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink-3)', letterSpacing: '0.1em' }}>
               {navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'} ↵
-            </span>
-            
+            </span>            
             <button 
               onClick={() => { void handleSubmit(); }}
               disabled={!canSend}

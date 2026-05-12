@@ -170,6 +170,7 @@ function buildSystemPrompt(
   scopedPaths?: string[],
   codebaseContext?: string,
   mode: OrchestrationMode = "analysis",
+  verbosityTier?: string,
 ): string {
   let prompt = "";
 
@@ -292,6 +293,12 @@ Only include artifacts when file generation is clearly requested or would be gen
 
   if (scopedPaths && scopedPaths.length > 0) {
     prompt += `\n\nYour scope is limited to the following file paths in the repository: ${scopedPaths.join(', ')}. Focus your analysis and recommendations within these paths.`;
+  }
+
+  if (verbosityTier === "brief") {
+    prompt += `\n\nVerbosity: Brief. Respond in ≤100 words. Keep your reasoning sparse and do not include a preamble.`;
+  } else if (verbosityTier === "detailed") {
+    prompt += `\n\nVerbosity: Detailed. Expand fully. Include comprehensive reasoning, tradeoffs, and code examples where appropriate.`;
   }
 
   return prompt;
@@ -652,7 +659,7 @@ Deno.serve(async (req: Request) => {
       return bodyResult;
     }
     const body = bodyResult;
-    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode } = body;
+    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode, verbosityTier } = body;
     const orchestrationMode: OrchestrationMode = mode ?? "analysis";
 
     // Resolve context files if provided
@@ -674,7 +681,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode);
+    let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode, verbosityTier);
 
     // Sprint A · B7.2 — inject ARCHITECT.md into build-mode system prompt.
     // Skip for build_task mode — prompt_slice already contains per-file context.

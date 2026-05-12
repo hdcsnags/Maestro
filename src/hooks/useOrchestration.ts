@@ -317,6 +317,7 @@ export function useOrchestration() {
         repo_connection_id: state.activeRepoConnection?.id,
         session_id: state.activeSession?.id,
         context_files: mergedContextFiles.length > 0 ? mergedContextFiles : undefined,
+        verbosityTier: state.verbosityTier,
       });
 
       const artifacts: ResponseArtifact[] = Array.isArray(result.artifacts) ? result.artifacts : [];

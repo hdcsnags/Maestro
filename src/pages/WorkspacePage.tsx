@@ -17,6 +17,7 @@ import DesignPhase from '../components/reveal/DesignPhase';
 import BuildWorkspace from '../components/reveal/BuildWorkspace';
 import BuildReport from '../components/reveal/BuildReport';
 import BuildLogDrawer from '../components/reveal/BuildLogDrawer';
+import CommandPalette from '../components/reveal/CommandPalette';
 import Toast from '../components/ui/Toast';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useRepoMemory } from '../hooks/useRepoMemory';
@@ -105,7 +106,7 @@ export default function WorkspacePage() {
 
       if (ctrl && key === 'k') {
         e.preventDefault();
-        dispatch({ type: 'OPEN_DRAWER', payload: 'vault' });
+        dispatch({ type: 'SET_COMMAND_PALETTE', payload: true });
         return;
       }
 
@@ -242,6 +243,7 @@ export default function WorkspacePage() {
       <VaultDrawer />
       <BuildLogDrawer />
       <ShortcutOverlay />
+      <CommandPalette />
       <PatchModal />
       <ExecutionModal />
       <PreBuildPanel />
