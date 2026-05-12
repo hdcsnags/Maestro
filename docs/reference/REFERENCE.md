@@ -47,8 +47,8 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Migrations | `supabase/migrations/` |
 | Claw Mode chat | `src/components/reveal/ClawMode.tsx` |
 | Thread hook | `src/hooks/useThreads.ts` |
-| Claw Mode spec | `CLAW_MODE_SPEC.md` |
-| Claw UI issues | `CLAW_UI_ISSUES.md` |
+| Claw Mode spec | `docs/specs/active/CLAW_MODE_SPEC.md` |
+| Claw UI issues | `docs/specs/archive/CLAW_UI_ISSUES.md` |
 
 ## Edge Functions
 
