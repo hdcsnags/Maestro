@@ -9,7 +9,7 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `deliberate` + `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-XX; `iteration-init` pending deploy |
+| Last verified deploy | `orchestrate` + `deliberate` deployed 2026-05-12 (SOM-04); `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-11; `iteration-init` pending deploy |
 | Unapplied migrations | `20260507130000_iteration_loops.sql` (pending remote apply); `20260507120000_synthesis_metadata.sql` (pending remote apply) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 |
@@ -47,6 +47,7 @@
 | Execute Build with patches wired in BuildWorkspace.tsx | 2026-04-12 |
 | Deployed `vault?action=list` succeeds with a real user session under the new auth model | 2026-04-12 (live smoke) |
 | Deployed `vault?action=list` fails in-function with `401 AUTH_HEADER_MISSING` when auth is missing | 2026-04-12 (live smoke) |
+| **SOM-04 Persona voice layer**: `personas` table + 4-persona seed (builder/skeptic/archivist/critic) + `agents.persona_id` FK; `_shared/persona-prompt.ts` renderer+validator; `orchestrate` injects voice_preamble + `agent_query` hint in analysis mode (stripped in build modes); `deliberate` appends `deliberation_signature` per agent; `useOrchestration` passes `agentId` | 2026-05-12 (`npm run typecheck` clean, migration applied, `orchestrate`+`deliberate` deployed, commit `021695e`) |
 | **FLOW-02 Orb state instrument**: `OrbState` extended with `deliberating`, `synthesizing`, `iterating`, `error` states; `deriveOrbState()` priority chain updated (iterating > deliberating > synthesizing > building > concierge > conflict > ...); `deriveOrbStatusText()` covers all 11 states with dynamic iterating step count; `EmptyStage.tsx` `ORB_CONFIG` extended with per-state `gradient` + new keyframes (deliberating/synthesizing/iterating/error); `Orb.tsx` fully state-reactive with per-state gradient + glow RGB | 2026-05-11 (`npm run typecheck` clean) |
 | Bouncer security review gate post-build exists in code | 2026-04-12 (code verified) |
 | Tiered context system (synthesis > recent rounds > pinned > filename refs) | 2026-04-12 (code verified) |
@@ -229,7 +230,33 @@ These areas change often and should be re-verified after any significant work se
 
 ---
 
-### 2026-05-11 — Copilot CLI (Sonnet 4.6) — FLOW-02 Orb state instrument
+### 2026-05-12 — Copilot CLI (Sonnet 4.6) — SOM-04 Persona Voice Layer
+
+**What was done:**
+- Created `supabase/migrations/20260512000000_som04_personas.sql`: `personas` table (id, slug, name, one_liner, voice_preamble, strengths, weaknesses, routing_rules, anti_patterns, deliberation_signature, preferred_arguments); seeded 4 personas (builder/skeptic/archivist/critic); added `persona_id uuid REFERENCES personas(id)` FK to agents; backfilled default slot assignments (anthropic slot 1 → builder, slot 2 → skeptic, openai slot 1 → critic, google slot 1 → archivist).
+- Created `supabase/functions/_shared/persona-prompt.ts`: `PersonaRecord` and `AgentQuerySignal` interfaces; `renderPersonaBlock(persona)` (voice_preamble + anti_patterns tail); `extractAgentQuery(parsed)` validator (checks shape, clips invalid reason).
+- Updated `supabase/functions/orchestrate/index.ts`: added `agentId?` to `OrchestrationRequest`; added `agent_query?` to `OrchestrateResult`; updated `buildSystemPrompt` with `persona?` as 8th param and analysis-mode persona injection block; added `agent_query` schema hint in analysis-mode instructions; added body destructuring for `agentId`; added persona fetch (LEFT JOIN on agents→personas) gated on `agentId && mode === 'analysis'`; added post-parse `agent_query` cleanup (strip in non-analysis modes, validate in analysis).
+- Updated `supabase/functions/deliberate/prompt.ts`: imported `PersonaRecord`; changed `getDeliberationSystemPrompt()` to accept `persona?: PersonaRecord`; appends `deliberation_signature` when persona present.
+- Updated `supabase/functions/deliberate/index.ts`: imported `PersonaRecord`; batch-fetches personas for all primary agent IDs before dispatch loop; passes correct persona per agent to `dispatchDeliberation`; updated `dispatchDeliberation` signature to accept `persona?`.
+- Updated `src/hooks/useOrchestration.ts`: added `agentId: agent.id` to orchestrate payload.
+- Migration applied remotely; `orchestrate` + `deliberate` deployed; `npm run typecheck` clean; pushed to GitHub (`021695e`).
+
+**Files touched:** `supabase/migrations/20260512000000_som04_personas.sql`, `supabase/functions/_shared/persona-prompt.ts`, `supabase/functions/orchestrate/index.ts`, `supabase/functions/deliberate/index.ts`, `supabase/functions/deliberate/prompt.ts`, `src/hooks/useOrchestration.ts`
+
+**Decisions made:**
+- Persona injection is analysis-mode only — build/build_task/artifact modes have strict JSON output contracts; injecting persona blocks there would corrupt manifest parsing.
+- `renderPersonaBlock` does NOT include routing_rules in the injected text — they are already embedded as prose in each voice_preamble. Injecting twice would be noisy.
+- `agent_query` validation uses `extractAgentQuery` to strip malformed signals before returning to frontend.
+- Persona fetch uses LEFT JOIN pattern (`maybeSingle` on agents→personas) so agents without a persona assignment still proceed normally.
+- Seed backfill uses `WHERE persona_id IS NULL` guard for idempotency.
+
+**What didn't work:** Nothing — clean first pass.
+
+**What's next:** SOM-04 v2 — Claw-side `agent_query` routing in `runner.ts`; OrchestraDrawer persona badge + PersonaPicker UI.
+
+---
+
+
 
 **What was done:**
 - Extended `OrbState` type with 4 new states: `deliberating`, `synthesizing`, `iterating`, `error`.
