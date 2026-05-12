@@ -7,10 +7,12 @@
 
 Before writing any code, making any changes, or answering architecture questions:
 
-1. Read `MAESTRO_STATE.md` in the repo root.
+1. Read `MAESTRO_STATE.md` in the repo root (operational state + last 5 sessions).
 2. Read this file (`AGENTS.md`).
-3. If you are a CLI agent, verify the "Read This First" block at the top of MAESTRO_STATE.md is current. If it's stale, update it before proceeding.
-4. If you are a web agent receiving MAESTRO_STATE.md as context, treat Part 1 (Stable Architecture) as reliable and Part 2 (Operational State) as directional — check verification dates before trusting volatile claims.
+3. For stable architecture (stack, tables, edge functions, key files): read `docs/reference/REFERENCE.md`.
+4. For active feature specs: browse `docs/specs/active/` — each file is a self-contained spec.
+5. If you are a CLI agent, verify the "Read This First" block at the top of MAESTRO_STATE.md is current. If it's stale, update it before proceeding.
+6. If you are a web agent receiving MAESTRO_STATE.md as context, treat Part 2 (Operational State) as directional — check verification dates before trusting volatile claims. Stable architecture is in `docs/reference/REFERENCE.md`.
 
 ---
 
@@ -30,7 +32,7 @@ After completing any meaningful work, update MAESTRO_STATE.md:
 
 **Part 1 (Stable Architecture):**
 - Only update if you changed the system structurally: new edge functions, new tables, new providers, new key files, changed build phases.
-- If you update Part 1, note it in your session log entry.
+- If you update Part 1, note it in your session log entry AND update `docs/reference/REFERENCE.md`.
 
 ---
 
@@ -60,7 +62,7 @@ When information conflicts between sources, trust in this order:
 
 1. The actual codebase (files, types, configs)
 2. MAESTRO_STATE.md Part 2 (Operational State, if recently verified)
-3. MAESTRO_STATE.md Part 1 (Stable Architecture)
+3. `docs/reference/REFERENCE.md` (Stable Architecture)
 4. Anything an agent says from memory or training data
 
 If MAESTRO_STATE.md contradicts the codebase, the codebase wins and the document must be updated.
@@ -100,6 +102,10 @@ If you are a web-based agent (Claude.ai, ChatGPT, Gemini, Kimi, etc.) receiving 
 
 | File | Purpose | Who maintains |
 |------|---------|---------------|
-| `MAESTRO_STATE.md` | Universal system context + operational state + session log | Every agent, every session |
+| `MAESTRO_STATE.md` | Operational state + last 5 session log entries | Every agent, every session |
 | `AGENTS.md` | Agent workflow rules (this file) | Conductor only — agents follow, don't modify |
-| `docs/architecture/` | Deep reference material if MAESTRO_STATE.md outgrows its scope | Created on demand by any agent with Conductor approval |
+| `docs/reference/REFERENCE.md` | Stable architecture: stack, DB tables, edge functions, key files, non-obvious decisions | Any agent after structural changes |
+| `docs/specs/active/` | Active feature specs (PRO, DIFF, SEC, UX, CLAW, SOM, SANDBOX, etc.) | Assigned agent per spec |
+| `docs/specs/archive/` | Superseded specs (BUILD_V2, MAESTROCLAW_SPEC, etc.) | Read-only — do not modify |
+| `docs/session-log/HISTORY.md` | Session log entries pre-May-6 2026 | Append-only — do not modify existing entries |
+| `IMPLEMENTATION_PLAN_STATUS.md` | Sprint status: what's done, what's next, what's blocked | Every agent after completing a spec item |

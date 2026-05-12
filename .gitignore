@@ -30,3 +30,7 @@ dist-ssr
 packages/maestroclaw/builds/
 packages/maestroclaw/*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
 packages/maestroclaw/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*/
+
+# External repos cloned into .michael/ for reference — not project source
+.michael/architect/
+.michael/MiroFish-main/
