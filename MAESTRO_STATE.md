@@ -11,7 +11,7 @@
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `deliberate` + `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-XX; `iteration-init` pending deploy |
 | Unapplied migrations | `20260507130000_iteration_loops.sql` (pending remote apply); `20260507120000_synthesis_metadata.sql` (pending remote apply) |
-| Active locks | None |
+| Active locks | ACTIVE LOCK (Gemini, 2026-05-11): FLOW-04 Verbosity tiers. Locked files: `src/types/index.ts`, `src/context/MaestroContext.tsx`, `src/components/reveal/RevealComposer.tsx`, `src/hooks/useOrchestration.ts`, `supabase/functions/orchestrate/index.ts`. Clear when: FLOW-04 is deployed. |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
@@ -47,7 +47,7 @@
 | Execute Build with patches wired in BuildWorkspace.tsx | 2026-04-12 |
 | Deployed `vault?action=list` succeeds with a real user session under the new auth model | 2026-04-12 (live smoke) |
 | Deployed `vault?action=list` fails in-function with `401 AUTH_HEADER_MISSING` when auth is missing | 2026-04-12 (live smoke) |
-| Orb state machine derivation wired into EmptyStage/WorkspacePage and committed | 2026-04-12 (`npm run typecheck`, commit `4fb823c`) |
+| **FLOW-02 Orb state instrument**: `OrbState` extended with `deliberating`, `synthesizing`, `iterating`, `error` states; `deriveOrbState()` priority chain updated (iterating > deliberating > synthesizing > building > concierge > conflict > ...); `deriveOrbStatusText()` covers all 11 states with dynamic iterating step count; `EmptyStage.tsx` `ORB_CONFIG` extended with per-state `gradient` + new keyframes (deliberating/synthesizing/iterating/error); `Orb.tsx` fully state-reactive with per-state gradient + glow RGB | 2026-05-11 (`npm run typecheck` clean) |
 | Bouncer security review gate post-build exists in code | 2026-04-12 (code verified) |
 | Tiered context system (synthesis > recent rounds > pinned > filename refs) | 2026-04-12 (code verified) |
 | Build artifact protocol hardening (`artifact_protocol`, `complete`, `continuation_prompt`, manifest validation) | 2026-04-12 (`npm run typecheck`) |
@@ -191,6 +191,54 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-05-11 — Copilot CLI (Sonnet 4.6) — FLOW-02 Orb state instrument
+
+**What was done:**
+- Extended `OrbState` type with 4 new states: `deliberating`, `synthesizing`, `iterating`, `error`.
+- Updated `deriveOrbState()` priority chain: `iterating` (active non-terminal loops) → `deliberating` → `synthesizing` → `building` → `concierge` → `conflict` → `streaming` → `broadcasting` → `error` (all responses empty) → `done` → `idle`.
+- Updated `deriveOrbStatusText()` with dynamic iterating text (`Iterating · step N`) and static strings for all 11 states.
+- Extended `EmptyStage.tsx` `ORB_CONFIG` with `gradient` field per state (11 distinct per-state radial gradients: gold/amber/green/purple/cream/red/deep-red). Orb body now uses `orbConfig.gradient` + `transition: background 0.8s ease` for smooth state transitions.
+- Added 4 new keyframe animations: `maestro-orb-deliberating` (amber, 3-step beat), `maestro-orb-synthesizing` (green, slow pulse), `maestro-orb-iterating` (purple, rotation shimmy), `maestro-orb-error` (deep red, heartbeat).
+- Rewrote `Orb.tsx` (compact orb) to be fully state-reactive: `ORB_STYLES` map with gradient + glowRgb + animation + duration per state; all 11 states covered; gold hardcode removed.
+
+**Files touched:** `src/lib/orbState.ts`, `src/components/reveal/EmptyStage.tsx`, `src/components/reveal/Orb.tsx`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- `error` derived from: broadcast ended + current round responses all have empty content. Conservative heuristic — false negatives (silent failures) better than false positives (real responses marked error). Can tighten later.
+- `iterating` priority is highest because iteration loops are real-time operations that should dominate the orb UX even if a synthesis is technically also running.
+- `synthesizing` as a distinct state from `done` surfaces the active synthesis period instead of jumping straight to green.
+- Orb gradient transition is `0.8s ease` (vs box-shadow `0.6s ease`) — gradient transitions don't animate smoothly in CSS, the delay gives a dissolve-like feel.
+
+**What's next:** FLOW-04 verbosity tiers (Gemini lane); SOM-04 wiring (persona voices into `buildSystemPrompt()`).
+
+---
+
+
+
+**What was done:**
+- Authored Sprint Round 1 Opus deliverable for SOM-04 (Persona layer). Drop saved to `.michael/opus/PERSONAS.md` per SPRINT_MASTER §D.
+- Delivered: `voice_preamble` blocks for 4 personas (Skeptic, Builder, Archivist, Critic) — written as prior-sets, not roleplay (per PRO-01 precedent and SOM-NATIVE §SOM-04 directive "do not ship homogeneous voices").
+- Each persona record includes: slug, name, one_liner, voice_preamble (system-prompt-injected verbatim), strengths, weaknesses, routing_rules (weakness_key → persona/adapter), anti_patterns, deliberation_signature, preferred_arguments.
+- Authored `agent_query` JSON signal contract: shape (`{ to, reason, question, files, blocking }`), detection point in `orchestrate/index.ts` (~line 317–360, after `extractJsonCandidate`), canonical routing table mapping 9 weakness keys to default targets, executor handling rules including 2-resolutions-per-step cap.
+- Authored wiring notes for Sonnet: persona injection point in `buildSystemPrompt()` (line 166–180) — persona block goes *before* the role description so priors shape role reading; analysis-mode JSON schema gets an `agent_query` field reminder; `deliberate/index.ts` injects `deliberation_signature` per agent to prevent Round 2 centrist convergence; seed insert shape for `personas` table (jsonb routing_rules, text[] arrays, plain text voice_preamble).
+- Authored verification protocol: three concrete test prompts (Redis cache add, stuck iteration step, OAuth refresh) designed to produce structurally-divergent responses across the four personas. If all four converge, voices are not carrying — iterate preamble.
+- Surfaced 6 open questions for Conductor: persona binding lifetime (recommended: fixed-per-session), user visibility (recommended: badge on FolioCard), default cloud-agent → persona mapping (Claude Sonnet → Builder, GPT-4o → Critic, Gemini → Archivist, Claude Opus → Skeptic — Conductor confirms or remaps), Claw adapters carry personas? (recommended: no, v1 cloud-only), routing-rule strictness (recommended: accept with warning), deliberation theater risk (answered only by verification).
+
+**Files touched:** `.michael/opus/PERSONAS.md` (created), `MAESTRO_STATE.md` (this entry).
+
+**Decisions made:**
+- Personas are prior-sets, not roleplay. `voice_preamble` describes how the persona *reads* a prompt and what it gives weight to — not "act like X."
+- `agent_query` is opt-in per response. Personas only emit when a real weakness is hit. Hedging is an anti-pattern.
+- Persona block injected *before* the role description in the system prompt — order matters; priors shape role reading.
+- Claw adapters stay capability-typed in v1, not persona-typed. The routing table treats them as adapters; SOM-04 v2 can extend.
+- Voice preambles kept under ~250 tokens each — they prepend every system prompt, so length compounds across all builds.
+
+**What didn't work / left for Sonnet:** Migration, persona-prompt renderer, code wiring, OrchestraDrawer badge, PersonaPicker UI, and live verification all on Sonnet's plate per SPRINT_MASTER §C agent split. Opus output is prompt artifacts only.
+
+**What's next:** Sonnet picks up SOM-04 implementation per the handoff checklist in `.michael/opus/PERSONAS.md` §6. Conductor reviews open questions §5 — particularly the default cloud-agent → persona mapping (load-bearing for verification).
+
+---
 
 ### 2026-05-11 — Copilot CLI (Sonnet 4.6) — Doc cleanup + sprint planning
 

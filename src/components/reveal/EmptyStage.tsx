@@ -9,14 +9,18 @@ interface EmptyStageProps {
   orbState: OrbState;
 }
 
-const ORB_CONFIG: Record<OrbState, { glowColor: string; animationDuration: string; animation: string }> = {
-  idle: { glowColor: '#c9a84c', animationDuration: '3.2s', animation: 'maestro-orb-idle' },
-  broadcasting: { glowColor: '#e0c25a', animationDuration: '1.3s', animation: 'maestro-orb-broadcast' },
-  streaming: { glowColor: '#e0c25a', animationDuration: '1.1s', animation: 'maestro-orb-stream' },
-  conflict: { glowColor: '#e05a5a', animationDuration: '0.8s', animation: 'maestro-orb-conflict' },
-  building: { glowColor: '#5ab88e', animationDuration: '1.6s', animation: 'maestro-orb-building' },
-  concierge: { glowColor: '#d4c9a8', animationDuration: '2.4s', animation: 'maestro-orb-concierge' },
-  done: { glowColor: '#4ebb7f', animationDuration: '4s', animation: 'maestro-orb-done' },
+const ORB_CONFIG: Record<OrbState, { glowColor: string; gradient: string; animationDuration: string; animation: string }> = {
+  idle:         { glowColor: '#c9a84c', gradient: 'radial-gradient(circle at 35% 30%, rgba(255,224,150,0.95) 0%, rgba(201,168,76,0.85) 28%, rgba(140,108,40,0.55) 62%, rgba(60,42,12,0.15) 88%, transparent 100%)',        animationDuration: '3.2s', animation: 'maestro-orb-idle' },
+  broadcasting: { glowColor: '#e0c25a', gradient: 'radial-gradient(circle at 35% 30%, rgba(255,232,140,0.95) 0%, rgba(224,194,90,0.85) 28%, rgba(155,128,42,0.55) 62%, rgba(65,50,14,0.15) 88%, transparent 100%)',       animationDuration: '1.3s', animation: 'maestro-orb-broadcast' },
+  streaming:    { glowColor: '#e0c25a', gradient: 'radial-gradient(circle at 35% 30%, rgba(255,232,140,0.95) 0%, rgba(224,194,90,0.85) 28%, rgba(155,128,42,0.55) 62%, rgba(65,50,14,0.15) 88%, transparent 100%)',       animationDuration: '1.1s', animation: 'maestro-orb-stream' },
+  deliberating: { glowColor: '#c8823d', gradient: 'radial-gradient(circle at 35% 30%, rgba(255,195,90,0.95) 0%, rgba(200,130,45,0.85) 28%, rgba(140,80,20,0.55) 62%, rgba(60,30,8,0.15) 88%, transparent 100%)',          animationDuration: '1.8s', animation: 'maestro-orb-deliberating' },
+  synthesizing: { glowColor: '#50b982', gradient: 'radial-gradient(circle at 35% 30%, rgba(150,235,190,0.95) 0%, rgba(80,185,130,0.85) 28%, rgba(38,130,80,0.55) 62%, rgba(12,60,35,0.15) 88%, transparent 100%)',        animationDuration: '2.4s', animation: 'maestro-orb-synthesizing' },
+  conflict:     { glowColor: '#e05a5a', gradient: 'radial-gradient(circle at 35% 30%, rgba(255,150,140,0.95) 0%, rgba(224,90,90,0.85) 28%, rgba(165,50,50,0.55) 62%, rgba(70,15,15,0.15) 88%, transparent 100%)',         animationDuration: '0.8s', animation: 'maestro-orb-conflict' },
+  iterating:    { glowColor: '#8a5ad4', gradient: 'radial-gradient(circle at 35% 30%, rgba(200,160,255,0.95) 0%, rgba(138,90,212,0.85) 28%, rgba(88,44,155,0.55) 62%, rgba(35,12,70,0.15) 88%, transparent 100%)',        animationDuration: '1.6s', animation: 'maestro-orb-iterating' },
+  building:     { glowColor: '#5ab88e', gradient: 'radial-gradient(circle at 35% 30%, rgba(150,235,190,0.95) 0%, rgba(80,185,130,0.85) 28%, rgba(38,130,80,0.55) 62%, rgba(12,60,35,0.15) 88%, transparent 100%)',        animationDuration: '1.6s', animation: 'maestro-orb-building' },
+  concierge:    { glowColor: '#d4c9a8', gradient: 'radial-gradient(circle at 35% 30%, rgba(240,235,210,0.95) 0%, rgba(212,201,168,0.85) 28%, rgba(155,145,110,0.55) 62%, rgba(60,55,40,0.15) 88%, transparent 100%)',    animationDuration: '2.4s', animation: 'maestro-orb-concierge' },
+  error:        { glowColor: '#b83a3a', gradient: 'radial-gradient(circle at 35% 30%, rgba(230,120,110,0.95) 0%, rgba(185,60,60,0.85) 28%, rgba(130,28,28,0.55) 62%, rgba(55,10,10,0.15) 88%, transparent 100%)',         animationDuration: '4s',   animation: 'maestro-orb-error' },
+  done:         { glowColor: '#4ebb7f', gradient: 'radial-gradient(circle at 35% 30%, rgba(140,245,180,0.95) 0%, rgba(70,195,120,0.85) 28%, rgba(34,140,75,0.55) 62%, rgba(10,60,30,0.15) 88%, transparent 100%)',        animationDuration: '4s',   animation: 'maestro-orb-done' },
 };
 
 // Agent provider colors, matching CSS vars --claude / --gpt / --gemini / --openrouter
@@ -147,11 +151,10 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
               width: '180px',
               height: '180px',
               borderRadius: '50%',
-              background:
-                'radial-gradient(circle at 35% 30%, rgba(255,224,150,0.95) 0%, rgba(201,168,76,0.85) 28%, rgba(140,108,40,0.55) 62%, rgba(60,42,12,0.15) 88%, transparent 100%)',
-              boxShadow: `0 0 60px 10px rgba(${glowRgb}, 0.35), 0 0 140px 30px rgba(${glowRgb}, 0.18), inset 0 0 40px rgba(255,224,150,0.25)`,
+              background: orbConfig.gradient,
+              boxShadow: `0 0 60px 10px rgba(${glowRgb}, 0.35), 0 0 140px 30px rgba(${glowRgb}, 0.18), inset 0 0 40px rgba(${glowRgb}, 0.22)`,
               animation: `${orbConfig.animation} ${orbConfig.animationDuration} ease-in-out infinite`,
-              transition: 'box-shadow 0.6s ease',
+              transition: 'background 0.8s ease, box-shadow 0.6s ease',
             }}
           />
         </div>
@@ -329,6 +332,30 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
         @keyframes maestro-orb-building {
           0%, 100% { transform: scale(1); filter: brightness(1); }
           50% { transform: scale(1.045); filter: brightness(1.12); }
+        }
+
+        @keyframes maestro-orb-deliberating {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          33% { transform: scale(1.04); filter: brightness(1.14); }
+          66% { transform: scale(1.02); filter: brightness(1.08); }
+        }
+
+        @keyframes maestro-orb-synthesizing {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          50% { transform: scale(1.04); filter: brightness(1.12); }
+        }
+
+        @keyframes maestro-orb-iterating {
+          0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+          25% { transform: scale(1.05) rotate(1deg); filter: brightness(1.15); }
+          75% { transform: scale(1.03) rotate(-1deg); filter: brightness(1.1); }
+        }
+
+        @keyframes maestro-orb-error {
+          0%, 100% { transform: scale(1); filter: brightness(1); }
+          15% { transform: scale(1.03); filter: brightness(1.12); }
+          30% { transform: scale(0.98); filter: brightness(0.94); }
+          45% { transform: scale(1.02); filter: brightness(1.08); }
         }
 
         @keyframes maestro-orb-concierge {
