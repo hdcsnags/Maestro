@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | `orchestrate` + `deliberate` deployed 2026-05-12 (SOM-04); `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-11; `iteration-init` pending deploy |
-| Unapplied migrations | `20260507130000_iteration_loops.sql` (pending remote apply); `20260507120000_synthesis_metadata.sql` (pending remote apply) |
+| Last verified deploy | All 19 functions ACTIVE (verified 2026-05-12): `orchestrate`+`deliberate` v37/v3 (SOM-04 2026-05-12); `iteration-init` v2 (2026-05-08); `executor-api` v18 (2026-05-09); `synthesize` v13 (2026-04-21); `repo-memory-update` v1 (2026-05-07) |
+| Unapplied migrations | None — all 49 migrations applied remotely (verified 2026-05-12) |
 | Active locks | ACTIVE LOCK (OpenAI Codex/GPT-5, 2026-05-12): AGENT-01 structured Claw adapter logging. Locked files: `packages/maestroclaw/src/adapters/claude-code.ts`, `packages/maestroclaw/src/adapters/copilot-cli.ts`, `packages/maestroclaw/src/adapters/codex-cli.ts`, `packages/maestroclaw/src/adapters/gemini-cli.ts`, `packages/maestroclaw/src/adapters/types.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/iteration/runner.ts`. Clear when: AGENT-01 implementation is verified and session log is updated. |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
