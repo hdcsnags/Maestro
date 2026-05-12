@@ -27,6 +27,7 @@ import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { buildRedactedView, resolveVoiceLabel, type PrimaryResponseRow, type VoiceMapEntry } from "./redact.ts";
 import { renderDeliberationUserMessage, getDeliberationSystemPrompt, parseDeliberationOutput, type DeliberationOutput } from "./prompt.ts";
+import type { PersonaRecord } from "../_shared/persona-prompt.ts";
 
 const DELIBERATE_MAX_BODY_BYTES = 32_768;
 const PER_AGENT_TIMEOUT_MS = 45_000;
@@ -148,9 +149,27 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 4-6. Dispatch deliberation per agent in parallel.
+    // 4-6. Batch-fetch personas for all primaries (SOM-04 — deliberation signatures).
+    const agentIds = primaries.map(p => p.agent_id).filter((id): id is string => Boolean(id));
+    const personaByAgentId: Record<string, PersonaRecord> = {};
+    if (agentIds.length > 0) {
+      const { data: agentRows } = await auth.userClient
+        .from("agents")
+        .select("id, personas(id, slug, name, one_liner, voice_preamble, strengths, weaknesses, routing_rules, anti_patterns, deliberation_signature, preferred_arguments)")
+        .in("id", agentIds);
+      if (agentRows) {
+        for (const row of agentRows) {
+          const p = row.personas;
+          if (p && typeof p === "object" && !Array.isArray(p)) {
+            personaByAgentId[row.id] = p as unknown as PersonaRecord;
+          }
+        }
+      }
+    }
+
+    // Dispatch deliberation per agent in parallel.
     const dispatchPromises = primaries.map(primary =>
-      dispatchDeliberation(round.prompt, primaries, primary).catch((err: unknown) => {
+      dispatchDeliberation(round.prompt, primaries, primary, personaByAgentId[primary.agent_id ?? ""] ?? undefined).catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[deliberate] dispatch failed for response ${primary.id}`, message);
         return {
@@ -242,13 +261,14 @@ async function dispatchDeliberation(
   originalPrompt: string,
   allPrimaries: PrimaryResponseRow[],
   focusedPrimary: PrimaryResponseRow,
+  persona?: PersonaRecord,
 ): Promise<AgentDispatchResult> {
   const view = buildRedactedView(allPrimaries, focusedPrimary.id);
   const userMessage = renderDeliberationUserMessage({
     original_user_prompt: originalPrompt,
     view,
   });
-  const systemPrompt = getDeliberationSystemPrompt();
+  const systemPrompt = getDeliberationSystemPrompt(persona);
 
   const provider = focusedPrimary.provider.toLowerCase();
   if (provider === "anthropic") {

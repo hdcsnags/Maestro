@@ -4,6 +4,7 @@ import { requireAuthenticatedRequest } from "../_shared/auth.ts";
 import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 import { getDecryptedSecret } from "../_shared/secrets.ts";
+import { renderPersonaBlock, extractAgentQuery, type PersonaRecord } from "../_shared/persona-prompt.ts";
 interface AgentSkillPayload {
   name: string;
   instruction: string;
@@ -18,6 +19,8 @@ interface OrchestrationRequest {
   model: string;
   agentName: string;
   agentRole: string;
+  agentId?: string;
+  verbosityTier?: string;
   agentSkills?: AgentSkillPayload[];
   scopedPaths?: string[];
   context_files?: ContextFile[];
@@ -63,6 +66,7 @@ interface OrchestrateResult {
   complete?: boolean;
   continuation_prompt?: string;
   manifest_errors?: Array<{ path: string; reason: string }>;
+  agent_query?: unknown;
   // build_task mode fields — preserved so frontend can extract single-file result
   path?: string;
   operation?: string;
@@ -171,11 +175,18 @@ function buildSystemPrompt(
   codebaseContext?: string,
   mode: OrchestrationMode = "analysis",
   verbosityTier?: string,
+  persona?: PersonaRecord,
 ): string {
   let prompt = "";
 
   if (codebaseContext) {
     prompt += `Current codebase context:\n${codebaseContext}\n\n`;
+  }
+
+  // SOM-04: inject persona voice block before role description (analysis mode only).
+  // Build/artifact modes have strict JSON output schemas — persona block omitted.
+  if (persona && mode === "analysis") {
+    prompt += `${renderPersonaBlock(persona)}\n\n`;
   }
 
   prompt += `You are ${agentName}, an AI specialist in a multi-agent orchestration council called Maestro. Your designated role is: ${agentRole}.\n\n`;
@@ -281,7 +292,11 @@ If the user's prompt asks you to generate a file (HTML wireframe, markdown plan,
 - "content_type": MIME type (e.g., "text/html", "text/markdown", "text/plain")
 - "content": the full file content as a string
 
-Only include artifacts when file generation is clearly requested or would be genuinely useful. The artifacts array can be empty.`;
+Only include artifacts when file generation is clearly requested or would be genuinely useful. The artifacts array can be empty.
+
+If part of the prompt falls outside your declared strengths, include an "agent_query" field alongside your normal response fields:
+  "agent_query": { "to": "<persona-slug-or-adapter>", "reason": "<short, ≤140 chars>", "question": "<self-contained prompt to target>", "files": ["<repo-paths>"], "blocking": true }
+Use this only when another persona or adapter would genuinely answer better. Most responses will NOT include this field.`;
   }
 
   if (skills && skills.length > 0) {
@@ -561,6 +576,7 @@ function buildResultFromParsed(
     manifest_errors,
     path: typeof p.path === "string" ? p.path : undefined,
     operation: typeof p.operation === "string" ? p.operation : undefined,
+    agent_query: p.agent_query !== undefined ? p.agent_query : undefined,
   };
 }
 
@@ -659,7 +675,7 @@ Deno.serve(async (req: Request) => {
       return bodyResult;
     }
     const body = bodyResult;
-    const { prompt, provider, model, agentName, agentRole, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode, verbosityTier } = body;
+    const { prompt, provider, model, agentName, agentRole, agentId, agentSkills, scopedPaths, context_files, repo_connection_id, session_id, mode, verbosityTier } = body;
     const orchestrationMode: OrchestrationMode = mode ?? "analysis";
 
     // Resolve context files if provided
@@ -681,7 +697,22 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode, verbosityTier);
+    // SOM-04: fetch agent persona for analysis-mode voice injection.
+    // Left join — agents without a persona still proceed normally.
+    let agentPersona: PersonaRecord | undefined;
+    if (agentId && orchestrationMode === "analysis") {
+      const { data: agentRow } = await supabase
+        .from("agents")
+        .select("persona_id, personas(id, slug, name, one_liner, voice_preamble, strengths, weaknesses, routing_rules, anti_patterns, deliberation_signature, preferred_arguments)")
+        .eq("id", agentId)
+        .maybeSingle();
+      const personaData = agentRow?.personas;
+      if (personaData && typeof personaData === "object" && !Array.isArray(personaData)) {
+        agentPersona = personaData as unknown as PersonaRecord;
+      }
+    }
+
+    let systemPrompt = buildSystemPrompt(agentName, agentRole, agentSkills, scopedPaths, codebaseContext, orchestrationMode, verbosityTier, agentPersona);
 
     // Sprint A · B7.2 — inject ARCHITECT.md into build-mode system prompt.
     // Skip for build_task mode — prompt_slice already contains per-file context.
@@ -844,6 +875,15 @@ Deno.serve(async (req: Request) => {
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // SOM-04: strip agent_query in non-analysis modes (strict JSON output contracts);
+    // validate shape in analysis mode.
+    if (orchestrationMode !== "analysis") {
+      result.agent_query = undefined;
+    } else if (result.agent_query !== undefined) {
+      const validated = extractAgentQuery({ agent_query: result.agent_query });
+      result.agent_query = validated ?? undefined;
     }
 
     return new Response(JSON.stringify(result), {

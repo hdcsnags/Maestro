@@ -9,6 +9,7 @@
 // intentional. Tell the agent up front so it doesn't try to "fix" them.
 
 import type { RedactedView } from "./redact.ts";
+import type { PersonaRecord } from "../_shared/persona-prompt.ts";
 
 export interface DeliberationPromptInputs {
   original_user_prompt: string;
@@ -92,8 +93,11 @@ OUTPUT FORMAT (strict JSON, no markdown, no commentary):
 }`;
 }
 
-export function getDeliberationSystemPrompt(): string {
-  return SYSTEM_PROMPT;
+export function getDeliberationSystemPrompt(persona?: PersonaRecord): string {
+  if (!persona?.deliberation_signature) {
+    return SYSTEM_PROMPT;
+  }
+  return `${SYSTEM_PROMPT}\n\nYour deliberation style: ${persona.deliberation_signature}`;
 }
 
 /**

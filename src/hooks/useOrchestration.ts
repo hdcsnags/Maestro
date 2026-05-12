@@ -311,6 +311,7 @@ export function useOrchestration() {
         model: agent.model,
         agentName: agent.name,
         agentRole: agent.role,
+        agentId: agent.id,
         agentSkills: agentSkills.length > 0 ? agentSkills : undefined,
         scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
         mode,
