@@ -11,7 +11,7 @@
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | `orchestrate` + `deliberate` deployed 2026-05-12 (SOM-04); `synthesize` deployed 2026-05-07; `repo-memory-update` deployed 2026-05-06; `executor-api` deployed 2026-05-11; `iteration-init` pending deploy |
 | Unapplied migrations | `20260507130000_iteration_loops.sql` (pending remote apply); `20260507120000_synthesis_metadata.sql` (pending remote apply) |
-| Active locks | None |
+| Active locks | ACTIVE LOCK (OpenAI Codex/GPT-5, 2026-05-12): AGENT-01 structured Claw adapter logging. Locked files: `packages/maestroclaw/src/adapters/claude-code.ts`, `packages/maestroclaw/src/adapters/copilot-cli.ts`, `packages/maestroclaw/src/adapters/codex-cli.ts`, `packages/maestroclaw/src/adapters/gemini-cli.ts`, `packages/maestroclaw/src/adapters/types.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/iteration/runner.ts`. Clear when: AGENT-01 implementation is verified and session log is updated. |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
@@ -48,6 +48,7 @@
 | Deployed `vault?action=list` succeeds with a real user session under the new auth model | 2026-04-12 (live smoke) |
 | Deployed `vault?action=list` fails in-function with `401 AUTH_HEADER_MISSING` when auth is missing | 2026-04-12 (live smoke) |
 | **SOM-04 Persona voice layer**: `personas` table + 4-persona seed (builder/skeptic/archivist/critic) + `agents.persona_id` FK; `_shared/persona-prompt.ts` renderer+validator; `orchestrate` injects voice_preamble + `agent_query` hint in analysis mode (stripped in build modes); `deliberate` appends `deliberation_signature` per agent; `useOrchestration` passes `agentId` | 2026-05-12 (`npm run typecheck` clean, migration applied, `orchestrate`+`deliberate` deployed, commit `021695e`) |
+| **FLOW-04 Verbosity Tiers**: `VerbosityTier` type (`brief`/`standard`/`detailed`), `verbosityTier` state in MaestroContext, tier picker in RevealComposer, `verbosityTier` passed in orchestrate payload, tier-specific postscript injected in `buildSystemPrompt` — deployed as part of SOM-04 orchestrate deploy 2026-05-12 (Gemini CLI wrote the code 2026-05-11, no separate deploy at that time) | 2026-05-12 (first deploy via SOM-04 bundle, `npm run typecheck` clean per Gemini session log) |
 | **FLOW-02 Orb state instrument**: `OrbState` extended with `deliberating`, `synthesizing`, `iterating`, `error` states; `deriveOrbState()` priority chain updated (iterating > deliberating > synthesizing > building > concierge > conflict > ...); `deriveOrbStatusText()` covers all 11 states with dynamic iterating step count; `EmptyStage.tsx` `ORB_CONFIG` extended with per-state `gradient` + new keyframes (deliberating/synthesizing/iterating/error); `Orb.tsx` fully state-reactive with per-state gradient + glow RGB | 2026-05-11 (`npm run typecheck` clean) |
 | Bouncer security review gate post-build exists in code | 2026-04-12 (code verified) |
 | Tiered context system (synthesis > recent rounds > pinned > filename refs) | 2026-04-12 (code verified) |
