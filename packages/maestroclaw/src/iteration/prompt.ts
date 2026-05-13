@@ -30,6 +30,19 @@ export interface PriorStepSummary {
   apply_error?: string;
   verification_result: "passed" | "failed" | "skipped";
   verification_stderr_tail?: string;  // last 30 lines of stderr if failed
+  session_log_summary?: string;
+  agent_query_context?: string;  // SOM-02: resolved peer query carried into next step
+}
+
+// SOM-02: signal emitted by the iteration agent when part of the task is
+// outside its capability and it needs a peer adapter's answer before it can
+// propose a diff. `blocking: true` (default) pauses the step until resolved.
+export interface AgentQuerySignal {
+  to: string;        // adapter id or persona slug (e.g. "codex_cli", "skeptic")
+  reason: string;    // <=140 chars - why this is outside the agent's strengths
+  question: string;  // self-contained question for the target
+  files?: string[];  // repo-relative paths the target should read
+  blocking?: boolean; // default true - re-runs this step after answer injected
 }
 
 export interface IterationStepPromptInputs {
@@ -49,18 +62,27 @@ export interface IterationStepOutput {
   confidence: "high" | "medium" | "low";
   give_up: boolean;
   give_up_rationale?: string;
+  agent_query?: AgentQuerySignal; // SOM-02: present when peer consultation needed
 }
 
 const SYSTEM_PROMPT = `You are an iteration agent in a build loop. The user is watching. Each step you propose a focused, applicable diff that moves toward the goal.
 
 Your discipline:
+- Before proposing a diff, use the CURRENT FILE CONTENTS as your pre-read: identify the 3 most relevant files, reason from them, and do not write until that context supports the change.
 - Propose ONE diff per step. Not a large rewrite.
 - Stay STRICTLY inside scope_paths. Touching anything outside is a hard failure.
 - If your previous diff did not work, propose a DIFFERENT approach — not the same diff with a small variation. The system tracks repeats and will give up on you if you cycle.
 - The diff MUST apply cleanly against the file contents shown to you. The sha256 hashes are provided so you know the base. If the loop runner detects your diff is against a stale base, the step gets re-proposed.
+- Do not claim verification passed unless the verification command actually passed or no verification command is configured.
 - Output STRICTLY as JSON. No prose outside the object. No markdown fences.
 - Set "give_up": true ONLY if you have genuinely tried 2-3 different approaches and cannot make progress, OR if the goal requires information you don't have (e.g., test asserts X but the spec is unclear). Always include give_up_rationale when give_up is true.
-- "confidence" is your honest assessment of whether this diff will pass verification. low = you're guessing; medium = the change is reasonable but verification might surprise you; high = you've identified the exact issue and the fix is clear.`;
+- "confidence" is your honest assessment of whether this diff will pass verification. low = you're guessing; medium = the change is reasonable but verification might surprise you; high = you've identified the exact issue and the fix is clear.
+
+Peer consultation (agent_query):
+- If part of the task genuinely requires a different adapter's capability (e.g. security analysis -> codex_cli, large refactor -> gemini_cli), you may emit an "agent_query" instead of a diff.
+- Use ONLY when the question is outside your actual strengths - not as a hedge.
+- The runner resolves the query and re-runs this step with the peer's answer injected as context.
+- Available targets: codex_cli (adversarial/security review), copilot_cli (scaffolding/pragmatic), gemini_cli (large-context/multi-file), claude_code (reasoning/architecture).`;
 
 export function getIterationSystemPrompt(): string {
   return SYSTEM_PROMPT;
@@ -83,10 +105,16 @@ export function renderIterationUserMessage(inputs: IterationStepPromptInputs): s
       const verifyDetail = s.verification_result === "failed" && s.verification_stderr_tail
         ? `\n  Verification stderr (last lines):\n${indent(s.verification_stderr_tail, "    ")}`
         : "";
+      const sessionLogDetail = s.session_log_summary
+        ? `\n  Structured session_log:\n${indent(s.session_log_summary, "    ")}`
+        : "";
+      const queryContextDetail = s.agent_query_context
+        ? `\n  Peer query context:\n${indent(s.agent_query_context, "    ")}`
+        : "";
       return `Step ${s.step_number}:
   Diff: ${s.diff_summary}
   Apply: ${s.apply_result}${s.apply_error ? ` (${s.apply_error})` : ""}
-  Verify: ${s.verification_result}${verifyDetail}`;
+  Verify: ${s.verification_result}${verifyDetail}${sessionLogDetail}${queryContextDetail}`;
     }).join("\n\n");
 
   const verificationLine = inputs.verification_command
@@ -116,7 +144,8 @@ Output JSON:
   "expected_outcome": "what verification result you expect after this diff (e.g., 'test passes', 'lint clean', 'build succeeds')",
   "confidence": "high" | "medium" | "low",
   "give_up": false,
-  "give_up_rationale": "(only present if give_up is true)"
+  "give_up_rationale": "(only present if give_up is true)",
+  "agent_query": "(optional) { \"to\": \"<codex_cli|copilot_cli|gemini_cli|claude_code>\", \"reason\": \"<<=140 chars>\", \"question\": \"<self-contained>\", \"files\": [\"<paths>\"], \"blocking\": true } - omit if not needed; set diff to \"\" when blocking"
 }`;
 }
 
@@ -166,10 +195,12 @@ function normalizeOutput(parsed: unknown): IterationStepOutput | null {
     confidenceRaw === "high" || confidenceRaw === "low" ? confidenceRaw : "medium";
   const giveUp = obj.give_up === true;
   const giveUpRationale = typeof obj.give_up_rationale === "string" ? obj.give_up_rationale : undefined;
+  const agentQuery = extractAgentQuery(obj.agent_query);
 
-  // Must have either a diff OR be giving up. Empty diff with give_up=false is
-  // a model failure — return null so the runner can retry/give up cleanly.
-  if (!diff && !giveUp) return null;
+  // Must have a diff, be giving up, or be emitting a blocking peer query.
+  // Empty diff with give_up=false and no agent_query is a model failure.
+  const hasBlockingQuery = agentQuery !== undefined && agentQuery.blocking !== false;
+  if (!diff && !giveUp && !hasBlockingQuery) return null;
 
   return {
     rationale: rationale || "(no rationale provided)",
@@ -178,6 +209,23 @@ function normalizeOutput(parsed: unknown): IterationStepOutput | null {
     confidence,
     give_up: giveUp,
     give_up_rationale: giveUpRationale,
+    agent_query: agentQuery,
+  };
+}
+
+function extractAgentQuery(raw: unknown): AgentQuerySignal | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.to !== "string" || typeof obj.question !== "string" || typeof obj.reason !== "string") return undefined;
+  if (!obj.to.trim() || !obj.question.trim() || !obj.reason.trim()) return undefined;
+  return {
+    to: obj.to.trim(),
+    reason: obj.reason.trim().slice(0, 140),
+    question: obj.question.trim(),
+    files: Array.isArray(obj.files)
+      ? (obj.files as unknown[]).filter((f): f is string => typeof f === "string")
+      : undefined,
+    blocking: obj.blocking !== false, // default true
   };
 }
 

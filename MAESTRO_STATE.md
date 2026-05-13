@@ -11,7 +11,7 @@
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | All 19 functions ACTIVE (verified 2026-05-12): `orchestrate`+`deliberate` v37/v3 (SOM-04 2026-05-12); `iteration-init` v2 (2026-05-08); `executor-api` v18 (2026-05-09); `synthesize` v13 (2026-04-21); `repo-memory-update` v1 (2026-05-07) |
 | Unapplied migrations | None — all 49 migrations applied remotely (verified 2026-05-12) |
-| Active locks | ACTIVE LOCK (OpenAI Codex/GPT-5, 2026-05-12): AGENT-01 structured Claw adapter logging. Locked files: `packages/maestroclaw/src/adapters/claude-code.ts`, `packages/maestroclaw/src/adapters/copilot-cli.ts`, `packages/maestroclaw/src/adapters/codex-cli.ts`, `packages/maestroclaw/src/adapters/gemini-cli.ts`, `packages/maestroclaw/src/adapters/types.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/iteration/runner.ts`. Clear when: AGENT-01 implementation is verified and session log is updated. |
+| Active locks | None |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
@@ -26,6 +26,7 @@
 
 | Capability | Verified |
 |------------|----------|
+| **AGENT-01 Structured Claw session logging**: added local `session.log` JSONL utility; ClawClaude/ClawCopilot/ClawCodex/ClawGemini append `tool_use`/`complete`/`error` events; session prompts require AGENTS-style pre-read + final `session_log` JSON; executor parses/forwards structured `session_log`, records file writes, and appends local log summaries to `result_summary`; iteration runner records `file_read`, `file_write`, `test_run`, `error`, and `give_up` events and feeds recent log summaries into later step prompts | 2026-05-12 (`npm --prefix packages\maestroclaw run build`, `npm --prefix packages\maestroclaw test`, `npm run typecheck`) |
 | **Iteration loop premature-failure fix + adapter fallback chain**: `executor-api` `report_step` no longer mirrors step `failed` state to loop (loop only ends via `completeLoop`); `runner.ts` has 4-adapter fallback chain (claude_code → codex_cli → copilot_cli → gemini_cli) so rate-limited adapters fall back silently | 2026-05-11 (committed `51e6e28`, deployed `executor-api`) |
 | **Iterate intent stays active + loop progress banner + Fill from lanes button**: RevealComposer stays in iterate mode after submit; shows active loop status banner (last 3 steps); "Fill from ARCHITECT.md lanes" button queries `build_lanes` then falls back to ARCHITECT.md parsing | 2026-05-11 (committed `0b65b06`) |
 | **PRO-02 Iteration Loop** | Migration `20260507130000_iteration_loops.sql` (pending apply); `iteration-init` edge function (pending deploy); Claw runner skeleton + controls + locks.ts; frontend `useIterationLoop` hook + IterationCard/IterationStepRow/IterationApprovalPanel UI; executor-api loop actions; RevealComposer Iterate intent | (pending) |
@@ -193,6 +194,50 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-05-12 — OpenAI Codex (GPT-5) — AGENT-01 structured Claw session logging
+
+**What was done:**
+- Implemented AGENT-01's structured local session logging foundation for MaestroClaw.
+- Added `packages/maestroclaw/src/lib/session-log.ts` with JSONL append/read/summarize helpers, `BuildSessionLog` extraction/merge helpers, and the AGENT-01 session prompt discipline block.
+- Updated ClawClaude, ClawCopilot, ClawCodex, and ClawGemini adapters to append local `session.log` entries for `tool_use`, `complete`, and `error`; session-mode prompts now require pre-read discipline and a final structured `session_log` JSON object.
+- Updated `executor.ts` to parse model-emitted `session_log`, emit `executor_job_events.event_type='session_log'`, record generated file writes, exclude `session.log` from artifact collection, and append local log summaries into job `result_summary`.
+- Updated the iteration runner to append `file_read`, `file_write`, `test_run`, `error`, and `give_up` events and include recent structured log summaries in prior-step context.
+
+**Files touched:** `packages/maestroclaw/src/lib/session-log.ts` (new), `packages/maestroclaw/src/adapters/claude-code.ts`, `packages/maestroclaw/src/adapters/copilot-cli.ts`, `packages/maestroclaw/src/adapters/codex-cli.ts`, `packages/maestroclaw/src/adapters/gemini-cli.ts`, `packages/maestroclaw/src/executor.ts`, `packages/maestroclaw/src/iteration/prompt.ts`, `packages/maestroclaw/src/iteration/runner.ts`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- Kept `session.log` local and diagnostic: logging failures never fail executor jobs.
+- Preserved the concurrent Sonnet SOM-02 iteration-loop changes already logged in this file and layered AGENT-01 logging around them.
+- Did not implement the ClawBuildSessionCard UI surface for structured logs in this pass; structured data now reaches `executor_job_events` and `result_summary`, so the UI can render it next.
+
+**What didn't work:**
+- The sandbox failed before PowerShell startup on every command; required read/build/test commands were rerun with approved escalation.
+- I initially only clarified the sprint role instead of implementing AGENT-01; corrected in this session.
+
+**Verification:** `npm --prefix packages\maestroclaw run build`; `npm --prefix packages\maestroclaw test` (26 passing); `npm run typecheck`.
+
+---
+
+### 2026-05-12 — Copilot CLI (Sonnet 4.6) — SOM-02 agent_query detection + peer routing
+
+**What was done:**
+- Implemented SOM-02 (`agent_query` detection + cross-CLI peer routing in the iteration loop). Both `npm --prefix packages/maestroclaw run build` and `npm run typecheck` clean.
+- `packages/maestroclaw/src/iteration/prompt.ts`: added `AgentQuerySignal` interface; added `agent_query?: AgentQuerySignal` to `IterationStepOutput`; added `agent_query_context?: string` to `PriorStepSummary`; updated `normalizeOutput()` to allow empty diff when blocking peer query present; added `extractAgentQuery()` validator; updated system prompt with peer consultation capability description; updated JSON output template.
+- `packages/maestroclaw/src/iteration/runner.ts`: imported `AgentQuerySignal`; replaced single `callAgent + parse` block in `runStep()` with query resolution loop (hard limit: 2/step); added `extraContext?` to `callAgent()` (injected as "ADDITIONAL CONTEXT FROM PEER AGENT"); added `resolveTargetToAdapter()` (persona slug → adapter), `buildQueryPrompt()` (reads referenced files from workDir), `resolveAgentQuery()` (calls target via `adapter.run()`, 30%-of-remaining-time budget); emits `reportStep` with `agent_query_to/reason/answered` and `appendSessionLogEvent` with `type: "tool_use"`.
+- `packages/maestroclaw/src/api.ts`: added optional `agent_query_to`, `agent_query_reason`, `agent_query_answered` to `IterationStepReport`.
+
+**Files touched:** `packages/maestroclaw/src/iteration/prompt.ts`, `packages/maestroclaw/src/iteration/runner.ts`, `packages/maestroclaw/src/api.ts`, `MAESTRO_STATE.md`.
+
+**Decisions made:**
+- Only `blocking: true` + no diff triggers the re-run loop. Non-blocking fire-and-forget deferred — field scaffolded (`agent_query_context` on `PriorStepSummary`) but runner doesn't populate it yet.
+- Persona slug → adapter mapping: skeptic → codex_cli, builder → copilot_cli, archivist → claude_code, critic → codex_cli (matches PERSONAS.md routing defaults).
+- Query calls use `adapter.run()` not `runSession()` — critiques are one-shot, not file-writing sessions.
+- No executor.ts changes — that's SOM-03 (build session critique). SOM-02 is iteration loop only.
+
+**What's next:** SOM-03 (build session critique, `runCritique()` adapter method) or SOM-04 Sonnet wiring follow-on (OrchestraDrawer persona badge, PersonaPicker). Conductor picks order.
+
+---
 
 ### 2026-05-12 — OpenAI Codex (GPT-5) — Sprint role definition
 

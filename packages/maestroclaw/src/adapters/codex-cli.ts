@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { buildCliArguments, resolveCliInvocation } from "./command.js";
 import { LineSplitter } from "../lib/line-splitter.js";
+import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
 
 export class CodexCliAdapter implements Adapter {
   name = "codex_cli";
@@ -43,7 +44,7 @@ export class CodexCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
   ): Promise<AdapterResult> {
-    return this.executeWithTools(prompt, workDir, timeoutMs);
+    return this.executeWithTools(`${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`, workDir, timeoutMs, undefined, "session");
   }
 
   private async executeWithTools(
@@ -51,12 +52,27 @@ export class CodexCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
     onLine?: OnLineFn,
+    mode: "task" | "session" = "task",
   ): Promise<AdapterResult> {
     console.log(`  🤖 codex_cli: running in ${workDir}`);
+    appendSessionLogEvent(workDir, {
+      type: "tool_use",
+      adapter: this.name,
+      mode,
+      content: `Starting codex_cli ${mode} run`,
+      metadata: { command: "codex exec", full_auto: true },
+    });
 
     const outputFilePath = join(workDir, `.maestroclaw-codex-last-message-${Date.now()}.txt`);
     const invocation = await resolveCliInvocation("codex");
     if (!invocation) {
+      appendSessionLogEvent(workDir, {
+        type: "error",
+        adapter: this.name,
+        mode,
+        success: false,
+        content: "Codex CLI is not available on this machine",
+      });
       return {
         success: false,
         output: "",
@@ -137,6 +153,16 @@ export class CodexCliAdapter implements Adapter {
               ? undefined
               : `codex exited with code ${code ?? "unknown"}`
         );
+        appendSessionLogEvent(workDir, {
+          type: success ? "complete" : "error",
+          adapter: this.name,
+          mode,
+          success,
+          content: signal
+            ? `codex_cli ${mode} terminated with signal ${signal}`
+            : `codex_cli ${mode} exited with code ${code ?? "unknown"}`,
+          metadata: { code, signal, stderr: stderr.slice(0, 1000) },
+        });
 
         finish({
           success,
@@ -146,6 +172,13 @@ export class CodexCliAdapter implements Adapter {
       });
 
       proc.on("error", (err) => {
+        appendSessionLogEvent(workDir, {
+          type: "error",
+          adapter: this.name,
+          mode,
+          success: false,
+          content: `codex_cli ${mode} failed to start: ${err.message}`,
+        });
         finish({
           success: false,
           output: stdout.trimEnd(),

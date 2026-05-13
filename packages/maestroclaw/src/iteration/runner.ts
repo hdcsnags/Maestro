@@ -16,12 +16,13 @@ import { getAdapter, type AdapterResult } from "../adapters/index.js";
 import {
   getIterationSystemPrompt, renderIterationUserMessage,
   parseIterationStepOutput, hashDiff, detectAgentStuck,
-  type FileSnapshot, type PriorStepSummary
+  type FileSnapshot, type PriorStepSummary, type AgentQuerySignal
 } from "./prompt.js";
 import {
   applyDiffWithCheckpoint, rollbackStep, commitStep, matchesAnyScope
 } from "./apply-diff.js";
 import { acquireIterationLocks, releaseIterationLocks } from "./locks.js";
+import { appendSessionLogEvent, readSessionLog, SESSION_LOG_FILE, summarizeSessionLog } from "../lib/session-log.js";
 
 const CONTROL_POLL_INTERVAL_MS = 2_000;
 const MAX_STDOUT_BYTES = 8 * 1024;
@@ -169,6 +170,13 @@ async function runStep(
   if (state.aborted) return "aborted";
 
   const filesInScope = readFilesInScope(workDir, loop.scope_paths);
+  appendSessionLogEvent(workDir, {
+    type: "file_read",
+    mode: "iteration",
+    step_number: stepNum,
+    paths: filesInScope.map(f => f.path),
+    content: `Read ${filesInScope.length} in-scope file(s) before proposing a diff`,
+  });
   await reportStep(config, loop.id, {
     step_number: stepNum,
     state: "reading_files",
@@ -191,38 +199,123 @@ async function runStep(
   });
 
   const systemPrompt = getIterationSystemPrompt();
-  let agentOutput: string;
-  try {
-    agentOutput = await callAgent(config, loop, systemPrompt, userMessage, workDir, state);
-  } catch (err) {
-    await reportStep(config, loop.id, {
-      step_number: stepNum,
-      state: "failed",
-      terminal_reason: `agent_call_failed: ${err instanceof Error ? err.message : String(err)}`,
-    });
-    state.priorSteps.push({ step_number: stepNum, diff_summary: "(agent call failed)", apply_result: "failed", verification_result: "skipped" });
-    return "failed";
+
+  // SOM-02: agent_query resolution loop. AGENT-01 session_log entries are
+  // recorded around each failed/peer-routed step.
+  let agentOutput = "";
+  let parsed: ReturnType<typeof parseIterationStepOutput> = null;
+  let queryResolutions = 0;
+  let extraQueryContext: string | undefined;
+
+  for (;;) {
+    try {
+      agentOutput = await callAgent(config, loop, systemPrompt, userMessage, workDir, state, extraQueryContext);
+    } catch (err) {
+      await reportStep(config, loop.id, {
+        step_number: stepNum,
+        state: "failed",
+        terminal_reason: `agent_call_failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      appendSessionLogEvent(workDir, {
+        type: "error",
+        mode: "iteration",
+        step_number: stepNum,
+        content: `Agent call failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      state.priorSteps.push({
+        step_number: stepNum,
+        diff_summary: "(agent call failed)",
+        apply_result: "failed",
+        verification_result: "skipped",
+        session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
+      });
+      return "failed";
+    }
+
+    parsed = parseIterationStepOutput(agentOutput);
+    if (!parsed) {
+      await reportStep(config, loop.id, {
+        step_number: stepNum,
+        state: "failed",
+        terminal_reason: "agent_output_unparseable",
+      });
+      appendSessionLogEvent(workDir, {
+        type: "error",
+        mode: "iteration",
+        step_number: stepNum,
+        content: "Agent output was not parseable as an iteration step JSON object",
+      });
+      state.priorSteps.push({
+        step_number: stepNum,
+        diff_summary: "(unparseable output)",
+        apply_result: "failed",
+        verification_result: "skipped",
+        session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
+      });
+      return "failed";
+    }
+
+    if (parsed.give_up) {
+      await reportStep(config, loop.id, {
+        step_number: stepNum,
+        state: "failed",
+        terminal_reason: `agent_gave_up: ${parsed.give_up_rationale ?? "no rationale"}`,
+      });
+      appendSessionLogEvent(workDir, {
+        type: "give_up",
+        mode: "iteration",
+        step_number: stepNum,
+        content: parsed.give_up_rationale ?? "Agent gave up without rationale",
+      });
+      return "give_up";
+    }
+
+    const aq = parsed.agent_query;
+    if (aq && aq.blocking !== false && !parsed.diff) {
+      if (queryResolutions >= 2) {
+        console.warn(`  ⚠ [iterate] step ${stepNum}: agent_query resolution limit (2) reached`);
+        await reportStep(config, loop.id, {
+          step_number: stepNum,
+          state: "failed",
+          terminal_reason: "agent_query_resolution_limit",
+          agent_query_to: aq.to,
+          agent_query_reason: aq.reason,
+          agent_query_answered: false,
+        });
+        state.priorSteps.push({
+          step_number: stepNum,
+          diff_summary: `(agent_query to ${aq.to} - resolution limit)`,
+          apply_result: "failed",
+          verification_result: "skipped",
+          session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
+        });
+        return "failed";
+      }
+
+      const answer = await resolveAgentQuery(aq, workDir, state);
+      queryResolutions++;
+      await reportStep(config, loop.id, {
+        step_number: stepNum,
+        state: "proposing_diff",
+        agent_query_to: aq.to,
+        agent_query_reason: aq.reason,
+        agent_query_answered: true,
+      });
+      appendSessionLogEvent(workDir, {
+        type: "tool_use",
+        mode: "iteration",
+        step_number: stepNum,
+        content: `agent_query resolved: asked ${aq.to} - ${aq.reason}`,
+        metadata: { to: aq.to, reason: aq.reason, blocking: true, resolution: queryResolutions },
+      });
+      extraQueryContext = `PRIOR AGENT QUERY (resolved, resolution ${queryResolutions}):\nReason: ${aq.reason}\nAsked ${aq.to}: ${aq.question}\nAnswer:\n${answer}`;
+      continue;
+    }
+
+    break;
   }
 
-  const parsed = parseIterationStepOutput(agentOutput);
-  if (!parsed) {
-    await reportStep(config, loop.id, {
-      step_number: stepNum,
-      state: "failed",
-      terminal_reason: "agent_output_unparseable",
-    });
-    state.priorSteps.push({ step_number: stepNum, diff_summary: "(unparseable output)", apply_result: "failed", verification_result: "skipped" });
-    return "failed";
-  }
-
-  if (parsed.give_up) {
-    await reportStep(config, loop.id, {
-      step_number: stepNum,
-      state: "failed",
-      terminal_reason: `agent_gave_up: ${parsed.give_up_rationale ?? "no rationale"}`,
-    });
-    return "give_up";
-  }
+  if (!parsed) return "failed";
 
   const diffHash = hashDiff(parsed.diff);
   state.diffHashes.push(diffHash);
@@ -267,9 +360,31 @@ async function runStep(
       apply_error: applyResult.details ?? applyResult.reason,
       terminal_reason: applyResult.reason,
     });
-    state.priorSteps.push({ step_number: stepNum, diff_summary: parsed.rationale.slice(0, 60), apply_result: "failed", apply_error: applyResult.details, verification_result: "skipped" });
+    appendSessionLogEvent(workDir, {
+      type: "error",
+      mode: "iteration",
+      step_number: stepNum,
+      content: `Apply failed: ${applyResult.details ?? applyResult.reason}`,
+      metadata: { reason: applyResult.reason },
+    });
+    state.priorSteps.push({
+      step_number: stepNum,
+      diff_summary: parsed.rationale.slice(0, 60),
+      apply_result: "failed",
+      apply_error: applyResult.details,
+      verification_result: "skipped",
+      session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
+    });
     return "failed";
   }
+
+  appendSessionLogEvent(workDir, {
+    type: "file_write",
+    mode: "iteration",
+    step_number: stepNum,
+    paths: diffFiles,
+    content: `Applied proposed diff touching ${diffFiles.length} file(s)`,
+  });
 
   await reportStep(config, loop.id, {
     step_number: stepNum,
@@ -283,6 +398,16 @@ async function runStep(
   const verifyResult = await runVerificationWithAbortWatch(
     config, state, loop.verification_command ?? null, workDir
   );
+  appendSessionLogEvent(workDir, {
+    type: "test_run",
+    mode: "verification",
+    step_number: stepNum,
+    success: verifyResult.ok,
+    content: loop.verification_command
+      ? `Verification command ${verifyResult.ok ? "passed" : "failed"}: ${loop.verification_command}`
+      : "No verification command configured; verification treated as passed",
+    metadata: { exit_code: verifyResult.exit_code },
+  });
 
   if (state.aborted) {
     rollbackStep(workDir, applyResult.pre_apply_sha);
@@ -309,6 +434,7 @@ async function runStep(
       diff_summary: parsed.rationale.slice(0, 60),
       apply_result: "succeeded",
       verification_result: "passed",
+      session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
     });
     return "succeeded";
   } else {
@@ -330,6 +456,7 @@ async function runStep(
       apply_result: "succeeded",
       verification_result: "failed",
       verification_stderr_tail: verifyResult.stderr.split("\n").slice(-30).join("\n"),
+      session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
     });
     return "failed";
   }
@@ -473,6 +600,7 @@ function walkTree(dir: string, baseDir: string): string[] {
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.name.startsWith(".")) continue;
+      if (entry.name === SESSION_LOG_FILE) continue;
       if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") continue;
       const fullPath = join(dir, entry.name);
       const relPath = relative(baseDir, fullPath).replace(/\\/g, "/");
@@ -544,14 +672,16 @@ async function callAgent(
   systemPrompt: string,
   userMessage: string,
   workDir: string,
-  state: LoopState
+  state: LoopState,
+  extraContext?: string,
 ): Promise<string> {
   const primary = process.env.CLAW_ITERATION_ADAPTER ?? "claude_code";
   // Build the fallback chain: primary first, then the rest in order (deduped)
   const chain = [primary, ...ITERATION_ADAPTER_FALLBACK_CHAIN.filter(a => a !== primary)];
 
-  const combined =
-    `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER TASK:\n${userMessage}`;
+  const combined = extraContext
+    ? `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER TASK:\n${userMessage}\n\nADDITIONAL CONTEXT FROM PEER AGENT:\n${extraContext}`
+    : `SYSTEM INSTRUCTIONS:\n${systemPrompt}\n\nUSER TASK:\n${userMessage}`;
 
   // Remaining-budget aware per-step timeout.
   // Floor: 30 s (model needs time to respond); cap: 3 min; uses 80% of remaining.
@@ -614,6 +744,76 @@ async function callAgent(
     throw new Error(lastError ?? "all adapters returned no output");
   }
   return result.output ?? "";
+}
+
+// Maps persona slugs from SOM-04 to their default local adapter.
+const PERSONA_TO_ADAPTER: Record<string, string> = {
+  skeptic: "codex_cli",
+  builder: "copilot_cli",
+  archivist: "claude_code",
+  critic: "codex_cli",
+};
+const KNOWN_ADAPTERS = new Set(["claude_code", "codex_cli", "copilot_cli", "gemini_cli"]);
+
+function resolveTargetToAdapter(to: string): string {
+  if (KNOWN_ADAPTERS.has(to)) return to;
+  return PERSONA_TO_ADAPTER[to] ?? "claude_code";
+}
+
+function buildQueryPrompt(aq: AgentQuerySignal, workDir: string): string {
+  const fileParts: string[] = [];
+  if (aq.files?.length) {
+    for (const relPath of aq.files) {
+      const fullPath = join(workDir, relPath);
+      if (!existsSync(fullPath)) continue;
+      try {
+        const content = readFileSync(fullPath, "utf8").slice(0, MAX_CONTENT_BYTES);
+        fileParts.push(`-- ${relPath} --\n\`\`\`\n${content}\n\`\`\``);
+      } catch { /* skip unreadable */ }
+    }
+  }
+  let prompt = `You are answering a specific question from a peer agent in a build loop.\n\n`;
+  prompt += `QUESTION:\n${aq.question}`;
+  if (fileParts.length > 0) {
+    prompt += `\n\nREFERENCE FILES:\n${fileParts.join("\n\n")}`;
+  }
+  prompt += `\n\nProvide a concise, concrete answer focused on what the requesting agent needs to proceed. No preamble.`;
+  return prompt;
+}
+
+async function resolveAgentQuery(
+  aq: AgentQuerySignal,
+  workDir: string,
+  state: LoopState,
+): Promise<string> {
+  const adapterName = resolveTargetToAdapter(aq.to);
+  console.log(`  🔗 [iterate] agent_query -> ${adapterName}: ${aq.reason}`);
+
+  let adapter;
+  try {
+    adapter = getAdapter(adapterName);
+  } catch {
+    console.warn(`  ⚠ [iterate] agent_query target "${adapterName}" not available - returning empty answer`);
+    return `(adapter "${adapterName}" not available on this machine)`;
+  }
+
+  const available = await adapter.check().catch(() => false);
+  if (!available) {
+    console.warn(`  ⚠ [iterate] agent_query target "${adapterName}" check() failed - returning empty answer`);
+    return `(adapter "${adapterName}" is not available)`;
+  }
+
+  const remainingMs = Math.max(0, state.timeoutAt - Date.now());
+  const queryMs = Math.max(15_000, Math.min(60_000, Math.floor(remainingMs * 0.3)));
+  const prompt = buildQueryPrompt(aq, workDir);
+
+  try {
+    const result = await adapter.run(prompt, workDir, queryMs);
+    return result.output?.trim() || "(no answer returned)";
+  } catch (err) {
+    console.warn(`  ⚠ [iterate] agent_query to ${adapterName} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return `(query to ${adapterName} failed: ${err instanceof Error ? err.message : String(err)})`;
+  }
 }
 
 function parseDiffFiles(diff: string): string[] {

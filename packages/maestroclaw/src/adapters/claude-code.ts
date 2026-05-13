@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { LineSplitter } from "../lib/line-splitter.js";
+import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
 
 // Model to use for generation. Override via CLAW_CLAUDE_MODEL in .env.
 // Defaults to Sonnet to avoid burning Opus quota on bulk builds.
@@ -70,13 +71,14 @@ export class ClaudeCodeAdapter implements Adapter {
     workDir: string,
     timeoutMs: number
   ): Promise<AdapterResult> {
+    const sessionPrompt = `${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`;
     // Session mode: --dangerously-skip-permissions lets Claude write files without prompts.
     // --output-format is omitted — we collect files via dir-diff, not by parsing stdout.
-    const result = await this.runSessionWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL);
+    const result = await this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, PRIMARY_MODEL);
 
     if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
       console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} (session) — retrying with fallback ${FALLBACK_MODEL}`);
-      return this.runSessionWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL);
+      return this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, FALLBACK_MODEL);
     }
 
     return result;
@@ -90,6 +92,13 @@ export class ClaudeCodeAdapter implements Adapter {
     onLine?: OnLineFn,
   ): Promise<AdapterResult> {
     console.log(`  🤖 claude_code: running in ${workDir} (model: ${model})`);
+    appendSessionLogEvent(workDir, {
+      type: "tool_use",
+      adapter: this.name,
+      mode: "task",
+      content: `Starting claude_code task run with model ${model}`,
+      metadata: { command: "claude --print", model },
+    });
 
     return new Promise((resolve) => {
       const proc = spawn(
@@ -141,6 +150,16 @@ export class ClaudeCodeAdapter implements Adapter {
           stdoutSplitter?.drain((line) => onLine("stdout", line));
           stderrSplitter?.drain((line) => onLine("stderr", line));
         }
+        appendSessionLogEvent(workDir, {
+          type: code === 0 && !timedOut ? "complete" : "error",
+          adapter: this.name,
+          mode: "task",
+          success: code === 0 && !timedOut,
+          content: timedOut
+            ? `claude_code task timed out after ${timeoutMs}ms`
+            : `claude_code task exited with code ${code ?? "unknown"}`,
+          metadata: { code, model, stderr: stderr.slice(0, 1000) },
+        });
         resolve({
           success: code === 0 && !timedOut,
           output: stdout,
@@ -150,6 +169,14 @@ export class ClaudeCodeAdapter implements Adapter {
 
       proc.on("error", (err) => {
         clearTimeout(killTimer);
+        appendSessionLogEvent(workDir, {
+          type: "error",
+          adapter: this.name,
+          mode: "task",
+          success: false,
+          content: `claude_code task failed to start: ${err.message}`,
+          metadata: { model },
+        });
         resolve({
           success: false,
           output: stdout,
@@ -166,6 +193,13 @@ export class ClaudeCodeAdapter implements Adapter {
     model: string,
   ): Promise<AdapterResult> {
     console.log(`  🤖 claude_code [session]: running in ${workDir} (model: ${model})`);
+    appendSessionLogEvent(workDir, {
+      type: "tool_use",
+      adapter: this.name,
+      mode: "session",
+      content: `Starting claude_code session run with model ${model}`,
+      metadata: { command: "claude --dangerously-skip-permissions", model },
+    });
 
     return new Promise((resolve) => {
       const proc = spawn(
@@ -200,6 +234,16 @@ export class ClaudeCodeAdapter implements Adapter {
 
       proc.on("close", (code) => {
         clearTimeout(killTimer);
+        appendSessionLogEvent(workDir, {
+          type: code === 0 && !timedOut ? "complete" : "error",
+          adapter: this.name,
+          mode: "session",
+          success: code === 0 && !timedOut,
+          content: timedOut
+            ? `claude_code session timed out after ${timeoutMs}ms`
+            : `claude_code session exited with code ${code ?? "unknown"}`,
+          metadata: { code, model, stderr: stderr.slice(0, 1000) },
+        });
         resolve({
           success: code === 0 && !timedOut,
           output: stdout,
@@ -209,6 +253,14 @@ export class ClaudeCodeAdapter implements Adapter {
 
       proc.on("error", (err) => {
         clearTimeout(killTimer);
+        appendSessionLogEvent(workDir, {
+          type: "error",
+          adapter: this.name,
+          mode: "session",
+          success: false,
+          content: `claude_code session failed to start: ${err.message}`,
+          metadata: { model },
+        });
         resolve({
           success: false,
           output: stdout,

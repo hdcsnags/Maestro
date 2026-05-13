@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { LineSplitter } from "../lib/line-splitter.js";
+import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
 
 // Model to use for generation. Override via CLAW_GEMINI_MODEL in .env.
 const PRIMARY_MODEL = process.env.CLAW_GEMINI_MODEL ?? "gemini-2.5-pro";
@@ -74,7 +75,15 @@ export class GeminiCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
   ): Promise<AdapterResult> {
-    return this.run(prompt, workDir, timeoutMs);
+    const sessionPrompt = `${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`;
+    const result = await this.runWithModel(sessionPrompt, workDir, timeoutMs, PRIMARY_MODEL, undefined, "session");
+
+    if (!result.success && isRateLimited((result.output ?? "") + (result.error ?? "")) && FALLBACK_MODEL) {
+      console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} (session) — retrying with fallback ${FALLBACK_MODEL}`);
+      return this.runWithModel(sessionPrompt, workDir, timeoutMs, FALLBACK_MODEL, undefined, "session");
+    }
+
+    return result;
   }
 
   private runWithModel(
@@ -83,8 +92,16 @@ export class GeminiCliAdapter implements Adapter {
     timeoutMs: number,
     model: string,
     onLine?: OnLineFn,
+    mode: "task" | "session" = "task",
   ): Promise<AdapterResult> {
     console.log(`  🤖 gemini_cli: running in ${workDir} (model: ${model})`);
+    appendSessionLogEvent(workDir, {
+      type: "tool_use",
+      adapter: this.name,
+      mode,
+      content: `Starting gemini_cli ${mode} run with model ${model}`,
+      metadata: { command: "gemini --yolo", model },
+    });
 
     return new Promise((resolve) => {
       let stdout = "";
@@ -132,6 +149,16 @@ export class GeminiCliAdapter implements Adapter {
               ? `gemini terminated with signal ${signal}`
               : `gemini exited with code ${code ?? "unknown"}`
           );
+        appendSessionLogEvent(workDir, {
+          type: success ? "complete" : "error",
+          adapter: this.name,
+          mode,
+          success,
+          content: signal
+            ? `gemini_cli ${mode} terminated with signal ${signal}`
+            : `gemini_cli ${mode} exited with code ${code ?? "unknown"}`,
+          metadata: { code, signal, model, stderr: stderr.slice(0, 1000) },
+        });
 
         resolve({
           success,
@@ -141,6 +168,14 @@ export class GeminiCliAdapter implements Adapter {
       });
 
       proc.on("error", (err) => {
+        appendSessionLogEvent(workDir, {
+          type: "error",
+          adapter: this.name,
+          mode,
+          success: false,
+          content: `gemini_cli ${mode} failed to start: ${err.message}`,
+          metadata: { model },
+        });
         resolve({
           success: false,
           output: stdout.trimEnd(),

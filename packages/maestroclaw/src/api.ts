@@ -161,6 +161,9 @@ export interface IterationStepReport {
   verification_succeeded?: boolean;
   terminal_reason?: string;
   rolled_back?: boolean;
+  agent_query_to?: string;
+  agent_query_reason?: string;
+  agent_query_answered?: boolean;
 }
 
 export interface IterationControlRecord {

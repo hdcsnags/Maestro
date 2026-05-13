@@ -7,6 +7,15 @@ import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
 import type { IncidentService } from "./lib/kernel/incident-service.js";
 import { StreamThrottle } from "./lib/stream-throttle.js";
+import {
+  appendBuildSessionLogSummary,
+  appendSessionLogEvent,
+  extractBuildSessionLog,
+  mergeBuildSessionLogs,
+  readSessionLog,
+  SESSION_LOG_FILE,
+  summarizeSessionLog,
+} from "./lib/session-log.js";
 
 // Module-level holder for the IncidentService singleton.
 // Adapters access it via getIncidentService().
@@ -470,6 +479,7 @@ export async function executeJob(
     let finalError: string | undefined;
     let attemptsUsed = 0;
     let lastFailureReason = "";
+    let structuredSessionLog = null as ReturnType<typeof extractBuildSessionLog>;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       attemptsUsed = attempt;
@@ -504,6 +514,10 @@ export async function executeJob(
 
       finalOutput = result.output;
       finalError = result.error;
+      structuredSessionLog = extractBuildSessionLog(result.output);
+      if (structuredSessionLog) {
+        await reportEvent(config, job.id, "session_log", { session_log: structuredSessionLog, attempt });
+      }
 
       // Classify adapter-level failures before extracting content
       if (!result.success && !result.output) {
@@ -550,6 +564,13 @@ export async function executeJob(
         const fullPath = resolveSafeArtifactPath(jobDir, filePath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, content, "utf-8");
+        appendSessionLogEvent(workDir, {
+          type: "file_write",
+          mode: "task",
+          path: filePath,
+          content: `Wrote task artifact ${filePath}`,
+          metadata: { bytes: content.length },
+        });
         console.log(`  💾 Wrote ${filePath} to workspace`);
       }
 
@@ -579,8 +600,13 @@ export async function executeJob(
       }));
 
       await reportArtifactManifest(config, job.id, manifestArray);
+      const localEventSummary = summarizeSessionLog(readSessionLog(workDir));
       await completeJob(config, job.id, true, {
-        result_summary: `${retryBadge}${finalOutput.slice(0, 10_000)}`,
+        result_summary: appendBuildSessionLogSummary(
+          `${retryBadge}${finalOutput.slice(0, 6_000)}`,
+          structuredSessionLog,
+          localEventSummary,
+        ),
         artifact_manifest: maybeInlineArtifactManifest(manifestArray),
       });
     } else {
@@ -592,7 +618,11 @@ export async function executeJob(
       ].filter(Boolean).join("\n");
 
       await completeJob(config, job.id, false, {
-        result_summary: gracefulSummary,
+        result_summary: appendBuildSessionLogSummary(
+          gracefulSummary,
+          structuredSessionLog,
+          summarizeSessionLog(readSessionLog(workDir)),
+        ),
         error_text: lastFailureReason || "no content could be extracted after all retries",
       });
     }
@@ -672,6 +702,7 @@ function walkDir(dir: string): Map<string, number> {
     }
     for (const entry of entries) {
       if (entry === ".git" || entry === "node_modules") continue;
+      if (entry === SESSION_LOG_FILE) continue;
       if (entry.startsWith(".maestroclaw-")) continue;
       const full = join(current, entry);
       try {
@@ -841,6 +872,11 @@ export async function executeSessionJob(
 
     console.log(`  🚀 [session] ${job.adapter} — scope "${bundle.scope ?? "**"}"...`);
     const pass1 = await runSession(sessionPrompt, workDir, pass1Ms);
+    const pass1StructuredLog = extractBuildSessionLog(pass1.output);
+    let pass2StructuredLog = null as ReturnType<typeof extractBuildSessionLog>;
+    if (pass1StructuredLog) {
+      await reportEvent(config, job.id, "session_log", { session_log: pass1StructuredLog, pass: 1 });
+    }
 
     if (pass1.output) await reportEvent(config, job.id, "stdout", { text: pass1.output.slice(0, 50_000), pass: 1 });
     if (pass1.error) await reportEvent(config, job.id, "stderr", { text: pass1.error.slice(0, 10_000), pass: 1 });
@@ -864,6 +900,10 @@ export async function executeSessionJob(
       const fixMs = Math.max(10_000, deadlineMs - Date.now() - REPORT_RESERVE_MS);
       const beforeFix = walkDir(workDir);
       const pass2 = await runSession(buildFixPassPrompt(job, missing, writtenPaths), workDir, fixMs);
+      pass2StructuredLog = extractBuildSessionLog(pass2.output);
+      if (pass2StructuredLog) {
+        await reportEvent(config, job.id, "session_log", { session_log: pass2StructuredLog, pass: 2 });
+      }
 
       if (pass2.output) await reportEvent(config, job.id, "stdout", { text: pass2.output.slice(0, 50_000), pass: 2 });
       const afterFix = walkDir(workDir);
@@ -904,6 +944,13 @@ export async function executeSessionJob(
         const fullPath = resolveSafeArtifactPath(buildDir, filePath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, content, "utf-8");
+        appendSessionLogEvent(workDir, {
+          type: "file_write",
+          mode: "session",
+          path: filePath,
+          content: `Wrote session artifact ${filePath}`,
+          metadata: { bytes: content.length },
+        });
       }
       console.log(`  📂 [session] → builds/${job.session_id.slice(0, 8)}/`);
       if (config.enableCheckpoints) {
@@ -916,18 +963,27 @@ export async function executeSessionJob(
       path, content, operation: "create" as const,
     }));
     jobSucceeded = manifestArray.length > 0;
+    const structuredSessionLog = mergeBuildSessionLogs([pass1StructuredLog, pass2StructuredLog]);
+    const localEventSummary = summarizeSessionLog(readSessionLog(workDir));
 
     if (jobSucceeded) {
       await reportArtifactManifest(config, job.id, manifestArray);
       await completeJob(config, job.id, true, {
-        result_summary: rejectedPaths.length > 0
+        result_summary: appendBuildSessionLogSummary(rejectedPaths.length > 0
           ? `Session build: ${manifestArray.length} file(s) written (${rejectedPaths.length} out-of-scope file(s) removed)`
           : `Session build: ${manifestArray.length} file(s) written`,
+          structuredSessionLog,
+          localEventSummary,
+        ),
         artifact_manifest: maybeInlineArtifactManifest(manifestArray),
       });
     } else {
       await completeJob(config, job.id, false, {
-        result_summary: pass1.output?.slice(0, 10_000) ?? "",
+        result_summary: appendBuildSessionLogSummary(
+          pass1.output?.slice(0, 6_000) ?? "",
+          structuredSessionLog,
+          localEventSummary,
+        ),
         error_text: rejectedPaths.length > 0
           ? "Session wrote only out-of-scope files — all outputs were discarded."
           : "Session produced no files — check adapter stdout events for details.",

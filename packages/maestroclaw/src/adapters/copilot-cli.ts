@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { buildCliArguments, resolveCliInvocation } from "./command.js";
 import { LineSplitter } from "../lib/line-splitter.js";
+import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
 
 function buildWrapperPrompt(promptFileName: string): string {
   return `Read the file named ${promptFileName} in the current workspace and follow its instructions exactly. Use the current workspace as your repository context if needed. Return only your final answer. Do not add commentary about reading the prompt file.`;
@@ -48,7 +49,7 @@ export class CopilotCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
   ): Promise<AdapterResult> {
-    return this.executeWithTools(prompt, workDir, timeoutMs);
+    return this.executeWithTools(`${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`, workDir, timeoutMs, undefined, "session");
   }
 
   private async executeWithTools(
@@ -56,12 +57,27 @@ export class CopilotCliAdapter implements Adapter {
     workDir: string,
     timeoutMs: number,
     onLine?: OnLineFn,
+    mode: "task" | "session" = "task",
   ): Promise<AdapterResult> {
     console.log(`  🤖 copilot_cli: running in ${workDir}`);
+    appendSessionLogEvent(workDir, {
+      type: "tool_use",
+      adapter: this.name,
+      mode,
+      content: `Starting copilot_cli ${mode} run`,
+      metadata: { command: "copilot -p", prompt_file: true },
+    });
 
     const promptFileName = `.maestroclaw-copilot-prompt-${Date.now()}.md`;
     const promptFilePath = join(workDir, promptFileName);
     writeFileSync(promptFilePath, prompt, "utf-8");
+    appendSessionLogEvent(workDir, {
+      type: "file_write",
+      adapter: this.name,
+      mode,
+      path: promptFileName,
+      content: "Wrote temporary Copilot prompt file",
+    });
     const invocation = await resolveCliInvocation("copilot");
     if (!invocation) {
       try {
@@ -69,6 +85,13 @@ export class CopilotCliAdapter implements Adapter {
       } catch {
         // Best-effort cleanup only.
       }
+      appendSessionLogEvent(workDir, {
+        type: "error",
+        adapter: this.name,
+        mode,
+        success: false,
+        content: "GitHub Copilot CLI is not available on this machine",
+      });
       return {
         success: false,
         output: "",
@@ -142,6 +165,16 @@ export class CopilotCliAdapter implements Adapter {
               ? undefined
               : `copilot exited with code ${code ?? "unknown"}`
         );
+        appendSessionLogEvent(workDir, {
+          type: success ? "complete" : "error",
+          adapter: this.name,
+          mode,
+          success,
+          content: signal
+            ? `copilot_cli ${mode} terminated with signal ${signal}`
+            : `copilot_cli ${mode} exited with code ${code ?? "unknown"}`,
+          metadata: { code, signal, stderr: stderr.slice(0, 1000) },
+        });
 
         finish({
           success,
@@ -151,6 +184,13 @@ export class CopilotCliAdapter implements Adapter {
       });
 
       proc.on("error", (err) => {
+        appendSessionLogEvent(workDir, {
+          type: "error",
+          adapter: this.name,
+          mode,
+          success: false,
+          content: `copilot_cli ${mode} failed to start: ${err.message}`,
+        });
         finish({
           success: false,
           output: stdout.trimEnd(),
