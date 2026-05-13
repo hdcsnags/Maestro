@@ -42,7 +42,7 @@ export default function SynthesisDrawer() {
   const { synthesize, newRound } = useOrchestration();
   const isOpen = state.activeDrawer === 'synthesis';
 
-  const [isWide, setIsWide] = useState(() => window.innerWidth > 860);
+  const [isWide, setIsWide] = useState(() => typeof window !== 'undefined' && window.innerWidth > 860);
   useEffect(() => {
     const handler = () => setIsWide(window.innerWidth > 860);
     window.addEventListener('resize', handler);

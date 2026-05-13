@@ -165,6 +165,7 @@ export default function OrchestraDrawer() {
   const [newScopePath, setNewScopePath] = useState('');
   const [personaPickerAgent, setPersonaPickerAgent] = useState<string | null>(null);
   const [personas, setPersonas] = useState<PersonaRow[]>([]);
+  const [tiering, setTiering] = useState(false);
 
   useEffect(() => {
     supabase
@@ -179,15 +180,23 @@ export default function OrchestraDrawer() {
   /* ── Tier selection ── */
 
   const handleSelectTier = async (tier: TierName) => {
-    const def = TIER_DEFINITIONS[tier];
-    const tierSlotKeys = new Set(def.slots.map(s => slotKey(s.provider_group, s.slot_index)));
-    for (const agent of state.agents) {
-      const key = slotKey(agent.provider_group, agent.slot_index);
-      const shouldBeActive = tierSlotKeys.has(key);
-      if (agent.is_active !== shouldBeActive) {
-        await supabase.from('agents').update({ is_active: shouldBeActive } as never).eq('id', agent.id);
-        dispatch({ type: 'UPDATE_AGENT', payload: { id: agent.id, is_active: shouldBeActive } });
+    if (tiering) return;
+    setTiering(true);
+    try {
+      const def = TIER_DEFINITIONS[tier];
+      const tierSlotKeys = new Set(def.slots.map(s => slotKey(s.provider_group, s.slot_index)));
+      for (const agent of state.agents) {
+        const key = slotKey(agent.provider_group, agent.slot_index);
+        const shouldBeActive = tierSlotKeys.has(key);
+        if (agent.is_active !== shouldBeActive) {
+          await supabase.from('agents').update({ is_active: shouldBeActive } as never).eq('id', agent.id);
+          dispatch({ type: 'UPDATE_AGENT', payload: { id: agent.id, is_active: shouldBeActive } });
+        }
       }
+    } catch (err) {
+      console.error('[OrchestraDrawer] handleSelectTier failed:', err);
+    } finally {
+      setTiering(false);
     }
   };
 
@@ -262,6 +271,7 @@ export default function OrchestraDrawer() {
       <button
         key={tier}
         onClick={() => handleSelectTier(tier)}
+        disabled={tiering}
         style={{
           width: '100%',
           padding: '18px 22px',
@@ -270,9 +280,10 @@ export default function OrchestraDrawer() {
           background: isSelected
             ? `linear-gradient(180deg, ${accent}14, ${accent}08)`
             : 'rgba(255,255,255,0.02)',
-          cursor: 'pointer',
+          cursor: tiering ? 'default' : 'pointer',
           textAlign: 'left',
           transition: 'all 0.2s ease',
+          opacity: tiering ? 0.6 : 1,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>

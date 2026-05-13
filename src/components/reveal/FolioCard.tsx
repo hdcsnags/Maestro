@@ -110,6 +110,8 @@ export default function FolioCard({
         .update({ is_flagged: newFlagged } as never)
         .eq('id', response.id);
       dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_flagged: newFlagged } });
+    } catch (err) {
+      console.error('[FolioCard] handleFlag failed:', err);
     } finally {
       setFlagging(false);
     }
@@ -125,6 +127,8 @@ export default function FolioCard({
         .update({ is_lead: newLead } as never)
         .eq('id', response.id);
       dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_lead: newLead } });
+    } catch (err) {
+      console.error('[FolioCard] handleLead failed:', err);
     } finally {
       setBusyChip(null);
     }
@@ -140,6 +144,8 @@ export default function FolioCard({
         .update({ is_pinned: newPinned } as never)
         .eq('id', response.id);
       dispatch({ type: 'UPDATE_RESPONSE', payload: { id: response.id, is_pinned: newPinned } });
+    } catch (err) {
+      console.error('[FolioCard] handlePin failed:', err);
     } finally {
       setBusyChip(null);
     }

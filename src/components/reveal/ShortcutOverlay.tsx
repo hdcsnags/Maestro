@@ -1,21 +1,20 @@
 import { useMaestro } from '../../context/MaestroContext';
 
-const MOD = navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl';
-
-const SHORTCUTS = [
-  { key: `${MOD} O`, desc: 'Open orchestra drawer' },
-  { key: `${MOD} J`, desc: 'Open trust rail' },
-  { key: `${MOD} E`, desc: 'Open synthesis drawer' },
-  { key: `${MOD} K`, desc: 'Open command palette' },
-  { key: '\u2190 / \u2192', desc: 'Move across the council' },
-  { key: '\u2191 / \u2193', desc: 'Browse round history' },
-  { key: `${MOD} .`, desc: 'Toggle focus mode' },
-  { key: 'Esc', desc: 'Dismiss drawers and overlays' },
-  { key: `${MOD} /`, desc: 'Toggle shortcut legend' },
-];
-
 export default function ShortcutOverlay() {
   const { state, dispatch } = useMaestro();
+  const MOD = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl';
+
+  const SHORTCUTS = [
+    { key: `${MOD} O`, desc: 'Open orchestra drawer' },
+    { key: `${MOD} J`, desc: 'Open trust rail' },
+    { key: `${MOD} E`, desc: 'Open synthesis drawer' },
+    { key: `${MOD} K`, desc: 'Open command palette' },
+    { key: '\u2190 / \u2192', desc: 'Move across the council' },
+    { key: '\u2191 / \u2193', desc: 'Browse round history' },
+    { key: `${MOD} .`, desc: 'Toggle focus mode' },
+    { key: 'Esc', desc: 'Dismiss drawers and overlays' },
+    { key: `${MOD} /`, desc: 'Toggle shortcut legend' },
+  ];
 
   return (
     <div className={`shortcut-overlay ${state.shortcutOverlayOpen ? 'open' : ''}`}>
