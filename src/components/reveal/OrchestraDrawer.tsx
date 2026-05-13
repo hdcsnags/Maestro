@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
-import { PROVIDER_COLORS, Agent, AGENT_DEFAULTS, StabilityTier } from '../../types';
+import { PROVIDER_COLORS, Agent, AGENT_DEFAULTS, StabilityTier, PersonaRow } from '../../types';
 import { supabase } from '../../lib/supabase';
 import {
   estimateBroadcastCost,
@@ -126,6 +126,13 @@ const STABILITY_DOT: Record<Exclude<StabilityTier, 'stable'>, string> = {
   deprecated: '#e05a5a',
 };
 
+const PERSONA_COLORS: Record<string, string> = {
+  builder:  '#c9a84c',
+  skeptic:  '#9b7de0',
+  critic:   '#e07b5a',
+  archivist: '#5ab6d4',
+};
+
 function getStabilityInfo(model: string) {
   const def = AGENT_DEFAULTS.find(d => d.model === model);
   if (!def || def.stability_tier === 'stable') return null;
@@ -156,6 +163,16 @@ export default function OrchestraDrawer() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [scopeEditorAgent, setScopeEditorAgent] = useState<string | null>(null);
   const [newScopePath, setNewScopePath] = useState('');
+  const [personaPickerAgent, setPersonaPickerAgent] = useState<string | null>(null);
+  const [personas, setPersonas] = useState<PersonaRow[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('personas')
+      .select('id, slug, name, one_liner')
+      .order('name')
+      .then(({ data }) => { if (data) setPersonas(data as PersonaRow[]); });
+  }, []);
 
   const currentTier = useMemo(() => detectTier(state.agents), [state.agents]);
 
@@ -201,6 +218,12 @@ export default function OrchestraDrawer() {
     const paths = (agent.scoped_paths || []).filter(p => p !== path);
     await supabase.from('agents').update({ scoped_paths: paths } as never).eq('id', agentId);
     dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, scoped_paths: paths } });
+  };
+
+  const handleSetPersona = async (agentId: string, personaId: string | null) => {
+    await supabase.from('agents').update({ persona_id: personaId } as never).eq('id', agentId);
+    dispatch({ type: 'UPDATE_AGENT', payload: { id: agentId, persona_id: personaId } });
+    setPersonaPickerAgent(null);
   };
 
   /* ── Derived state ── */
@@ -409,6 +432,70 @@ export default function OrchestraDrawer() {
             >
               {isFree ? 'Free' : 'Paid'}
             </span>
+            {(() => {
+              const persona = agent.persona_id
+                ? personas.find(p => p.id === agent.persona_id)
+                : null;
+              const pColor = persona ? (PERSONA_COLORS[persona.slug] ?? 'var(--text-dim)') : null;
+              return persona && pColor ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="font-mono-dm"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setPersonaPickerAgent(personaPickerAgent === agent.id ? null : agent.id);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setPersonaPickerAgent(personaPickerAgent === agent.id ? null : agent.id);
+                    }
+                  }}
+                  title={`Persona: ${persona.name}${persona.one_liner ? ` — ${persona.one_liner}` : ''}`}
+                  style={{
+                    fontSize: '8px',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase' as const,
+                    color: pColor,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    background: `${pColor}14`,
+                    border: `1px solid ${pColor}33`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {persona.slug}
+                </span>
+              ) : !isLocked ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="font-mono-dm"
+                  onClick={e => {
+                    e.stopPropagation();
+                    setPersonaPickerAgent(personaPickerAgent === agent.id ? null : agent.id);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setPersonaPickerAgent(personaPickerAgent === agent.id ? null : agent.id);
+                    }
+                  }}
+                  title="Assign persona"
+                  style={{
+                    fontSize: '8px',
+                    color: 'var(--text-dim)',
+                    padding: '2px 4px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    opacity: 0.5,
+                  }}
+                >
+                  + persona
+                </span>
+              ) : null;
+            })()}
             {scopedPaths.length > 0 && (
               <span
                 className="font-mono-dm"
@@ -561,6 +648,107 @@ export default function OrchestraDrawer() {
             <Plus size={10} />
           </button>
         </div>
+      </div>
+    );
+  };
+
+  /* ── Render: persona picker (Advanced view) ── */
+
+  const renderPersonaPicker = (agent: Agent) => {
+    const currentPersona = agent.persona_id
+      ? personas.find(p => p.id === agent.persona_id)
+      : null;
+
+    return (
+      <div
+        style={{
+          marginTop: '8px',
+          padding: '12px',
+          borderRadius: '12px',
+          background: 'rgba(90,182,212,0.04)',
+          border: '1px solid rgba(90,182,212,0.12)',
+        }}
+      >
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <span
+            className="font-mono-dm"
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase' as const,
+              color: 'var(--text-dim)',
+            }}
+          >
+            {agent.display_name || agent.name} — Persona
+          </span>
+          <button
+            className="keycap"
+            style={{ width: '20px', height: '20px', minWidth: '20px' }}
+            onClick={() => setPersonaPickerAgent(null)}
+          >
+            <X size={9} />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => handleSetPersona(agent.id, null)}
+            className="font-mono-dm"
+            style={{
+              fontSize: '9px',
+              letterSpacing: '0.08em',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              border: `1px solid ${!currentPersona ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.08)'}`,
+              background: !currentPersona ? 'rgba(255,255,255,0.06)' : 'transparent',
+              color: !currentPersona ? 'var(--text)' : 'var(--text-dim)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            None
+          </button>
+          {personas.map(p => {
+            const pColor = PERSONA_COLORS[p.slug] ?? 'var(--text-dim)';
+            const isSelected = agent.persona_id === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => handleSetPersona(agent.id, p.id)}
+                title={p.one_liner ?? p.name}
+                className="font-mono-dm"
+                style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase' as const,
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  border: `1px solid ${isSelected ? `${pColor}55` : `${pColor}22`}`,
+                  background: isSelected ? `${pColor}18` : `${pColor}08`,
+                  color: isSelected ? pColor : `${pColor}99`,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {p.slug}
+              </button>
+            );
+          })}
+        </div>
+
+        {currentPersona && (
+          <div
+            className="font-mono-dm"
+            style={{
+              marginTop: '8px',
+              fontSize: '9px',
+              color: 'var(--text-dim)',
+              letterSpacing: '0.02em',
+            }}
+          >
+            {currentPersona.one_liner}
+          </div>
+        )}
       </div>
     );
   };
@@ -728,6 +916,7 @@ export default function OrchestraDrawer() {
                 const activeInGroup = agents.filter(a => a.is_active).length;
                 const isFreeRow = group.id === 'openrouter_a';
                 const editingAgent = agents.find(a => a.id === scopeEditorAgent) ?? null;
+                const agentWithPersonaPicker = agents.find(a => a.id === personaPickerAgent) ?? null;
 
                 // Claw badge shows executor status instead of API key status
                 const badgeOk = isClaw ? hasOnlineExecutor : providerHasKey;
@@ -816,6 +1005,7 @@ export default function OrchestraDrawer() {
                     })}
 
                     {editingAgent && renderScopeEditor(editingAgent)}
+                    {agentWithPersonaPicker && renderPersonaPicker(agentWithPersonaPicker)}
                   </div>
                 );
               })}

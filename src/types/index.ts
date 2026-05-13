@@ -59,6 +59,14 @@ export interface Agent {
   scoped_paths?: string[];
   skills?: AgentSkill[];
   agent_role?: AgentRole;
+  persona_id?: string | null;
+}
+
+export interface PersonaRow {
+  id: string;
+  slug: string;
+  name: string;
+  one_liner: string | null;
 }
 
 // ─── Claw Mode: Thread primitives ───────────────────────────────
