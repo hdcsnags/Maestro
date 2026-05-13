@@ -195,6 +195,26 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-05-12 — Copilot CLI (Sonnet 4.6) — Opus critique fixes (CRITICALs + WARNs)
+
+**What was done:**
+- Fixed CRITICAL 1 (SOM-02): `resolveAgentQuery` now runs peer adapter in `mkdtempSync()` sandbox, not the live iteration workDir. Copilot/Codex/Gemini adapters have file-write tools; old code let a peer query corrupt the workspace silently. Temp dir cleaned in `finally`.
+- Fixed CRITICAL 2 (SOM-04): `renderPersonaBlock` now guards `if (!persona.voice_preamble) return ""` — null DB value was calling `.trim()` on null → 500 for entire council.
+- Fixed WARN: `resolveAgentQuery` skips peer call if < 5s remaining (removes 15s floor overshoot that could blast past step deadline).
+- Fixed WARN: orchestrate persona fetch now destructures `error` and logs via `console.error` — SOM-04 inert states were previously invisible.
+- Fixed WARN: `resolveTargetToAdapter` emits `console.warn` on unknown slug fallback (silent misroute to claude_code is now observable).
+- Fixed WARN: `readSessionLog` uses `flatMap` + per-line try/catch — one malformed JSONL line no longer zeros the entire log.
+- Fixed WARN: `extractBuildSessionLog` uses `lastIndexOf` — `AGENT_01_SESSION_INSTRUCTIONS` echoes `"session_log"` in the prompt text; `indexOf` was matching the prompt echo, not agent output.
+- Redeployed `orchestrate` (commit `f4d790a`).
+
+**Files touched:** `supabase/functions/_shared/persona-prompt.ts`, `supabase/functions/orchestrate/index.ts`, `packages/maestroclaw/src/iteration/runner.ts`, `packages/maestroclaw/src/lib/session-log.ts`.
+
+**Decisions made:**
+- Sandbox uses `mkdtempSync` + `rmSync` (no repo clone needed — files are already embedded in the query prompt text by `buildQueryPrompt`).
+- WARNs 3–8 from critique deferred: `stop-asking` nudge, unbounded files array, `session.log` filename collision, torn-write risk, raw agent_query passthrough before validation — low-risk, low-urgency.
+
+---
+
 ### 2026-05-12 — OpenAI Codex (GPT-5) — AGENT-01 structured Claw session logging
 
 **What was done:**
