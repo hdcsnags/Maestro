@@ -195,6 +195,21 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-05-13 — Copilot CLI (Sonnet 4.6) — SOM-04 v2 UI: persona badge + picker
+
+**What was done:**
+- Added `PersonaRow` interface to `src/types/index.ts`; added `persona_id?: string | null` to `Agent` interface
+- OrchestraDrawer: fetches `personas` table on mount (id, slug, name, one_liner) into local state
+- Slot button shows colored persona badge (builder=gold, skeptic=purple, critic=orange, archivist=blue); unassigned slots show `+ persona` inline prompt
+- Click badge or `+ persona` opens persona picker panel (follows `renderScopeEditor` UX pattern): `None` chip + 4 colored persona slug chips with `one_liner` on selection
+- `handleSetPersona` writes `persona_id` to `agents` table then dispatches `UPDATE_AGENT` to local state
+- Added `PERSONA_COLORS` constant to drawer
+- Typecheck clean; committed `ea427fc`; pushed
+
+**Files touched:** `src/types/index.ts`, `src/components/reveal/OrchestraDrawer.tsx`, `.michael/opus/PERSONAS.md` (tracked for first time)
+
+**Decisions:** Personas list fetched once on mount (4 rows, never changes mid-session). `personaPickerAgent` follows same open/close pattern as `scopeEditorAgent` — only one drawer open at a time. Pickers for scope and persona can both be open simultaneously (they show for different agents).
+
 ### 2026-05-12 — Copilot CLI (Sonnet 4.6) — Opus critique fixes (CRITICALs + WARNs)
 
 **What was done:**
