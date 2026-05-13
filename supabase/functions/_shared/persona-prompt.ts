@@ -45,6 +45,8 @@ export interface AgentQuerySignal {
  * and length compounds when many agents are dispatched.
  */
 export function renderPersonaBlock(persona: PersonaRecord): string {
+  // Guard: null/empty voice_preamble must not crash the entire orchestrate request.
+  if (!persona.voice_preamble) return "";
   let block = persona.voice_preamble.trim();
 
   if (persona.anti_patterns?.length) {

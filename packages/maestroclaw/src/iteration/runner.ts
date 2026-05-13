@@ -3,7 +3,8 @@
 // concurrent control polling, and stale-diff detection.
 
 import { execFileSync, spawn } from "node:child_process";
-import { readFileSync, existsSync, mkdirSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { resolve, join, relative } from "node:path";
 import type { ClawConfig } from "../config.js";
@@ -757,7 +758,11 @@ const KNOWN_ADAPTERS = new Set(["claude_code", "codex_cli", "copilot_cli", "gemi
 
 function resolveTargetToAdapter(to: string): string {
   if (KNOWN_ADAPTERS.has(to)) return to;
-  return PERSONA_TO_ADAPTER[to] ?? "claude_code";
+  const mapped = PERSONA_TO_ADAPTER[to];
+  if (!mapped) {
+    console.warn(`  ⚠ [iterate] agent_query target "${to}" is not a known adapter or persona slug — falling back to claude_code`);
+  }
+  return mapped ?? "claude_code";
 }
 
 function buildQueryPrompt(aq: AgentQuerySignal, workDir: string): string {
@@ -804,15 +809,25 @@ async function resolveAgentQuery(
   }
 
   const remainingMs = Math.max(0, state.timeoutAt - Date.now());
-  const queryMs = Math.max(15_000, Math.min(60_000, Math.floor(remainingMs * 0.3)));
+  // If time is already exhausted or the budget is too small to be useful, skip the peer call.
+  if (remainingMs < 5_000) {
+    console.warn(`  ⚠ [iterate] agent_query skipped — only ${remainingMs}ms remaining (< 5s floor)`);
+    return `(peer query skipped: insufficient time remaining)`;
+  }
+  const queryMs = Math.min(60_000, Math.floor(remainingMs * 0.3));
   const prompt = buildQueryPrompt(aq, workDir);
 
+  // CRITICAL: peer adapter must NOT write into the live iteration workspace.
+  // Run it in a sandboxed temp dir — file content is already embedded in the prompt.
+  const tempDir = mkdtempSync(join(tmpdir(), "aq-"));
   try {
-    const result = await adapter.run(prompt, workDir, queryMs);
+    const result = await adapter.run(prompt, tempDir, queryMs);
     return result.output?.trim() || "(no answer returned)";
   } catch (err) {
     console.warn(`  ⚠ [iterate] agent_query to ${adapterName} failed: ${err instanceof Error ? err.message : String(err)}`);
     return `(query to ${adapterName} failed: ${err instanceof Error ? err.message : String(err)})`;
+  } finally {
+    try { rmSync(tempDir, { recursive: true }); } catch { /* cleanup is best-effort */ }
   }
 }
 

@@ -74,8 +74,14 @@ export function readSessionLog(workDir: string, maxEntries = 200): SessionLogEnt
       .split(/\r?\n/)
       .filter(Boolean)
       .slice(-maxEntries)
-      .map((line) => JSON.parse(line) as SessionLogEntry)
-      .filter(isSessionLogEntry);
+      .flatMap((line) => {
+        try {
+          const entry = JSON.parse(line) as SessionLogEntry;
+          return isSessionLogEntry(entry) ? [entry] : [];
+        } catch {
+          return []; // skip malformed lines, not the entire log
+        }
+      });
   } catch {
     return [];
   }
@@ -116,7 +122,9 @@ export function summarizeSessionLog(entries: SessionLogEntry[], maxRecent = 8): 
 export function extractBuildSessionLog(text: string | undefined): BuildSessionLog | null {
   if (!text) return null;
 
-  const keyIndex = text.indexOf("\"session_log\"");
+  // Use lastIndexOf — AGENT_01_SESSION_INSTRUCTIONS echoes the "session_log" key in
+  // the prompt text; using first-match would hijack the parse on that echo.
+  const keyIndex = text.lastIndexOf("\"session_log\"");
   if (keyIndex < 0) return null;
 
   const objectStart = text.indexOf("{", keyIndex + "\"session_log\"".length);

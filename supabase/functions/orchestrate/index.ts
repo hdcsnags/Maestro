@@ -701,11 +701,15 @@ Deno.serve(async (req: Request) => {
     // Left join — agents without a persona still proceed normally.
     let agentPersona: PersonaRecord | undefined;
     if (agentId && orchestrationMode === "analysis") {
-      const { data: agentRow } = await supabase
+      const { data: agentRow, error: personaFetchError } = await supabase
         .from("agents")
         .select("persona_id, personas(id, slug, name, one_liner, voice_preamble, strengths, weaknesses, routing_rules, anti_patterns, deliberation_signature, preferred_arguments)")
         .eq("id", agentId)
         .maybeSingle();
+      if (personaFetchError) {
+        // Log but don't fail the request — persona is enhancement, not required.
+        console.error(`[SOM-04] persona fetch failed for agent ${agentId}:`, personaFetchError.message);
+      }
       const personaData = agentRow?.personas;
       if (personaData && typeof personaData === "object" && !Array.isArray(personaData)) {
         agentPersona = personaData as unknown as PersonaRecord;
