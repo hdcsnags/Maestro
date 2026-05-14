@@ -199,13 +199,15 @@ export async function completeLoop(
   loopId: string,
   status: string,
   terminationReason?: string,
-  endingCommitSha?: string
+  endingCommitSha?: string,
+  decisionRecord?: unknown,
 ): Promise<void> {
   await api(config, "complete_loop", "POST", {
     loop_id: loopId,
     status,
     ...(terminationReason ? { termination_reason: terminationReason } : {}),
     ...(endingCommitSha ? { ending_commit_sha: endingCommitSha } : {}),
+    ...(decisionRecord !== undefined ? { decision_record: decisionRecord } : {}),
   });
 }
 

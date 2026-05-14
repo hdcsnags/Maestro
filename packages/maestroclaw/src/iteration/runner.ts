@@ -24,6 +24,7 @@ import {
 } from "./apply-diff.js";
 import { acquireIterationLocks, releaseIterationLocks } from "./locks.js";
 import { appendSessionLogEvent, readSessionLog, SESSION_LOG_FILE, summarizeSessionLog } from "../lib/session-log.js";
+import { buildDecisionRecord, saveDecisionRecord, type DecisionRecord } from "../lib/decision-record.js";
 
 const CONTROL_POLL_INTERVAL_MS = 2_000;
 const MAX_STDOUT_BYTES = 8 * 1024;
@@ -38,6 +39,7 @@ interface LoopState {
   aborted: boolean;
   paused: boolean;
   timeoutAt: number;
+  filesTouched: string[];
 }
 
 export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRecord): Promise<void> {
@@ -77,6 +79,7 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
       aborted: false,
       paused: false,
       timeoutAt: Date.now() + loop.total_timeout_seconds * 1000,
+      filesTouched: [],
     };
 
     // Record starting commit (best-effort; setupLoopWorkspace creates an empty one)
@@ -87,6 +90,7 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
     void startingSha;
 
     const timeoutAt = state.timeoutAt;
+    const primaryAdapter = process.env.CLAW_ITERATION_ADAPTER ?? "claude_code";
 
     for (let stepNum = 1; stepNum <= loop.max_steps; stepNum++) {
       if (state.aborted) break;
@@ -99,19 +103,19 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
       if (state.aborted) break;
 
       if (Date.now() > timeoutAt) {
-        await completeLoop(config, loop.id, "failed", "timeout");
+        await completeLoopWithRecord(config, state, primaryAdapter, "failed", "timeout");
         await releaseIterationLocks(config, loop.id);
         return;
       }
 
       const stepResult = await runStep(config, state, stepNum);
       if (stepResult === "succeeded") {
-        await completeLoop(config, loop.id, "succeeded", undefined, getCurrentSha(workDir));
+        await completeLoopWithRecord(config, state, primaryAdapter, "succeeded", undefined, getCurrentSha(workDir));
         await releaseIterationLocks(config, loop.id);
         return;
       }
       if (stepResult === "give_up") {
-        await completeLoop(config, loop.id, "unrecoverable", "agent_gave_up");
+        await completeLoopWithRecord(config, state, primaryAdapter, "unrecoverable", "agent_gave_up");
         await releaseIterationLocks(config, loop.id);
         return;
       }
@@ -122,16 +126,16 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
       // Check for repeating diff pattern (agent is stuck)
       const latestHash = state.diffHashes[state.diffHashes.length - 1];
       if (latestHash !== undefined && detectAgentStuck(state.diffHashes.slice(0, -1), latestHash)) {
-        await completeLoop(config, loop.id, "failed", "agent_stuck");
+        await completeLoopWithRecord(config, state, primaryAdapter, "failed", "agent_stuck");
         await releaseIterationLocks(config, loop.id);
         return;
       }
     }
 
     if (state.aborted) {
-      await completeLoop(config, loop.id, "aborted", "user_aborted");
+      await completeLoopWithRecord(config, state, primaryAdapter, "aborted", "user_aborted");
     } else {
-      await completeLoop(config, loop.id, "failed", "max_steps_exceeded");
+      await completeLoopWithRecord(config, state, primaryAdapter, "failed", "max_steps_exceeded");
     }
   } finally {
     await releaseIterationLocks(config, loop.id).catch(() => {});
@@ -156,6 +160,30 @@ export async function runIterationLoop(config: ClawConfig, loop: IterationLoopRe
       }
     }
   }
+}
+
+// Builds and saves a decision record, then calls completeLoop forwarding the record.
+// Best-effort: a record save failure never aborts the loop.
+async function completeLoopWithRecord(
+  config: ClawConfig,
+  state: LoopState,
+  primaryAdapter: string,
+  status: string,
+  terminationReason?: string,
+  endingCommitSha?: string,
+): Promise<void> {
+  let record: DecisionRecord | undefined;
+  if (state.workDir) {
+    try {
+      record = buildDecisionRecord(
+        state.loop, state.priorSteps, status, primaryAdapter, state.filesTouched,
+      );
+      saveDecisionRecord(state.workDir, record);
+    } catch {
+      // best-effort
+    }
+  }
+  await completeLoop(config, state.loop.id, status, terminationReason, endingCommitSha, record);
 }
 
 async function runStep(
@@ -437,6 +465,9 @@ async function runStep(
       verification_result: "passed",
       session_log_summary: summarizeSessionLog(readSessionLog(workDir), 5),
     });
+    for (const f of diffFiles) {
+      if (!state.filesTouched.includes(f)) state.filesTouched.push(f);
+    }
     return "succeeded";
   } else {
     rollbackStep(workDir, applyResult.pre_apply_sha);

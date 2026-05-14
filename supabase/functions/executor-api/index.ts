@@ -699,6 +699,7 @@ Deno.serve(async (req: Request) => {
         status?: string;
         termination_reason?: string;
         ending_commit_sha?: string;
+        decision_record?: unknown;
       }>(req, corsHeaders, {
         maxBytes: EXECUTOR_API_BODY_LIMITS.complete_loop,
         label: "Complete loop body",
@@ -727,6 +728,7 @@ Deno.serve(async (req: Request) => {
           lease_expires_at: null,
           termination_reason: body.termination_reason ?? null,
           ending_commit_sha: body.ending_commit_sha ?? null,
+          decision_record: body.decision_record ?? null,
           updated_at: now,
         })
         .eq("id", loop_id);

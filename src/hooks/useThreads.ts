@@ -7,6 +7,19 @@ import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, F
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
 import { CONCIERGE_MODELS } from '../types';
 
+// Matches DecisionRecord in packages/maestroclaw/src/lib/decision-record.ts
+interface StoredDecisionRecord {
+  ts: string;
+  loop_id: string;
+  outcome: string;
+  task: string;
+  problem_type: string;
+  what_worked: string;
+  what_failed: string;
+  agent_used: string;
+  files_touched: string[];
+}
+
 interface OrchestrateResult {
   content?: string;
   text?: string;
@@ -773,15 +786,40 @@ export function useThreads() {
       // 2. Build conversation context from thread history
       const conversationHistory = buildConversationContext(threadId);
 
-      // 3. Build the prompt with conversation context
-      const prompt = conversationHistory
-        ? `${conversationHistory}\n\nUser: ${userMessage}`
-        : userMessage;
+      // 3. Load recent decision records for this session (MEM-02)
+      let decisionMemory = '';
+      try {
+        const { data: loops } = await supabase
+          .from('iteration_loops')
+          .select('decision_record, completed_at')
+          .eq('session_id', state.activeSession.id)
+          .not('decision_record', 'is', null)
+          .order('completed_at', { ascending: false })
+          .limit(5);
+        if (loops && loops.length > 0) {
+          const records = loops.map(l => l.decision_record as unknown as StoredDecisionRecord);
+          const lines = records.map(r => {
+            const date = r.ts?.slice(0, 10) ?? '?';
+            const files = r.files_touched?.length > 0
+              ? ` Files: ${r.files_touched.slice(0, 3).join(', ')}${r.files_touched.length > 3 ? ` +${r.files_touched.length - 3}` : ''}.`
+              : '';
+            return `- ${date} [${r.outcome}/${r.problem_type}]: ${(r.task ?? '').slice(0, 80)}. Worked: ${(r.what_worked ?? '').slice(0, 60)}.${files}`;
+          });
+          decisionMemory = `## Recent Build Memory\n${lines.join('\n')}\n\n`;
+        }
+      } catch {
+        // best-effort: don't let memory load failure block the concierge
+      }
 
-      // 4. Determine which model/provider to use based on conciergeModel
+      // 4. Build the prompt with decision memory prefix + conversation context
+      const prompt = decisionMemory + (conversationHistory
+        ? `${conversationHistory}\n\nUser: ${userMessage}`
+        : userMessage);
+
+      // 5. Determine which model/provider to use based on conciergeModel
       const { model, provider } = resolveConciergeRuntime(state.conciergeModel);
 
-      // 5. Call orchestrate edge function directly (single agent, no round overhead)
+      // 6. Call orchestrate edge function directly (single agent, no round overhead)
       const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
         prompt,
         provider,
@@ -794,7 +832,7 @@ export function useThreads() {
 
       const responseContent = result.content ?? result.text ?? '';
 
-      // 6. Save concierge response as thread message
+      // 7. Save concierge response as thread message
       const conciergeMsg = await addMessage(threadId, 'concierge', responseContent);
 
       return conciergeMsg;
