@@ -195,7 +195,30 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
 
-### 2026-05-13 — Copilot CLI (Sonnet 4.6) — SOM-04 v2 UI: persona badge + picker
+### 2026-05-21 — Copilot CLI (Sonnet 4.6) — MEM-02: decision graph / institutional memory + UI-A fixes
+
+**What was done:**
+- **UI-A bug fixes (committed `7576e49`):**
+  - ui-a1: FolioCard `handleFlag/Lead/Pin` — added `catch` blocks (DB failures were silently swallowed)
+  - ui-a2: OrchestraDrawer `handleSelectTier` — added `tiering` boolean state, wrapped in try/finally, tier buttons disabled + dimmed during the 15-await loop
+  - ui-a4: ShortcutOverlay — moved `navigator.platform` and `SHORTCUTS` array inside component body (were at module level, failed in Node/test environments). SynthesisDrawer `window.innerWidth` guarded with `typeof window !== 'undefined'`
+  - ui-a3, ui-a5: already implemented; confirmed no action needed
+- **MEM-02: decision graph / institutional memory (committed `ae52604`):**
+  - NEW `packages/maestroclaw/src/lib/decision-record.ts`: `DecisionRecord` interface, `detectProblemType()` (keyword-based: auth/database/ui/api/testing/config/refactor/general), `buildDecisionRecord()`, `saveDecisionRecord()`, `loadDecisionRecord()`
+  - `runner.ts`: `LoopState` gains `filesTouched: string[]`. New `completeLoopWithRecord()` module-level helper builds + saves record (best-effort) then calls `completeLoop` forwarding the record. All 5 terminal outcome paths (timeout / succeeded / unrecoverable / agent_stuck / aborted / max_steps) now go through this helper. `filesTouched` accumulated only on successful apply+verify
+  - `api.ts`: `completeLoop()` accepts optional `decisionRecord?: unknown`
+  - `executor-api/index.ts`: `complete_loop` action reads `decision_record` from body, stores it in `iteration_loops.decision_record`
+  - Migration `20260521000000`: `ALTER TABLE iteration_loops ADD COLUMN IF NOT EXISTS decision_record jsonb`
+  - `database.types.ts`: full `iteration_loops` table type added (was missing — all prior queries used `as any` workaround)
+  - `useThreads.ts` `sendToConcierge()`: fetches last 5 `iteration_loops` rows for the session where `decision_record IS NOT NULL`, formats as `## Recent Build Memory` preamble prepended to concierge prompt. Best-effort (failure doesn't block concierge)
+
+**Files touched:** `src/components/reveal/FolioCard.tsx`, `src/components/reveal/OrchestraDrawer.tsx`, `src/components/reveal/ShortcutOverlay.tsx`, `src/components/reveal/SynthesisDrawer.tsx`, `packages/maestroclaw/src/lib/decision-record.ts` (new), `packages/maestroclaw/src/iteration/runner.ts`, `packages/maestroclaw/src/api.ts`, `supabase/functions/executor-api/index.ts`, `supabase/migrations/20260521000000_mem02_decision_record.sql` (new), `src/lib/database.types.ts`, `src/hooks/useThreads.ts`
+
+**Decisions:** Decision records stored in `iteration_loops.decision_record` (co-located, no new table). `filesTouched` tracks only successfully applied+verified files (rolled-back files excluded). Concierge injection is session-scoped (all loops from `activeSession.id`), not thread-scoped. Early failure paths (lock/workspace setup) don't save records — no meaningful step data at that point.
+
+**Deployments:** Migration `20260521000000` pushed to `hhlnadxbrdwxcxwfbvwh`. `executor-api` redeployed.
+
+
 
 **What was done:**
 - Added `PersonaRow` interface to `src/types/index.ts`; added `persona_id?: string | null` to `Agent` interface
