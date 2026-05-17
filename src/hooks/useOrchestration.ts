@@ -281,10 +281,6 @@ export function useOrchestration() {
 
     await ensureSession();
 
-    const agentSkills = state.agentSkills
-      .filter(s => s.agent_id === agent.id && s.is_active)
-      .map(s => ({ name: s.name, instruction: s.instruction }));
-
     const augmentedPrompt = tieredContext
       ? `Prior session context (for reference only):\n\n${tieredContext}\n\n---\n\nCurrent request:\n${prompt}`
       : prompt;
@@ -312,7 +308,6 @@ export function useOrchestration() {
         agentName: agent.name,
         agentRole: agent.role,
         agentId: agent.id,
-        agentSkills: agentSkills.length > 0 ? agentSkills : undefined,
         scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
         mode,
         repo_connection_id: state.activeRepoConnection?.id,
@@ -421,7 +416,7 @@ export function useOrchestration() {
         });
       }
     }
-  }, [user, state.agentSkills, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit, ensureSession]);
+  }, [user, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit, ensureSession]);
 
   const broadcast = useCallback(async (
     prompt: string,

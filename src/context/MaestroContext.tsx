@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useReducer, ReactNode } from 'react';
 import {
-  Workspace, Agent, AgentSkill, Session, Round, Response, Synthesis,
+  Workspace, Agent, Session, Round, Response, Synthesis,
   AuditEvent, ExecutionMode, ProviderConnection, RepoConnection,
   ExecutionRun, ExecutionStrategy, ConciergeDecision,
   TriageResult, BuildPlan, Executor, ExecutorJob, Thread, ThreadMessage,
@@ -18,7 +18,6 @@ export interface MaestroState {
   workspace: Workspace | null;
   initError: string | null;
   agents: Agent[];
-  agentSkills: AgentSkill[];
   activeSession: Session | null;
   sessions: Session[];
   rounds: Round[];
@@ -37,7 +36,6 @@ export interface MaestroState {
   isBroadcasting: boolean;
   isSynthesizing: boolean;
   conciergeDecision: ConciergeDecision | null;
-  conciergeVisible: boolean;
   triageResult: TriageResult | null;
   isTriaging: boolean;
   buildPlan: BuildPlan | null;
@@ -86,10 +84,6 @@ export interface MaestroState {
 type Action =
   | { type: 'SET_WORKSPACE'; payload: Workspace | null }
   | { type: 'SET_AGENTS'; payload: Agent[] }
-  | { type: 'SET_AGENT_SKILLS'; payload: AgentSkill[] }
-  | { type: 'ADD_AGENT_SKILL'; payload: AgentSkill }
-  | { type: 'REMOVE_AGENT_SKILL'; payload: string }
-  | { type: 'UPDATE_AGENT_SKILL'; payload: Partial<AgentSkill> & { id: string } }
   | { type: 'UPDATE_AGENT'; payload: Partial<Agent> & { id: string } }
   | { type: 'SET_ACTIVE_SESSION'; payload: Session | null }
   | { type: 'UPDATE_ACTIVE_SESSION'; payload: Partial<Session> }
@@ -122,7 +116,6 @@ type Action =
   | { type: 'SET_BROADCASTING_AGENTS'; payload: string[] }
   | { type: 'SET_IS_BROADCASTING'; payload: boolean }
   | { type: 'SET_IS_SYNTHESIZING'; payload: boolean }
-  | { type: 'SET_CONCIERGE_VISIBLE'; payload: boolean }
   | { type: 'SET_CONCIERGE_DECISION'; payload: ConciergeDecision | null }
   | { type: 'SET_TRIAGE_RESULT'; payload: TriageResult | null }
   | { type: 'SET_IS_TRIAGING'; payload: boolean }
@@ -184,7 +177,6 @@ const initial: MaestroState = {
   workspace: null,
   initError: null,
   agents: [],
-  agentSkills: [],
   activeSession: null,
   sessions: [],
   rounds: [],
@@ -203,7 +195,6 @@ const initial: MaestroState = {
   isBroadcasting: false,
   isSynthesizing: false,
   conciergeDecision: null,
-  conciergeVisible: false,
   triageResult: null,
   isTriaging: false,
   buildPlan: null,
@@ -246,16 +237,6 @@ function reducer(state: MaestroState, action: Action): MaestroState {
   switch (action.type) {
     case 'SET_WORKSPACE': return { ...state, workspace: action.payload };
     case 'SET_AGENTS': return { ...state, agents: action.payload };
-    case 'SET_AGENT_SKILLS': return { ...state, agentSkills: action.payload };
-    case 'ADD_AGENT_SKILL': return { ...state, agentSkills: [...state.agentSkills, action.payload] };
-    case 'REMOVE_AGENT_SKILL': return { ...state, agentSkills: state.agentSkills.filter(s => s.id !== action.payload) };
-    case 'UPDATE_AGENT_SKILL':
-      return {
-        ...state,
-        agentSkills: state.agentSkills.map(s =>
-          s.id === action.payload.id ? { ...s, ...action.payload } : s
-        ),
-      };
     case 'UPDATE_AGENT':
       return {
         ...state,
@@ -281,7 +262,6 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         responses: [],
         syntheses: [],
         conciergeDecision: null,
-        conciergeVisible: false,
         broadcastingAgents: [],
         folioIndex: 0,
         selectedRoundIndex: -1,
@@ -369,7 +349,6 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_BROADCASTING_AGENTS': return { ...state, broadcastingAgents: action.payload };
     case 'SET_IS_BROADCASTING': return { ...state, isBroadcasting: action.payload };
     case 'SET_IS_SYNTHESIZING': return { ...state, isSynthesizing: action.payload };
-    case 'SET_CONCIERGE_VISIBLE': return { ...state, conciergeVisible: action.payload };
     case 'SET_CONCIERGE_DECISION': return { ...state, conciergeDecision: action.payload };
     case 'SET_TRIAGE_RESULT': return { ...state, triageResult: action.payload };
     case 'SET_IS_TRIAGING': return { ...state, isTriaging: action.payload };

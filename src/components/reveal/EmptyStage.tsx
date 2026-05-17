@@ -69,7 +69,7 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
   const responseCount = latestRound
     ? state.responses.filter(r => r.round_id === latestRound.id).length
     : 0;
-  const hasResponses = responseCount > 0 && !state.carouselVisible;
+  const hasResponses = responseCount > 0;
 
   // Ready-row: derive from state, no API calls
   const connectedProviders = state.providerConnections.length;
@@ -177,7 +177,7 @@ export default function EmptyStage({ orbState }: EmptyStageProps) {
         {/* Responses ready indicator (carousel hidden but responses exist) */}
         {hasResponses && (
           <button
-            onClick={() => dispatch({ type: 'SET_CAROUSEL_VISIBLE', payload: true })}
+            onClick={() => dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' })}
             className="font-mono-dm"
             style={{
               marginTop: '16px',

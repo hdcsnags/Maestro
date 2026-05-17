@@ -48,7 +48,6 @@ export function deriveOrbState(
     return 'building';
   }
 
-  if (state.conciergeVisible === true) return 'concierge';
 
   if (
     (state.conciergeDecision?.tension_points?.length ?? 0) > 0

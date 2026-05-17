@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import { AGENT_DEFAULTS, Agent, AgentSkill, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode, Executor, ExecutorJob } from '../types';
+import { AGENT_DEFAULTS, Agent, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode, Executor, ExecutorJob } from '../types';
 
 export function useWorkspace() {
   const { state, dispatch } = useMaestro();
@@ -148,16 +148,6 @@ export function useWorkspace() {
       .eq('user_id', user.id);
     const conns = (rawConns ?? []) as ProviderConnection[];
     dispatch({ type: 'SET_PROVIDER_CONNECTIONS', payload: conns });
-  }, [user, dispatch]);
-
-  const loadAgentSkills = useCallback(async () => {
-    if (!user) return;
-    const { data: rawSkills } = await supabase
-      .from('agent_skills')
-      .select('*')
-      .eq('user_id', user.id);
-    const skills = (rawSkills ?? []) as AgentSkill[];
-    dispatch({ type: 'SET_AGENT_SKILLS', payload: skills });
   }, [user, dispatch]);
 
   const loadRepoConnections = useCallback(async (workspaceId: string) => {
@@ -369,7 +359,6 @@ export function useWorkspace() {
           ensureAgents(ws.id),
           loadSessions(ws.id),
           loadProviderConnections(),
-          loadAgentSkills(),
           loadRepoConnections(ws.id),
           loadExecutors(),
           loadExecutorJobs(),
@@ -382,7 +371,7 @@ export function useWorkspace() {
         dispatch({ type: 'SET_INIT_ERROR', payload: msg });
       }
     })();
-  }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadAgentSkills, loadRepoConnections, loadExecutors, loadExecutorJobs]);
+  }, [user, dispatch, ensureWorkspace, ensureAgents, loadSessions, loadProviderConnections, loadRepoConnections, loadExecutors, loadExecutorJobs]);
 
   useEffect(() => {
     if (!user) return;
@@ -424,7 +413,6 @@ export function useWorkspace() {
     loadSessionHistory,
     loadSessions,
     loadProviderConnections,
-    loadAgentSkills,
     loadRepoConnections,
     loadExecutors,
     loadExecutorJobs,
