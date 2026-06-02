@@ -22,3 +22,6 @@ export type {
 
 export { createConductorRun } from './conductor.js';
 export type { ConductorRun, ConductorRunOptions } from './conductor.js';
+
+export { buildConductorPrompt } from './prompt.js';
+export type { ConductorPromptOptions } from './prompt.js';
