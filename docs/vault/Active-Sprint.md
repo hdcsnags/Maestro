@@ -31,7 +31,7 @@ Full spec in `docs/CONDUCTOR_SPRINT_1.md`. Started: 2026-06-02.
 | repo_memory kind+relations enhancement | C-02 | ✅ Done 2026-06-02 | Sonnet |
 | Conductor coordinator module (maestroclaw) | C-03 | ✅ Done 2026-06-02 | Sonnet |
 | Remove 2-at-a-time cap from useBuildExecution.ts | C-04 | ✅ Already done (maxConcurrentJobs env var default 3) | Sonnet |
-| Superpowers skills embed in Conductor prompt | C-05 | ⬜ With C-03 | Sonnet |
+| Superpowers skills embed in Conductor prompt | C-05 | ✅ Done 2026-06-02 | Sonnet |
 | Born Organized scaffold pack | C-06 | ⬜ Post-Conductor, opt-in | Sonnet |
 
 ---
