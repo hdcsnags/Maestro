@@ -299,6 +299,14 @@ If part of the prompt falls outside your declared strengths, include an "agent_q
 Use this only when another persona or adapter would genuinely answer better. Most responses will NOT include this field.`;
   }
 
+  if (mode === "build" || mode === "build_task") {
+    prompt += `\n\nCoding Standards (apply to every file you write):
+**Think Before Coding** — Before proposing any solution, state your assumptions explicitly. If you see multiple valid approaches, name them and explain your choice. Push back if the task spec is ambiguous or would introduce tech debt.
+**Simplicity First** — Write the minimum code that correctly solves the problem. No speculative abstractions, no future-proofing that wasn't asked for, no extra dependencies.
+**Surgical Changes** — Touch only the files and lines required by this task. Leave everything else exactly as it is.
+**Goal-Driven Execution** — Define what "done" looks like before writing a line. If your output cannot be verified against a concrete success criterion, stop and ask.`;
+  }
+
   if (skills && skills.length > 0) {
     prompt += `\n\nYou have the following specialized skills active for this session:`;
     for (const skill of skills) {
