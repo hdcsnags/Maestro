@@ -195,6 +195,20 @@ function deriveSessionProgress(runs: SessionRunProgress[]): SessionBuildProgress
   };
 }
 
+// ── Dispatch-loop helpers ─────────────────────────────────────────────────
+
+// Produce a stable fingerprint of all non-terminal build tasks.
+// Two identical fingerprints across consecutive waves means the frontier is
+// frozen (same tasks, same statuses, same lane owners, same retry counts) —
+// a true cycle or deadlock, not forward progress being masked by reroutes.
+function fingerprintNonterminalTasks(tasks: BuildTask[]): string {
+  return tasks
+    .filter(t => t.status !== 'completed' && t.status !== 'failed' && t.status !== 'skipped')
+    .map(t => `${t.task_id}:${t.status}:${t.lane_owner ?? ''}:${t.retry_count}`)
+    .sort()
+    .join('|');
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function useBuildExecution() {
@@ -1435,10 +1449,9 @@ export function useBuildExecution() {
         if (ready.length === 0) break;
         if (abortRef.current) break;
 
-        // Snapshot resolved count before this wave to detect progress
-        const resolvedBefore = currentTasks.filter(
-          t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped'
-        ).length;
+        // Fingerprint the non-terminal frontier before dispatch.
+        // We compare after the wave to detect genuine stalls vs. reroutes-in-progress.
+        const fingerprintBefore = fingerprintNonterminalTasks(currentTasks);
 
         // Build one batch of tasks to dispatch concurrently.
         //
@@ -1468,11 +1481,12 @@ export function useBuildExecution() {
         await Promise.all(batch.map(task => dispatchTask(task)));
         recountProgress();
 
-        // Check progress: if resolved count didn't increase, count toward deadlock guard
-        const resolvedAfter = currentTasks.filter(
-          t => t.status === 'completed' || t.status === 'failed' || t.status === 'skipped'
-        ).length;
-        if (resolvedAfter <= resolvedBefore) {
+        // Progress check: compare the nonterminal-task frontier fingerprint.
+        // A reroute to a new lane, a retry increment, or any task completing all
+        // change the fingerprint — only a frozen frontier (same tasks, same statuses,
+        // same lanes, same retry counts) signals a true deadlock.
+        const fingerprintAfter = fingerprintNonterminalTasks(currentTasks);
+        if (fingerprintAfter === fingerprintBefore) {
           noProgressWaves++;
         } else {
           noProgressWaves = 0;

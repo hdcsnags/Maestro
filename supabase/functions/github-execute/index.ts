@@ -970,9 +970,21 @@ Deno.serve(async (req: Request) => {
           await createBranch(owner, repo, branchName, baseSha, ghToken);
 
           // Apply each manifest entry under its originating patch's scope.
-          // Last write wins on path collisions (synthesis-time conflict).
+          // Cross-agent path collisions are pre-filtered by filterManifest() via
+          // detectCollisions() above — those paths are already skipped.
+          // Guard here against intra-agent duplicates (same agent emitting the
+          // same path twice in one manifest): first-write wins.
           const baseMsg = commit_message || "[Maestro] Synthesized patch";
+          const seenPaths = new Set<string>();
           for (const { entry, scoped_paths, conductor_approved, agent_name, agent_id } of allManifests) {
+            if (seenPaths.has(entry.path)) {
+              aggregate.skipped_files.push({
+                path: entry.path,
+                reason: `intra-agent duplicate path — first-write wins (${agent_name})`,
+              });
+              continue;
+            }
+            seenPaths.add(entry.path);
             const single = await applyManifest(
               [entry], owner, repo, branchName, scoped_paths,
               globalApproval || conductor_approved, baseMsg, ghToken,

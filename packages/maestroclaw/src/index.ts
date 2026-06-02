@@ -8,6 +8,7 @@ import { executeJob, executeSessionJob } from "./executor.js";
 import { setIncidentService } from "./executor.js";
 import { IncidentService } from "./lib/kernel/incident-service.js";
 import { runIterationLoop } from "./iteration/runner.js";
+import { createConductorRun } from "./conductor/index.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
@@ -108,6 +109,9 @@ async function main() {
           const claimedLoop = await claimLoop(config, pendingLoop.id).catch(() => null);
           if (claimedLoop) {
             runningLoopIds.add(claimedLoop.id);
+            // Attach an ephemeral conductor run for coordination during this loop.
+            const conductor = createConductorRun([], { maxConcurrency: config.maxConcurrentJobs });
+            console.log(`  🎼 Conductor [${conductor.planId.slice(0, 8)}] ready for loop ${claimedLoop.id.slice(0, 8)}`);
             void runIterationLoop(config, claimedLoop)
               .finally(() => runningLoopIds.delete(claimedLoop.id));
           }
