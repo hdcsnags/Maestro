@@ -9,7 +9,7 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | All 19 functions ACTIVE (verified 2026-06-02): `orchestrate` v39 (Karpathy embed, 2026-06-02); `repo-memory-update` v2 (graph_update action + kind/relations columns, 2026-06-02); `deliberate` v3 (SOM-04 2026-05-12); `concierge-triage` v8 (ACTIVE — not unbuilt as SPRINT_MASTER claims); `executor-api` v19 (ACTIVE); `iteration-init` v2 (2026-05-08); `synthesize` v13 (2026-04-21) |
+| Last verified deploy | All 19 functions ACTIVE (verified 2026-06-02): `orchestrate` v39 (Karpathy embed, 2026-06-02); `repo-memory-update` v2 (graph_update action + kind/relations columns, 2026-06-02); `github-execute` new version (C-03 intra-agent path dedup, 2026-06-02); `deliberate` v3 (SOM-04 2026-05-12); `concierge-triage` v8 (ACTIVE — not unbuilt as SPRINT_MASTER claims); `executor-api` v19 (ACTIVE); `iteration-init` v2 (2026-05-08); `synthesize` v13 (2026-04-21) |
 | Unapplied migrations | None — all 51 migrations applied remotely (verified 2026-06-02) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 |
@@ -196,7 +196,41 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
 
-### 2026-06-02 — Copilot CLI (Sonnet 4.6) — Conductor Sprint 1 bootstrap: addons, vault, Karpathy embed, GitHub sync, Supabase deploy
+### 2026-06-02 (session 2) — Copilot CLI (Sonnet 4.6) — C-02 + C-03: repo_memory graph + Conductor module
+
+**What was done:**
+1. **MAESTRO_STATE.md updated** per AGENTS.md Rule 1: corrected stale deploy versions, added SPRINT_MASTER staleness to "What's Broken", documented C-02 as ✅ Done.
+2. **C-02 ✅**: `repo_memory` graph enhancement — migration `20260602000000_repo_memory_graph.sql` adds `kind TEXT CHECK(...)` and `relations JSONB DEFAULT '[]'` columns; `repo-memory-update` edge fn extended with `graph_update` action (update kind/relations without touching content); deployed as v2.
+3. **C-03 ✅**: Conductor module — created `packages/maestroclaw/src/conductor/` with:
+   - `plan.ts`: immutable `ConductorPlan` type + `buildPlan/getReadyEntries/markEntry*` pure helpers (P0/P1/P2 priority tiers, dependency graph)
+   - `reconcile.ts`: `detectManifestConflicts` + `reconcileManifests` (conductor_approved > priority > lane_name tie-break; advisory pre-flight, not authoritative enforcement)
+   - `conductor.ts`: `createConductorRun()` factory — ephemeral state scoped to one execution run (plan + active count + maxConcurrency cap)
+   - `index.ts`: clean re-exports
+   - Wired `createConductorRun` import into maestroclaw `index.ts`; conductor instantiated at loop claim (log-only for now, non-breaking)
+4. **P1-5 fix ✅**: Replaced `resolvedBefore/resolvedAfter` deadlock guard in `useBuildExecution.ts` dispatch loop with `fingerprintNonterminalTasks()`. Reroutes that change `lane_owner` or bump `retry_count` now count as progress; only a truly frozen frontier triggers `noProgressWaves`.
+5. **P1-4 fix ✅**: Fixed misleading "last-write-wins" comment in `github-execute` synthesized mode (cross-agent collisions are already handled by `filterManifest/detectCollisions`). Added `seenPaths` guard for intra-agent duplicate path dedup (first-write wins).
+6. **Deployed** `github-execute` (new version, 2026-06-02). Committed `2bc18b3` + pushed to main.
+
+**Files touched:** `supabase/migrations/20260602000000_repo_memory_graph.sql` (new), `supabase/functions/repo-memory-update/index.ts`, `supabase/functions/github-execute/index.ts`, `src/hooks/useBuildExecution.ts`, `packages/maestroclaw/src/conductor/plan.ts` (new), `packages/maestroclaw/src/conductor/reconcile.ts` (new), `packages/maestroclaw/src/conductor/conductor.ts` (new), `packages/maestroclaw/src/conductor/index.ts` (new), `packages/maestroclaw/src/index.ts`, `docs/vault/Active-Sprint.md`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- Conductor module is pure stateless helpers (rubber duck confirmed: no second source of truth, no restart-unsafe singleton).
+- `reconcile.ts` is advisory (pre-flight); authoritative enforcement remains in `github-execute`.
+- `fingerprintNonterminalTasks` lives in `useBuildExecution.ts` (not maestroclaw — different build target).
+- Intra-agent duplicate path dedup: first-write wins (cross-agent was already handled).
+- P1-4 "last-write-wins" comment was misleading — the actual behavior was already skip-collisions via `detectCollisions`.
+- C-04 (2-at-a-time cap) is effectively already done: `maxConcurrentJobs` is a config param (default 3 from `MAX_CONCURRENT_JOBS` env var), not hardcoded.
+
+**Stale docs corrected:** `SPRINT_MASTER.md` still shows `concierge-triage` as unbuilt — see 2026-06-02 session 1 for full correction list.
+
+**What didn't work / open questions:**
+- SOM-01 SSE streaming: still blocked (needs source repo).
+- maestroclaw pre-existing typecheck error: `@lydell/node-pty` missing in `pty-shell.ts` — not introduced by this session.
+- Conductor not yet passed into `runIterationLoop` — loop signature change deferred to C-06.
+
+---
+
+
 
 **What was done:**
 1. Read and assessed `ORCHESTRATION_ROADMAP_OPUS-4.8.md` — Opus 4.8's 3-layer plan (Conductor → Bridge → Council+House). Assessment: sound architecture, align with maestroclaw primitives, do not adopt Ruflo runtime.

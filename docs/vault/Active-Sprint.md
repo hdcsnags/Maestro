@@ -29,8 +29,8 @@ Full spec in `docs/CONDUCTOR_SPRINT_1.md`. Started: 2026-06-02.
 |---|---|---|---|
 | Karpathy principles in buildSystemPrompt | C-01 | ✅ Done 2026-06-02 | Sonnet |
 | repo_memory kind+relations enhancement | C-02 | ✅ Done 2026-06-02 | Sonnet |
-| Conductor coordinator module (maestroclaw) | C-03 | ⬜ Next | Sonnet |
-| Remove 2-at-a-time cap from useBuildExecution.ts | C-04 | ⬜ With C-03 | Sonnet |
+| Conductor coordinator module (maestroclaw) | C-03 | ✅ Done 2026-06-02 | Sonnet |
+| Remove 2-at-a-time cap from useBuildExecution.ts | C-04 | ✅ Already done (maxConcurrentJobs env var default 3) | Sonnet |
 | Superpowers skills embed in Conductor prompt | C-05 | ⬜ With C-03 | Sonnet |
 | Born Organized scaffold pack | C-06 | ⬜ Post-Conductor, opt-in | Sonnet |
 
@@ -59,8 +59,8 @@ Full spec in `docs/CONDUCTOR_SPRINT_1.md`. Started: 2026-06-02.
 
 | ID | Issue | File | Sprint |
 |---|---|---|---|
-| P1-4 | github-execute last-write-wins on path collisions | `github-execute/index.ts:973-979` | C-03 |
-| P1-5 | Dispatch-loop false-deadlock (gates on claimed not terminal state) | `useBuildExecution.ts` | C-03 |
+| P1-4 | github-execute last-write-wins on path collisions | `github-execute/index.ts:973-979` | C-03 ✅ Fixed 2026-06-02 — comment corrected; intra-agent dedup added |
+| P1-5 | Dispatch-loop false-deadlock (gates on claimed not terminal state) | `useBuildExecution.ts` | C-03 ✅ Fixed 2026-06-02 — fingerprint-based deadlock guard |
 
 ---
 
