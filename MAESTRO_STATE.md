@@ -9,8 +9,8 @@
 |-------|-------|
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
-| Last verified deploy | All 19 functions ACTIVE (verified 2026-05-12): `orchestrate`+`deliberate` v37/v3 (SOM-04 2026-05-12); `iteration-init` v2 (2026-05-08); `executor-api` v18 (2026-05-09); `synthesize` v13 (2026-04-21); `repo-memory-update` v1 (2026-05-07) |
-| Unapplied migrations | None — all 49 migrations applied remotely (verified 2026-05-12) |
+| Last verified deploy | All 19 functions ACTIVE (verified 2026-06-02): `orchestrate` v39 (Karpathy embed, 2026-06-02); `repo-memory-update` v2 (graph_update action + kind/relations columns, 2026-06-02); `deliberate` v3 (SOM-04 2026-05-12); `concierge-triage` v8 (ACTIVE — not unbuilt as SPRINT_MASTER claims); `executor-api` v19 (ACTIVE); `iteration-init` v2 (2026-05-08); `synthesize` v13 (2026-04-21) |
+| Unapplied migrations | None — all 51 migrations applied remotely (verified 2026-06-02) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
@@ -154,6 +154,7 @@
 | Claude models (Sonnet/Opus) may still wrap response in ` ```json ` fences — parser handles most cases but edge cases remain | 2026-04-17 | Unassigned |
 | Builder count defaults and roster locking now exist in Pre-Build, but provider-health-aware failover and lane reroute policy are still not concierge-driven | 2026-04-13 | Unassigned |
 | No real-time streaming — responses arrive all at once; StreamingFolio is visual-only | Pre-existing | — |
+| **SPRINT_MASTER.md staleness**: lists `concierge-triage` as unbuilt (it IS deployed v8 ACTIVE); lists `executor-api` as not documented (it IS deployed v19). SPRINT_MASTER needs a pass to reflect current deployed state. | Discovered 2026-06-02 | Unassigned |
 | github-create-repo: no in-app guidance when Administration:write is missing | 2026-04-12 | — |
 | GitHub App install UX still manual — backend capability exists, in-app detection/prompt does not | Pre-existing | — |
 | No merge strategy for synthesized execution (last write wins on path collisions) | Pre-existing | — |
@@ -194,6 +195,42 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-6 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-06-02 — Copilot CLI (Sonnet 4.6) — Conductor Sprint 1 bootstrap: addons, vault, Karpathy embed, GitHub sync, Supabase deploy
+
+**What was done:**
+1. Read and assessed `ORCHESTRATION_ROADMAP_OPUS-4.8.md` — Opus 4.8's 3-layer plan (Conductor → Bridge → Council+House). Assessment: sound architecture, align with maestroclaw primitives, do not adopt Ruflo runtime.
+2. Fetched READMEs for 6 addon repos; created `.addons/` shelf with individual assessments + `INTEGRATION_PLAN.md` (Opus 4.8 5-question integration assessment saved verbatim).
+3. Ran Opus 4.8 as background agent (`task` tool, `model: "claude-opus-4.8"`) for deeper integration review. Opus confirmed: Design Phase IS built (`design` fn); Pre-Build IS built (`intake` + `architect` fns); `concierge-triage` IS deployed v8 (SPRINT_MASTER wrong); 2-at-a-time cap is in `useBuildExecution.ts` not maestroclaw.
+4. **C-01 ✅**: Embedded Karpathy 4 principles (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) into `orchestrate/index.ts:buildSystemPrompt()` — build + build_task modes only. Deployed as v39.
+5. Created `docs/CONDUCTOR_SPRINT_1.md` — sprint spec C-01 through C-06 with addon integration decisions, P1 bug targets, open questions.
+6. Created `docs/vault/` — 7-note Obsidian knowledge graph (Home, Architecture, Edge-Functions, Database, MaestroClaw, Key-Files, Active-Sprint). Read-projection only; `repo_memory` table is canonical.
+7. **Git init**: Local folder was a plain extracted copy (not a clone). Used `git init` → `git remote add origin` → `git fetch` → `git update-ref HEAD FETCH_HEAD` → `git reset` to attach to remote state without overwriting local files.
+8. PR #1 created + merged to main (fast-forward, 19 files, 1,542 insertions). Branch deleted.
+9. **Supabase**: Linked project `hhlnadxbrdwxcxwfbvwh`. Confirmed 19 functions ACTIVE, 50 migrations zero-drift. Deployed `orchestrate` v39.
+
+**Files touched:** `supabase/functions/orchestrate/index.ts`, `docs/CONDUCTOR_SPRINT_1.md` (new), `docs/vault/Home.md` (new), `docs/vault/Architecture.md` (new), `docs/vault/Edge-Functions.md` (new), `docs/vault/Database.md` (new), `docs/vault/MaestroClaw.md` (new), `docs/vault/Key-Files.md` (new), `docs/vault/Active-Sprint.md` (new), `.addons/INTEGRATION_PLAN.md` (new), `.addons/README.md` (new), `.addons/[6 subdirectories]/README.md` (new), `ORCHESTRATION_ROADMAP_OPUS-4.8.md` (committed)
+
+**Decisions made:**
+- Ruflo: DO NOT integrate runtime. Mine GOAP schema pattern only for `plan.ts` (C-03).
+- Obsidian vault: read-projection of `repo_memory`; never source of truth. Auto-generation from `repo_memory` is the goal after C-02.
+- ECC: cherry-pick skill content only; no harness install.
+- Superpowers: 4 skills embedded as content in Conductor coordinator prompt (C-04), not in `buildSystemPrompt()`.
+- `gh auth switch --user hdcsnags` required at start of every session targeting this project.
+- Two gh accounts on machine: `Michael-Thomas_dsbn` (default) and `hdcsnags` (Maestro project owner).
+
+**Stale docs corrected:**
+- SPRINT_MASTER lists `concierge-triage` as unbuilt — it IS deployed v8 ACTIVE.
+- `executor-api` IS deployed v19 — not documented anywhere.
+- Migration count was 49 in "Read This First" — actual count is 50.
+- `orchestrate` was v37/v38 — now v39.
+
+**What didn't work / open questions:**
+- SOM-01 SSE streaming: which machine/repo has working SSE code? Still blocked.
+- `db diff` requires Docker Desktop (not running) — only needed for local migration generation, not deployment.
+- C-02 (repo_memory kind+relations) not yet started — next step.
+
+---
 
 ### 2026-05-21 — Copilot CLI (Sonnet 4.6) — MEM-02: decision graph / institutional memory + UI-A fixes
 

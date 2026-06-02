@@ -123,6 +123,8 @@ Deno.serve(async (req: Request) => {
     if (action === "update_direct") {
       const repoFullName = (body.repo_full_name as string | undefined)?.toLowerCase().trim();
       const content = (body.content as string | undefined) ?? "";
+      const kind = (body.kind as string | undefined) ?? undefined;
+      const relations = body.relations !== undefined ? body.relations : undefined;
       if (!repoFullName) {
         return new Response(
           JSON.stringify({ error: "repo_full_name is required" }),
@@ -131,16 +133,53 @@ Deno.serve(async (req: Request) => {
       }
       const bytes = byteCount(content);
       const now = new Date().toISOString();
+      const upsertPayload: Record<string, unknown> = {
+        user_id: userId,
+        repo_full_name: repoFullName,
+        content,
+        byte_count: bytes,
+        updated_at: now,
+      };
+      if (kind !== undefined) upsertPayload.kind = kind;
+      if (relations !== undefined) upsertPayload.relations = relations;
       await adminClient
         .from("repo_memory")
-        .upsert({
-          user_id: userId,
-          repo_full_name: repoFullName,
-          content,
-          byte_count: bytes,
-          updated_at: now,
-        }, { onConflict: "user_id,repo_full_name" });
+        .upsert(upsertPayload, { onConflict: "user_id,repo_full_name" });
       return new Response(JSON.stringify({ ok: true, byte_count: bytes }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── graph_update: set kind and/or relations without touching content ───────
+    if (action === "graph_update") {
+      const repoFullName = (body.repo_full_name as string | undefined)?.toLowerCase().trim();
+      if (!repoFullName) {
+        return new Response(
+          JSON.stringify({ error: "repo_full_name is required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (body.kind !== undefined) updatePayload.kind = body.kind;
+      if (body.relations !== undefined) updatePayload.relations = body.relations;
+      if (Object.keys(updatePayload).length === 1) {
+        return new Response(
+          JSON.stringify({ error: "At least one of kind or relations must be provided" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const { error: updateError } = await adminClient
+        .from("repo_memory")
+        .update(updatePayload)
+        .eq("user_id", userId)
+        .eq("repo_full_name", repoFullName);
+      if (updateError) {
+        return new Response(
+          JSON.stringify({ error: updateError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -276,7 +315,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ error: "Unknown action. Valid actions: get, summarize, update_direct, forget" }),
+      JSON.stringify({ error: "Unknown action. Valid actions: get, summarize, update_direct, graph_update, forget" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {

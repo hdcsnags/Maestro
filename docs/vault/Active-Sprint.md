@@ -28,8 +28,8 @@ Full spec in `docs/CONDUCTOR_SPRINT_1.md`. Started: 2026-06-02.
 | Item | Code | Status | Owner |
 |---|---|---|---|
 | Karpathy principles in buildSystemPrompt | C-01 | ✅ Done 2026-06-02 | Sonnet |
-| repo_memory kind+relations enhancement | C-02 | ⬜ Next | Sonnet |
-| Conductor coordinator module (maestroclaw) | C-03 | ⬜ After C-02 | Sonnet |
+| repo_memory kind+relations enhancement | C-02 | ✅ Done 2026-06-02 | Sonnet |
+| Conductor coordinator module (maestroclaw) | C-03 | ⬜ Next | Sonnet |
 | Remove 2-at-a-time cap from useBuildExecution.ts | C-04 | ⬜ With C-03 | Sonnet |
 | Superpowers skills embed in Conductor prompt | C-05 | ⬜ With C-03 | Sonnet |
 | Born Organized scaffold pack | C-06 | ⬜ Post-Conductor, opt-in | Sonnet |
