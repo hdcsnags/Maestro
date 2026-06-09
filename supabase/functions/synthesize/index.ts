@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { requireAuthenticatedRequest } from "../_shared/auth.ts";
+import { requireAuthenticatedRequest, type AuthenticatedRequestContext } from "../_shared/auth.ts";
 import { readJsonBody } from "../_shared/body.ts";
 import { buildCorsHeaders } from "../_shared/cors.ts";
 
@@ -149,11 +149,11 @@ Focus on what should actually be built or decided, not meta-commentary about the
 async function synthesizeDeliberationAware(
   roundId: string,
   rawFallback: string | null,
-  auth: { userClient: ReturnType<typeof Function.prototype.bind> } & Record<string, unknown>,
+  auth: AuthenticatedRequestContext,
   anthropicKey: string | undefined,
   corsHeaders: Record<string, string>,
 ): Promise<Response> {
-  const userClient = (auth as unknown as { userClient: any }).userClient;
+  const userClient = auth.userClient;
 
   const roundLookup = await userClient
     .from("rounds")
