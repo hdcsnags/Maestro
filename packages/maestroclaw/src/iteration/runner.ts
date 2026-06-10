@@ -11,7 +11,7 @@ import type { ClawConfig } from "../config.js";
 import {
   reportStep, completeLoop,
   pollLoopControls, applyLoopControl,
-  type IterationLoopRecord, type IterationStepReport, type IterationControlRecord
+  type IterationLoopRecord, type IterationStepReport
 } from "../api.js";
 import { getAdapter, type AdapterResult } from "../adapters/index.js";
 import {

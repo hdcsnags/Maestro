@@ -598,20 +598,18 @@ export default function RevealComposer(_props: Props) {
                   color: 'var(--ink-1)', lineHeight: 1.5,
                 }}
               />
-              {(state.activeSession?.architect_md || true) && (
-                <button
-                  onClick={() => { void fillScopeFromLanes(); }}
-                  disabled={scopeFilling || !state.activeSession}
-                  style={{
-                    alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 6,
-                    background: 'var(--surf-1)', border: '1px solid var(--edge-1)',
-                    fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
-                    letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', outline: 'none',
-                  }}
-                >
-                  {scopeFilling ? 'Filling…' : 'Fill from ARCHITECT.md lanes'}
-                </button>
-              )}
+              <button
+                onClick={() => { void fillScopeFromLanes(); }}
+                disabled={scopeFilling || !state.activeSession}
+                style={{
+                  alignSelf: 'flex-start', padding: '3px 10px', borderRadius: 6,
+                  background: 'var(--surf-1)', border: '1px solid var(--edge-1)',
+                  fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-2)',
+                  letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', outline: 'none',
+                }}
+              >
+                {scopeFilling ? 'Filling…' : 'Fill from ARCHITECT.md lanes'}
+              </button>
               <input
                 type="text"
                 value={iterateVerifyCmd}

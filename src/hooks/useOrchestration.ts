@@ -242,7 +242,7 @@ export function useOrchestration() {
     }
 
     const contextFiles: { path: string }[] = [];
-    const filePattern = /(?:^|\s|[`'\"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[.\w-]+\.\w{1,8})(?:[`'\"\s.,;!?]|$)/g;
+    const filePattern = /(?:^|\s|[`'"])((?:[\w.-]+\/)+[\w.-]+\.\w{1,8}|[.\w-]+\.\w{1,8})(?:[`'"\s.,;!?]|$)/g;
     const seen = new Set<string>();
     const allowedExtensions = new Set(['js', 'jsx', 'ts', 'tsx', 'json', 'md', 'sql', 'sh', 'css', 'scss', 'html', 'ejs', 'yml', 'yaml', 'toml', 'txt', 'env']);
     const isUsefulPath = (value: string) => {

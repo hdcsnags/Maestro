@@ -89,11 +89,6 @@ async function reportArtifactManifest(
   jobId: string,
   manifest: ArtifactManifestEntry[],
 ): Promise<void> {
-  const baseChunkSize = measureJsonBytes({
-    format: "artifact_manifest_chunk",
-    entries: [],
-  });
-
   let pending: ArtifactManifestEntry[] = [];
 
   const flushPending = async () => {
@@ -476,7 +471,6 @@ export async function executeJob(
     // ── Ralph Loop ────────────────────────────────────────────────────────
     let finalContent = "";
     let finalOutput = "";
-    let finalError: string | undefined;
     let attemptsUsed = 0;
     let lastFailureReason = "";
     let structuredSessionLog = null as ReturnType<typeof extractBuildSessionLog>;
@@ -513,7 +507,6 @@ export async function executeJob(
       await throttle.drain();
 
       finalOutput = result.output;
-      finalError = result.error;
       structuredSessionLog = extractBuildSessionLog(result.output);
       if (structuredSessionLog) {
         await reportEvent(config, job.id, "session_log", { session_log: structuredSessionLog, attempt });
@@ -1028,7 +1021,7 @@ function tryParseManifest(s: string): { path: string; content: string } | null {
   const attempts = [
     s,
     // Fix invalid escape sequences: \X where X ∉ valid JSON escapes → \\X
-    s.replace(/\\([^"\\\/bfnrtu\n\r])/g, "\\\\$1"),
+    s.replace(/\\([^"\\/bfnrtu\n\r])/g, "\\\\$1"),
   ];
 
   for (const candidate of attempts) {

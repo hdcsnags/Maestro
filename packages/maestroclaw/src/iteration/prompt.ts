@@ -145,7 +145,7 @@ Output JSON:
   "confidence": "high" | "medium" | "low",
   "give_up": false,
   "give_up_rationale": "(only present if give_up is true)",
-  "agent_query": "(optional) { \"to\": \"<codex_cli|copilot_cli|gemini_cli|claude_code>\", \"reason\": \"<<=140 chars>\", \"question\": \"<self-contained>\", \"files\": [\"<paths>\"], \"blocking\": true } - omit if not needed; set diff to \"\" when blocking"
+  "agent_query": "(optional) { "to": "<codex_cli|copilot_cli|gemini_cli|claude_code>", "reason": "<<=140 chars>", "question": "<self-contained>", "files": ["<paths>"], "blocking": true } - omit if not needed; set diff to "" when blocking"
 }`;
 }
 

@@ -5,6 +5,7 @@ import { getIncidentService } from "../executor.js";
 import { LineSplitter } from "../lib/line-splitter.js";
 
 // Strip ANSI escape sequences before passing PTY output to onLine (display only).
+// eslint-disable-next-line no-control-regex -- intentional ESC control char match
 const ANSI_RE = /\x1B\[[0-9;]*[mGKHFJSTsulhir?]/g;
 function stripAnsi(s: string): string { return s.replace(ANSI_RE, ''); }
 
@@ -81,7 +82,7 @@ export class PtyShellAdapter implements Adapter {
         cols: 120,
         rows: 30,
         cwd: workDir,
-        env: process.env as any
+        env: process.env as Record<string, string>
       });
 
       const timer = setTimeout(() => {

@@ -303,7 +303,7 @@ function globToRegex(pattern: string): RegExp {
       i++;
       continue;
     }
-    if (/[.+^$(){}|\[\]\\]/.test(ch)) {
+    if (/[.+^$(){}|[\]\\]/.test(ch)) {
       out += "\\" + ch;
       i++;
       continue;

@@ -145,7 +145,7 @@ function redactContent(content: string, row: PrimaryResponseRow): string {
   // "I am Sonnet" / "From the Gemini perspective" — any sentence opening that
   // reveals identity.
   working = working.replace(
-    /^(\s*)(as|speaking as|i am|from|writing as|representing)\s+[—\w][\w\s\-]{0,40}?(perspective|side|viewpoint|model|agent)?[,:.]/gim,
+    /^(\s*)(as|speaking as|i am|from|writing as|representing)\s+[—\w][\w\s-]{0,40}?(perspective|side|viewpoint|model|agent)?[,:.]/gim,
     "$1",
   );
 
@@ -161,7 +161,7 @@ function collectIdentityTokens(row: PrimaryResponseRow): string[] {
     tokens.add(row.agent_name);
     // Also each whitespace-separated component, since the agent name will
     // typically contain provider + model words (e.g., "Sonnet").
-    for (const part of row.agent_name.split(/[\s\-]+/)) {
+    for (const part of row.agent_name.split(/[\s-]+/)) {
       if (part.length >= 3) {
         tokens.add(part);
       }
@@ -177,7 +177,7 @@ function collectIdentityTokens(row: PrimaryResponseRow): string[] {
   if (row.model) {
     tokens.add(row.model);
     // Also model family words: "claude", "haiku", "opus", "gemini", "kimi"
-    for (const part of row.model.split(/[\-/.]/)) {
+    for (const part of row.model.split(/[-/.]/)) {
       if (part.length >= 3) {
         tokens.add(part);
       }
