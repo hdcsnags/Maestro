@@ -1,0 +1,34 @@
+# Keep the graph scoped to Maestro source — exclude reference clones, deps, build artifacts.
+.openclaw/
+.michael/
+node_modules/
+**/node_modules/
+packages/maestroclaw/builds/
+dist/
+dist-ssr/
+.git/
+graphify-out/
+*.log
+
+# First pass = free code-only graph. Docs/images need an LLM key for semantic
+# extraction; deferring them until the doc-inclusive build is opted into.
+*.md
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.pdf
+*.txt
+*.html
+*.htm
+*.rst
+*.csv
+*.rtf
+*.yaml
+*.yml
+.bolt/
+*.env.example
+**/.env.example
+packages/maestroclaw/.env.example
