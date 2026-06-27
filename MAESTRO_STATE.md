@@ -27,6 +27,7 @@
 
 | Capability | Verified |
 |------------|----------|
+| **Graphify knowledge graph**: `graphifyy` v0.8.49 installed (against system Python 3.12 — uv standalone Python `_ssl` DLL is blocked by WDAC). `.graphifyignore` scopes to Maestro source (212 code files → 1235 nodes / 2668 edges / 68 communities). Code-only graph committed to `graphify-out/` (graph.json/html, GRAPH_REPORT.md, callflow); 68 communities labeled via `claude-cli`/haiku backend (user session, no API spend). Git post-commit/post-checkout hooks installed (AST-only auto-rebuild). God node: `useMaestro()` 99 edges. Graph confirms Conductor (C11 "Conductor Task Execution") is a separate island from the iteration runner (C3); no reputation/scoring community exists (Rate layer net-new) | 2026-06-26 (built/queried/labeled/committed `b9dfe7d`,`3a9bc6c`) |
 | **CI pipeline**: `.github/workflows/ci.yml` — frontend job (typecheck, lint, vite build) + maestroclaw job (tsc build, shell-analyzer tests) on push/PR to main | 2026-06-09 (first run green, run 27244113269) |
 | **Repo-wide lint zero**: `npm run lint` = 0 errors / 10 warnings (was 117/36). ESLint now allowlists only `packages/maestroclaw/src`+`test`; `_`-prefixed unused vars/args allowed by config | 2026-06-09 (`npm run lint`, commit `d1c091d`) |
 | **PRO-01 deliberation-aware synthesis DEPLOYED**: `synthesize` v14 live — deployed version verified byte-identical to git. NOTE: May-7 logs claimed deployment but deployed v13 was the classic pre-PRO-01 version; actual first deploy was 2026-06-09 | 2026-06-09 (`supabase functions deploy synthesize`, download-diff verified) |
@@ -199,6 +200,27 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-06-26 — Claude Code (claude-opus-4-8) — Graphify knowledge-graph integration + OpenClaw reference clone
+
+**What was done:**
+1. **Git sync**: pulled 4 commits behind (Fable's 2026-06-09 drift-recovery session); fast-forwarded clean to `3756893`.
+2. **OpenClaw cloned** to `.openclaw/` (gitignored) for assessment. Verdict: **borrow the sandbox/net-policy/fs-policy patterns, do NOT adopt the runtime** — OpenClaw's `VISION.md` explicitly rejects "agent-hierarchy frameworks" and "heavy orchestration layers" (i.e. Maestro's core thesis). Same call as Ruflo. Their sandbox stack (`net-policy`, `sandbox-exec-server`, Docker sandbox, agent-specific mounted-paths) maps directly onto Opus audit P0-1/P0-2 (soft local trust boundary).
+3. **Graphify integration** (claude.ai sprint): installed `graphifyy[mcp]` v0.8.49; resolved two blockers — (a) auto-mode classifier blocks agent-initiated package installs (user ran via `!`); (b) WDAC blocks uv standalone Python `_ssl` DLL → reinstalled against system Python 3.12. Built scoped code-only graph (212 files, 1235 nodes, 2668 edges, 68 communities, zero token cost), generated GRAPH_REPORT.md + graph.html + callflow, labeled 68 communities via `claude-cli`/haiku (user session). Installed git auto-rebuild hooks. Committed `b9dfe7d` + `3a9bc6c`.
+4. **Graph findings**: god node `useMaestro()` (99 edges — confirms Opus's god-context finding); 2 import cycles in maestroclaw adapters; `repo_memory` is loosely coupled (isolated community); **Conductor module (C11) is a structural island, not wired into runIterationLoop (C3)** — corroborates the C-06 gap; **no reputation/scoring community** — agent-grading (Rate) is net-new.
+
+**Files touched:** `.gitignore`, `.graphifyignore` (new), `graphify-out/*` (new), `MAESTRO_STATE.md`. (`.openclaw/` gitignored, not committed.)
+
+**Decisions made:**
+- Graph scoped to Maestro source only (`.openclaw`/`.michael`/deps/docs/yaml excluded). Doc-inclusive + Obsidian build deferred (needs LLM key; lower marginal value than code graph).
+- Held for explicit opt-in: `graphify claude install` PreToolUse hook (skipped — too invasive); git hook installed (free AST-only).
+- Vision captured (collective-intelligence thesis, emergent personas Malakh/Axiom/Ari, Claude+GPT analysis-paralysis loop, grading-is-nearly-free, skill flywheel, local-LLM-as-loyal-spine north star). Sequence agreed: wire Conductor (C-06) → Rate → Skills flywheel → local concierge spine.
+
+**What didn't work / notes:**
+- C-06 Conductor wiring deliberately NOT started (claude.ai handoff: defer until graph review).
+- Graphify community *names* drift on AST auto-rebuild (re-run `graphify label . --backend claude-cli --model haiku` to refresh).
+
+---
 
 ### 2026-06-09 — Copilot CLI (claude-fable-5) — Phase 0: drift recovery, synthesize v14, lint zero, CI pipeline, state-file repair
 
