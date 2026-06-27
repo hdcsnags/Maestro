@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import { sumBuildCost } from '../lib/cost';
+import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
 import {
   applyArtifactPayloadToBuffer,
   cancelBuildSessionJob,
@@ -1426,25 +1427,9 @@ export function useBuildExecution() {
       // Allow up to 3 consecutive no-progress waves before aborting.
       let noProgressWaves = 0;
       while (noProgressWaves < 3) {
-        // Find tasks ready to dispatch
-        const ready = currentTasks.filter(t => {
-          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
-          // Check dependencies
-          if (t.dependencies && t.dependencies.length > 0) {
-            const depsComplete = t.dependencies.every(depId =>
-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
-            );
-            if (!depsComplete) {
-              // Check if deps are failed/skipped — unblock if so
-              const depsResolved = t.dependencies.every(depId => {
-                const dep = currentTasks.find(d => d.task_id === depId);
-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
-              });
-              if (!depsResolved) return false;
-            }
-          }
-          return true;
-        });
+        // Find tasks ready to dispatch — dependency-ordered selection now lives
+        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
+        const ready = selectReadyTasks(currentTasks);
 
         if (ready.length === 0) break;
         if (abortRef.current) break;
@@ -1567,14 +1552,32 @@ export function useBuildExecution() {
   // ── Collect completed tasks into file_manifest format ────────────────
 
   const collectManifest = useCallback(() => {
-    return tasksRef.current
+    const completed = tasksRef.current
       .filter(t => t.status === 'completed' && t.result_content)
       .map(t => ({
         path: t.file_path,
         content: t.result_content!,
         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
-        content_hash: null,
+        content_hash: null as string | null,
+        // lane_name drives the Conductor's deterministic collision tie-break.
+        lane_name: t.lane_owner ?? '',
       }));
+
+    // P1-4: resolve duplicate-path entries to a single deterministic winner
+    // instead of letting github-execute fall back to last-write-wins on collisions.
+    const { resolved, collisions } = reconcileManifest(completed);
+    if (collisions.length > 0) {
+      console.warn(
+        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
+        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
+      );
+    }
+    return resolved.map(e => ({
+      path: e.path,
+      content: e.content,
+      operation: e.operation,
+      content_hash: e.content_hash,
+    }));
   }, []);
 
   const pushTaskBuildToGithub = useCallback(async () => {
