@@ -1,0 +1,47 @@
+{
+  "task": "task-001-c06-review",
+  "date": "2026-07-01",
+  "conductor": "claude-fable-5 (Claude Code)",
+  "review_target": "commit 22a04a1 on branch c-06-conductor-web-dispatch",
+  "workers": {
+    "codex": "OpenAI Codex CLI v0.125.0, model gpt-5.5",
+    "copilot": "GitHub Copilot CLI, resolved model claude-fable-5 (per ~/.copilot config)",
+    "copilot-gpt54": "GitHub Copilot CLI, model gpt-5.4",
+    "grok": "Grok CLI (xAI)",
+    "kimi": "Kimi CLI, model K2.7 Code (per user session)"
+  },
+  "graders": "same five CLIs, blind, per-grader shuffled candidate letters; per-grader letter mappings held outside the repo until unblinding",
+  "worker_verdicts": {
+    "codex": "rework required",
+    "copilot": "rework required",
+    "copilot-gpt54": "rework required",
+    "grok": "rework required",
+    "kimi": "rework required",
+    "fable-conductor": "rework required (grades/fable-review.md, written before reading worker outputs)"
+  },
+  "peer_ranking_consensus": ["copilot", "grok", "codex", "copilot-gpt54", "kimi"],
+  "rank_matrix_note": "4 of 5 graders produced the identical model ranking despite different letter shuffles; only copilot-gpt54 diverged (kimi 2nd, grok 4th, itself 5th).",
+  "observations": {
+    "position_bias": "none observed — different shuffles per grader, same model ranking from 4/5",
+    "self_preference": "none — copilot-gpt54 and kimi ranked themselves lower than peers did; copilot ranked itself 1st but so did all four other graders",
+    "verbosity_caveat": "rank order closely tracks cleaned output length (copilot 11.6KB ranked 1st, copilot-gpt54 3.4KB near-last); thoroughness vs length not separable at n=1 — human anchor needed"
+  },
+  "adapter_quirks_learned": {
+    "codex": "reads stdin when piped — close stdin ($null |) or it hangs; needs --skip-git-repo-check outside a git repo; reasoning streams to stderr",
+    "kimi": "Python app — needs PYTHONIOENCODING=utf-8 when stdout is redirected on Windows (cp1252 dies on non-ASCII); --print emits an event stream (extract last TextPart); log rotation collides with concurrent kimi processes (non-fatal)",
+    "copilot": "-p is headless; output includes tool-call transcript furniture that must be stripped; --model selects hosted model (gpt-5.4 verified)",
+    "gemini": "CLI dead for individual accounts (IneligibleTierError, migrate-to-Antigravity); works only with GEMINI_API_KEY direct auth",
+    "grok": "-p/--single is single-turn headless; prepends brief prose preamble before markdown"
+  },
+  "contamination_log": [
+    "conductor skimmed the first ~25 lines of grok's review during dispatch monitoring, before writing fable-review.md (findings 1-2 were noted prior to that skim)",
+    "peer grades were unblinded to the conductor before the human grading pass; human instructed to grade from anonymized/ before opening grades/"
+  ],
+  "human_grading": {
+    "status": "done — see grades/human-michael.json",
+    "blind_set": "anonymized/candidate-{A..E}.md, fresh shuffle (seed 99260701)",
+    "result": "human ranking matches peer consensus except one adjacent swap (codex/grok); spearman 0.90, kendall tau 0.80",
+    "verbosity_confound_update": "human anchor independently ranked the longest review 1st and confirmed its unique findings are real — for this task, length tracked genuine thoroughness, not grader bias"
+  },
+  "prompt_steering_note": "TASK.md deliverable item 3 ('consider what data the caller in collectManifest actually passes') was written after the conductor had already found the starved-ranking bug — it leaked a prior and partially steered workers toward finding 1. The codePointAt tie-break bug, the mirror divergences, and all unique copilot findings were NOT hinted and were found independently. Lesson for task-002: author the task spec before the conductor forms its own review, or strip analytical hints from deliverable questions."
+}

@@ -1,0 +1,77 @@
+{
+  "grader": "kimi",
+  "letter_to_model": {
+    "A": "copilot",
+    "B": "copilot-gpt54",
+    "C": "kimi",
+    "D": "grok",
+    "E": "codex"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "correctness": 9,
+      "coverage": 9,
+      "precision": 9,
+      "judgment": 9,
+      "overall": 9,
+      "justification": "Comprehensive, precise, and well-argued.Correctly verifies that collectManifest never feeds priority or conductor_approved into reconcile, the lane_name tie-break is only the first code point (with non-ASCII priority-inversion risk), and selectReadyTasks materially diverges from maestroclaw by unblocking on failed/skipped deps. Also catches subtler real issues: unknown dep IDs stalling forever, empty lane_name handling divergence, operation-blind resolution, and silent discard of overridden work. Mirror and P1-4 assessments are nuanced and sound; verdict is proportionate.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "D",
+      "correctness": 9,
+      "coverage": 8,
+      "precision": 9,
+      "judgment": 9,
+      "overall": 8,
+      "justification": "Very thorough and accurate. Catches the ranking-input gap, first-codepoint tie-break, selectReadyTasks dependency-semantic divergence, empty lane_name handling difference, missing test coverage, and API shape divergences. Provides a detailed mirror-faithfulness assessment and a sound P1-4 analysis. Slightly less comprehensive than A on edge cases like unknown-dep stalling and operation-blindness, but still excellent.",
+      "model": "grok"
+    },
+    {
+      "candidate": "E",
+      "correctness": 9,
+      "coverage": 7,
+      "precision": 9,
+      "judgment": 8,
+      "overall": 7,
+      "justification": "Solid and accurate. Identifies the three major issues: missing ranking inputs, first-codepoint tie-break, and the failed/skipped dependency divergence. Provides a detailed mirror-faithfulness assessment. Less broad than A/D on secondary divergences (empty lane_name, candidates omission, unknown deps, tests), but the core analysis and verdictare sound.",
+      "model": "codex"
+    },
+    {
+      "candidate": "B",
+      "correctness": 9,
+      "coverage": 6,
+      "precision": 9,
+      "judgment": 8,
+      "overall": 6,
+      "justification": "Concise and accurate on the core issues: missingpriority/conductor_approved inputs, dependency-semantic divergence, and the first-codepoint tie-break. Reaches the right verdict. However, it misses several secondary but real divergences (empty lane_name handling, candidates field omission, unknown-dep stalling, missing tests) and offers minimal rationale, making it the thinnest of the accurate reviews.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "C",
+      "correctness": 8,
+      "coverage": 6,
+      "precision": 8,
+      "judgment": 6,
+      "overall": 5,
+      "justification": "Accurately identifies the missing ranking inputs and first-codepoint tie-break problems, and notes some API/type divergences. However, it incorrectly characterizes selectReadyTasks as semantically faithful to getReadyEntries despite the material failed/skipped unblocking divergence, and its P1-4 assessment is slightly less incisive.The judgment error on mirror faithfulness weakens an otherwise competent review.",
+      "model": "kimi"
+    }
+  ],
+  "ranking_letters": [
+    "A",
+    "D",
+    "E",
+    "B",
+    "C"
+  ],
+  "ranking_models": [
+    "copilot",
+    "grok",
+    "codex",
+    "copilot-gpt54",
+    "kimi"
+  ],
+  "self_rank": 5
+}

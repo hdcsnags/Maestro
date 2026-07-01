@@ -1,0 +1,16 @@
+--- Logging error in Loguru Handler #1 ---
+Record was: {'elapsed': datetime.timedelta(microseconds=923262), 'exception': None, 'extra': {'sid': '', 'session_id': '8920e53c-79de-4e95-a70c-9cc803fa2c53'}, 'file': (name='__init__.py', path='C:\\Users\\Owner\\AppData\\Roaming\\uv\\tools\\kimi-cli\\Lib\\site-packages\\kimi_cli\\cli\\__init__.py'), 'function': '_run', 'level': (name='INFO', no=20, icon='ℹ️'), 'line': 583, 'message': 'Created new session: 8920e53c-79de-4e95-a70c-9cc803fa2c53', 'module': '__init__', 'name': 'kimi_cli.cli', 'process': (id=71344, name='MainProcess'), 'thread': (id=51504, name='MainThread'), 'time': datetime(2026, 7, 1, 17, 53, 7, 181145, tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=72000), 'Eastern Daylight Time'))}
+Traceback (most recent call last):
+  File "C:\Users\Owner\AppData\Roaming\uv\tools\kimi-cli\Lib\site-packages\loguru\_handler.py", line 206, in emit
+    self._sink.write(str_record)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Users\Owner\AppData\Roaming\uv\tools\kimi-cli\Lib\site-packages\loguru\_file_sink.py", line 204, in write
+    self._terminate_file(is_rotating=True)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Owner\AppData\Roaming\uv\tools\kimi-cli\Lib\site-packages\loguru\_file_sink.py", line 276, in _terminate_file
+    os.rename(old_path, renamed_path)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'C:\\Users\\Owner\\.kimi\\logs\\kimi.log' -> 'C:\\Users\\Owner\\.kimi\\logs\\kimi.2026-06-07_11-56-26_347186.log'
+--- End of logging error ---
+
+To resume this session: kimi -r 8920e53c-79de-4e95-a70c-9cc803fa2c53

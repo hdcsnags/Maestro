@@ -1,0 +1,2029 @@
+Reading additional input from stdin...
+OpenAI Codex v0.125.0 (research preview)
+--------
+workdir: C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: high
+reasoning summaries: none
+session id: 019f1fa7-97ee-7981-aa80-bf897f768b7f
+--------
+user
+You are an independent senior code reviewer. Read TASK.md in the current directory first, then read the context files it lists. Follow TASK.md exactly and print your complete review in markdown to stdout. Do not create or modify any files.
+codex
+I’ll read `TASK.md` first as requested, then follow only the context and review steps it specifies. No files will be changed.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath TASK.md' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ succeeded in 1867ms:
+# Task 001 - Review the C-06 Conductor web-dispatch commit
+
+You are an independent senior code reviewer. You are reviewing a single commit
+(`22a04a1`, branch `c-06-conductor-web-dispatch`) proposed for merge into
+Maestro's `main` branch.
+
+## What Maestro is (context)
+
+Maestro is a multi-model AI council orchestrator: a web app (Vite/React
+frontend + Supabase Deno edge functions) that dispatches build tasks to
+multiple AI models in parallel lanes, then reconciles the results and pushes
+them to GitHub. A separate Node package `packages/maestroclaw` is the local
+execution node; it contains a `conductor` module (plan + reconcile logic).
+
+## What the commit claims
+
+- The maestroclaw conductor cannot be imported across the Vite/Node/Deno
+  boundary, so the commit creates `src/lib/conductor.ts` as a **"faithful
+  frontend mirror"** of `packages/maestroclaw/src/conductor/` (`plan.ts` +
+  `reconcile.ts`).
+- It wires dependency-ready task selection (`selectReadyTasks`) into the
+  dispatch loop in `src/hooks/useBuildExecution.ts`, replacing an inline filter.
+- It adds deterministic manifest reconciliation (`reconcileManifest`) in
+  `collectManifest` before pushing to the `github-execute` edge function -
+  claimed as the real fix for bug **P1-4**: previously, when two parallel lanes
+  produced the same file path, the manifest silently kept the last write
+  ("last-write-wins").
+- Claimed verified: typecheck / lint / build clean. **NOT runtime-tested.**
+
+## Files in this folder
+
+1. `c06.diff` - the full commit diff. **The primary review target.**
+2. `context-conductor.ts.txt` - post-image of the new `src/lib/conductor.ts`.
+3. `context-useBuildExecution.ts.txt` - full post-image of
+   `src/hooks/useBuildExecution.ts` (1,483 lines; read the regions relevant to
+   the diff).
+4. `context-maestroclaw-plan.ts.txt` and `context-maestroclaw-reconcile.ts.txt`
+   - the maestroclaw conductor module this commit claims to faithfully mirror.
+   Verify that claim.
+
+## Your deliverable (markdown, printed to stdout)
+
+1. **Findings** - numbered, each with a severity (blocker / major / minor /
+   nit), the file and line, and a precise explanation of the defect and its
+   real-world consequence. Only report defects you are confident are real.
+2. **Mirror-faithfulness assessment** - does `src/lib/conductor.ts` actually
+   match the maestroclaw semantics? Note every divergence you find.
+3. **Does it fix P1-4?** - does the reconcile actually make collision
+   resolution deterministic and correct? Consider what data the caller in
+   `collectManifest` actually passes to it.
+4. **Verdict** - exactly one of: `merge as-is` / `merge after nits` /
+   `rework required` / `reject`, with rationale.
+
+Constraints: do not modify or create any files; do not read files outside this
+folder; print the complete review to stdout only. Length: whatever the review
+needs - no padding, no filler.
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+`TASK.md` constrains this to the files in the task folder, so I’m staying within that sandboxed review bundle and comparing the new frontend mirror against the maestroclaw sources.
+2026-07-01T21:48:44.754087Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath . | Select-Object Name,Length'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath . | Select-Object Name,Length' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-ChildItem -LiteralPath . | Select-Object Name,Length'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath c06.diff' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath context-conductor.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath context-maestroclaw-reconcile.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'Get-Content -LiteralPath context-maestroclaw-plan.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ succeeded in 935ms:
+// Pre-flight manifest collision detection and deterministic resolution.
+// This is advisory - the authoritative enforcement happens in github-execute.
+// Call reconcileManifests() before submitting to github-execute for a pre-flight
+// view of which entries will win in case of path conflicts.
+
+export interface ManifestEntry {
+  path: string;
+  content?: string;
+  operation: 'create' | 'update' | 'delete';
+  lane_name: string;
+  conductor_approved?: boolean;
+  priority?: 'P0' | 'P1' | 'P2';
+}
+
+export interface CollisionReport {
+  path: string;
+  candidates: ManifestEntry[];
+  winner: ManifestEntry;
+  overridden: ManifestEntry[];
+}
+
+export interface ReconcileResult {
+  resolved: ManifestEntry[];
+  collisions: CollisionReport[];
+}
+
+// Lower number = higher priority (wins collision).
+function rankEntry(entry: ManifestEntry): number {
+  if (entry.conductor_approved) return 0;
+  const pRank = { P0: 1, P1: 2, P2: 3 }[entry.priority ?? 'P1'] ?? 2;
+  // Tie-break deterministically by lane_name lexicographic order.
+  return pRank * 1000 + entry.lane_name.codePointAt(0)!;
+}
+
+export function detectManifestConflicts(
+  entries: ManifestEntry[],
+): Map<string, ManifestEntry[]> {
+  const byPath = new Map<string, ManifestEntry[]>();
+  for (const entry of entries) {
+    const group = byPath.get(entry.path) ?? [];
+    group.push(entry);
+    byPath.set(entry.path, group);
+  }
+  const conflicts = new Map<string, ManifestEntry[]>();
+  for (const [path, group] of byPath) {
+    if (group.length > 1) conflicts.set(path, group);
+  }
+  return conflicts;
+}
+
+export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
+  const conflicts = detectManifestConflicts(entries);
+  if (conflicts.size === 0) {
+    return { resolved: [...entries], collisions: [] };
+  }
+
+  const collisionReports: CollisionReport[] = [];
+  const resolvedPaths = new Set<string>();
+  const resolved: ManifestEntry[] = [];
+
+  for (const entry of entries) {
+    const group = conflicts.get(entry.path);
+    if (!group) {
+      resolved.push(entry);
+    } else if (!resolvedPaths.has(entry.path)) {
+      const sorted = [...group].sort((a, b) => rankEntry(a) - rankEntry(b));
+      const winner = sorted[0];
+      const overridden = sorted.slice(1);
+      collisionReports.push({ path: entry.path, candidates: group, winner, overridden });
+      resolved.push(winner);
+      resolvedPaths.add(entry.path);
+    }
+  }
+
+  return { resolved, collisions: collisionReports };
+}
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 951ms:
+diff --git a/MAESTRO_STATE.md b/MAESTRO_STATE.md
+index 6e3aac1..b860ca9 100644
+--- a/MAESTRO_STATE.md
++++ b/MAESTRO_STATE.md
+@@ -208,6 +208,7 @@ These areas change often and should be re-verified after any significant work se
+ 2. **OpenClaw cloned** to `.openclaw/` (gitignored) for assessment. Verdict: **borrow the sandbox/net-policy/fs-policy patterns, do NOT adopt the runtime** - OpenClaw's `VISION.md` explicitly rejects "agent-hierarchy frameworks" and "heavy orchestration layers" (i.e. Maestro's core thesis). Same call as Ruflo. Their sandbox stack (`net-policy`, `sandbox-exec-server`, Docker sandbox, agent-specific mounted-paths) maps directly onto Opus audit P0-1/P0-2 (soft local trust boundary).
+ 3. **Graphify integration** (claude.ai sprint): installed `graphifyy[mcp]` v0.8.49; resolved two blockers - (a) auto-mode classifier blocks agent-initiated package installs (user ran via `!`); (b) WDAC blocks uv standalone Python `_ssl` DLL  reinstalled against system Python 3.12. Built scoped code-only graph (212 files, 1235 nodes, 2668 edges, 68 communities, zero token cost), generated GRAPH_REPORT.md + graph.html + callflow, labeled 68 communities via `claude-cli`/haiku (user session). Installed git auto-rebuild hooks. Committed `b9dfe7d` + `3a9bc6c`.
+ 4. **Graph findings**: god node `useMaestro()` (99 edges - confirms Opus's god-context finding); 2 import cycles in maestroclaw adapters; `repo_memory` is loosely coupled (isolated community); **Conductor module (C11) is a structural island, not wired into runIterationLoop (C3)** - corroborates the C-06 gap; **no reputation/scoring community** - agent-grading (Rate) is net-new.
++5. **C-06 Conductor wiring (web layer)** ? - finding: the conductor module is build-PLAN-shaped and can't be imported across the Vite/node/Deno boundary (its only consumer was a dead per-loop `createConductorRun([])`); the dispatch loop already does dep-ordered, lane-parallel dispatch (the "2-at-a-time cap" is effectively gone - local uncapped, edge per-lane-throttled *deliberately* for rate limits). So C-06 = new `src/lib/conductor.ts` (faithful frontend mirror of `plan.ts`+`reconcile.ts`) wired into `useBuildExecution.ts`: dep-ready selection (`selectReadyTasks`) replaces the inline filter + **deterministic manifest reconcile (`reconcileManifest`) before `github-execute` - the real P1-4 fix** (was last-write-wins on duplicate paths). typecheck/lint/build clean; NOT runtime-tested (no live executor). On branch `c-06-conductor-web-dispatch` (PR) pending review.
+ 
+ **Files touched:** `.gitignore`, `.graphifyignore` (new), `graphify-out/*` (new), `MAESTRO_STATE.md`. (`.openclaw/` gitignored, not committed.)
+ 
+@@ -217,7 +218,7 @@ These areas change often and should be re-verified after any significant work se
+ - Vision captured (collective-intelligence thesis, emergent personas Malakh/Axiom/Ari, Claude+GPT analysis-paralysis loop, grading-is-nearly-free, skill flywheel, local-LLM-as-loyal-spine north star). Sequence agreed: wire Conductor (C-06)  Rate  Skills flywheel  local concierge spine.
+ 
+ **What didn't work / notes:**
+-- C-06 Conductor wiring deliberately NOT started (claude.ai handoff: defer until graph review).
++- C-06 Conductor wiring: done this session (web layer) on Michael's explicit go - consciously overriding the claude.ai "defer C-06" handoff, since the graph (their stated precondition) is now built. On branch `c-06-conductor-web-dispatch` pending review/merge. Authoritative server-side P1-4 fix in `github-execute` (Deno) still open - this is the client-side deterministic reconcile.
+ - Graphify community *names* drift on AST auto-rebuild (re-run `graphify label . --backend claude-cli --model haiku` to refresh).
+ 
+ ---
+diff --git a/src/hooks/useBuildExecution.ts b/src/hooks/useBuildExecution.ts
+index 45c11c4..5f530b1 100644
+--- a/src/hooks/useBuildExecution.ts
++++ b/src/hooks/useBuildExecution.ts
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
+ import { invokeEdgeFunction } from '../lib/functions';
+ import { supabase } from '../lib/supabase';
+ import { sumBuildCost } from '../lib/cost';
++import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
+ import {
+   applyArtifactPayloadToBuffer,
+   cancelBuildSessionJob,
+@@ -1426,25 +1427,9 @@ export function useBuildExecution() {
+       // Allow up to 3 consecutive no-progress waves before aborting.
+       let noProgressWaves = 0;
+       while (noProgressWaves < 3) {
+-        // Find tasks ready to dispatch
+-        const ready = currentTasks.filter(t => {
+-          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+-          // Check dependencies
+-          if (t.dependencies && t.dependencies.length > 0) {
+-            const depsComplete = t.dependencies.every(depId =>
+-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
+-            );
+-            if (!depsComplete) {
+-              // Check if deps are failed/skipped - unblock if so
+-              const depsResolved = t.dependencies.every(depId => {
+-                const dep = currentTasks.find(d => d.task_id === depId);
+-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+-              });
+-              if (!depsResolved) return false;
+-            }
+-          }
+-          return true;
+-        });
++        // Find tasks ready to dispatch - dependency-ordered selection now lives
++        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
++        const ready = selectReadyTasks(currentTasks);
+ 
+         if (ready.length === 0) break;
+         if (abortRef.current) break;
+@@ -1567,14 +1552,32 @@ export function useBuildExecution() {
+   // ÄÄ Collect completed tasks into file_manifest format ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ
+ 
+   const collectManifest = useCallback(() => {
+-    return tasksRef.current
++    const completed = tasksRef.current
+       .filter(t => t.status === 'completed' && t.result_content)
+       .map(t => ({
+         path: t.file_path,
+         content: t.result_content!,
+         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+-        content_hash: null,
++        content_hash: null as string | null,
++        // lane_name drives the Conductor's deterministic collision tie-break.
++        lane_name: t.lane_owner ?? '',
+       }));
++
++    // P1-4: resolve duplicate-path entries to a single deterministic winner
++    // instead of letting github-execute fall back to last-write-wins on collisions.
++    const { resolved, collisions } = reconcileManifest(completed);
++    if (collisions.length > 0) {
++      console.warn(
++        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
++        collisions.map(c => `${c.path}  lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
++      );
++    }
++    return resolved.map(e => ({
++      path: e.path,
++      content: e.content,
++      operation: e.operation,
++      content_hash: e.content_hash,
++    }));
+   }, []);
+ 
+   const pushTaskBuildToGithub = useCallback(async () => {
+diff --git a/src/lib/conductor.ts b/src/lib/conductor.ts
+new file mode 100644
+index 0000000..1f3ba9d
+--- /dev/null
++++ b/src/lib/conductor.ts
+@@ -0,0 +1,99 @@
++// Conductor logic for the web build-dispatch layer.
++//
++// This is a faithful FRONTEND MIRROR of `packages/maestroclaw/src/conductor/`
++// (`plan.ts` + `reconcile.ts`). The maestroclaw conductor is a Node package and
++// cannot be imported into the Vite browser bundle (nor into the Deno edge
++// functions), so the same deterministic plan + reconcile semantics live here.
++// KEEP THIS IN SYNC with the maestroclaw module - same ranking, same rules.
++//
++// C-06: wires the Conductor into `useBuildExecution.ts` so dependency-ordered
++// dispatch and deterministic collision reconcile are real in the web layer
++// instead of inline/ad-hoc.
++
++export type TaskPriority = 'P0' | 'P1' | 'P2';
++
++// ÄÄ Dependency-ordered ready selection (mirror of plan.getReadyEntries) ÄÄÄÄÄÄ
++
++export interface ReadyTask {
++  task_id: string;
++  status: string;
++  dependencies?: string[] | null;
++}
++
++// A task is ready to dispatch when it is queued/rerouted AND every dependency
++// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
++// also unblock so a dead dependency can't stall the frontier forever.
++export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
++  const byId = new Map(tasks.map((t) => [t.task_id, t]));
++  return tasks.filter((t) => {
++    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
++    const deps = t.dependencies ?? [];
++    if (deps.length === 0) return true;
++    return deps.every((depId) => {
++      const dep = byId.get(depId);
++      return !!dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
++    });
++  });
++}
++
++// ÄÄ Deterministic manifest reconcile (mirror of reconcile.ts - fixes P1-4) ÄÄÄ
++
++export interface ManifestCandidate {
++  path: string;
++  lane_name?: string;
++  priority?: TaskPriority;
++  conductor_approved?: boolean;
++}
++
++export interface ManifestCollision<T extends ManifestCandidate> {
++  path: string;
++  winner: T;
++  overridden: T[];
++}
++
++export interface ReconcileResult<T extends ManifestCandidate> {
++  resolved: T[];
++  collisions: ManifestCollision<T>[];
++}
++
++const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
++
++// Lower rank wins a path collision: conductor_approved first, then priority,
++// then lane_name lexicographic as a deterministic, stable tie-break.
++function rankCandidate(entry: ManifestCandidate): number {
++  if (entry.conductor_approved) return 0;
++  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
++  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
++}
++
++// Resolve duplicate-path entries to a single deterministic winner per path,
++// preserving input order for non-colliding entries. Returns the resolved
++// manifest plus a report of every collision (winner + overridden) for logging.
++export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
++  const byPath = new Map<string, T[]>();
++  for (const entry of entries) {
++    const group = byPath.get(entry.path) ?? [];
++    group.push(entry);
++    byPath.set(entry.path, group);
++  }
++
++  const resolved: T[] = [];
++  const collisions: ManifestCollision<T>[] = [];
++  const seen = new Set<string>();
++
++  for (const entry of entries) {
++    const group = byPath.get(entry.path);
++    if (!group || group.length === 1) {
++      resolved.push(entry);
++      continue;
++    }
++    if (seen.has(entry.path)) continue;
++    seen.add(entry.path);
++    const sorted = [...group].sort((a, b) => rankCandidate(a) - rankCandidate(b));
++    const [winner, ...overridden] = sorted;
++    resolved.push(winner);
++    collisions.push({ path: entry.path, winner, overridden });
++  }
++
++  return { resolved, collisions };
++}
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 959ms:
+// Pure types and functions for the Conductor's task dependency graph.
+// Immutable updates - every mutation returns a new plan object.
+
+export type TaskPriority = 'P0' | 'P1' | 'P2';
+export type PlanEntryStatus = 'pending' | 'ready' | 'running' | 'done' | 'failed';
+
+export interface PlanEntry {
+  task_id: string;
+  file_path: string;
+  priority: TaskPriority;
+  deps: string[];      // task_ids that must be 'done' before this entry is ready
+  lane_name: string;
+  status: PlanEntryStatus;
+}
+
+export interface ConductorPlan {
+  id: string;
+  entries: PlanEntry[];
+  created_at: string;
+}
+
+export interface RawTask {
+  task_id: string;
+  file_path: string;
+  deps?: string[];
+  lane_name?: string;
+  priority?: TaskPriority;
+}
+
+export function buildPlan(tasks: RawTask[], id?: string): ConductorPlan {
+  const entryIds = new Set(tasks.map(t => t.task_id));
+  const entries: PlanEntry[] = tasks.map(t => {
+    const validDeps = (t.deps ?? []).filter(d => entryIds.has(d));
+    return {
+      task_id: t.task_id,
+      file_path: t.file_path,
+      priority: t.priority ?? 'P1',
+      deps: validDeps,
+      lane_name: t.lane_name ?? 'default',
+      status: validDeps.length === 0 ? 'ready' : 'pending',
+    };
+  });
+
+  return {
+    id: id ?? crypto.randomUUID(),
+    entries,
+    created_at: new Date().toISOString(),
+  };
+}
+
+export function getReadyEntries(plan: ConductorPlan): PlanEntry[] {
+  const doneIds = new Set(
+    plan.entries.filter(e => e.status === 'done').map(e => e.task_id),
+  );
+  return plan.entries.filter(e => {
+    if (e.status !== 'pending' && e.status !== 'ready') return false;
+    return e.deps.every(d => doneIds.has(d));
+  });
+}
+
+function setStatus(plan: ConductorPlan, taskId: string, status: PlanEntryStatus): ConductorPlan {
+  return {
+    ...plan,
+    entries: plan.entries.map(e => e.task_id === taskId ? { ...e, status } : e),
+  };
+}
+
+export function markEntryRunning(plan: ConductorPlan, taskId: string): ConductorPlan {
+  return setStatus(plan, taskId, 'running');
+}
+
+export function markEntryDone(plan: ConductorPlan, taskId: string): ConductorPlan {
+  return setStatus(plan, taskId, 'done');
+}
+
+export function markEntryFailed(plan: ConductorPlan, taskId: string): ConductorPlan {
+  return setStatus(plan, taskId, 'failed');
+}
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 964ms:
+// Conductor logic for the web build-dispatch layer.
+//
+// This is a faithful FRONTEND MIRROR of `packages/maestroclaw/src/conductor/`
+// (`plan.ts` + `reconcile.ts`). The maestroclaw conductor is a Node package and
+// cannot be imported into the Vite browser bundle (nor into the Deno edge
+// functions), so the same deterministic plan + reconcile semantics live here.
+// KEEP THIS IN SYNC with the maestroclaw module - same ranking, same rules.
+//
+// C-06: wires the Conductor into `useBuildExecution.ts` so dependency-ordered
+// dispatch and deterministic collision reconcile are real in the web layer
+// instead of inline/ad-hoc.
+
+export type TaskPriority = 'P0' | 'P1' | 'P2';
+
+// ÄÄ Dependency-ordered ready selection (mirror of plan.getReadyEntries) ÄÄÄÄÄÄ
+
+export interface ReadyTask {
+  task_id: string;
+  status: string;
+  dependencies?: string[] | null;
+}
+
+// A task is ready to dispatch when it is queued/rerouted AND every dependency
+// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
+// also unblock so a dead dependency can't stall the frontier forever.
+export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
+  const byId = new Map(tasks.map((t) => [t.task_id, t]));
+  return tasks.filter((t) => {
+    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+    const deps = t.dependencies ?? [];
+    if (deps.length === 0) return true;
+    return deps.every((depId) => {
+      const dep = byId.get(depId);
+      return !!dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+    });
+  });
+}
+
+// ÄÄ Deterministic manifest reconcile (mirror of reconcile.ts - fixes P1-4) ÄÄÄ
+
+export interface ManifestCandidate {
+  path: string;
+  lane_name?: string;
+  priority?: TaskPriority;
+  conductor_approved?: boolean;
+}
+
+export interface ManifestCollision<T extends ManifestCandidate> {
+  path: string;
+  winner: T;
+  overridden: T[];
+}
+
+export interface ReconcileResult<T extends ManifestCandidate> {
+  resolved: T[];
+  collisions: ManifestCollision<T>[];
+}
+
+const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
+
+// Lower rank wins a path collision: conductor_approved first, then priority,
+// then lane_name lexicographic as a deterministic, stable tie-break.
+function rankCandidate(entry: ManifestCandidate): number {
+  if (entry.conductor_approved) return 0;
+  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
+  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
+}
+
+// Resolve duplicate-path entries to a single deterministic winner per path,
+// preserving input order for non-colliding entries. Returns the resolved
+// manifest plus a report of every collision (winner + overridden) for logging.
+export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
+  const byPath = new Map<string, T[]>();
+  for (const entry of entries) {
+    const group = byPath.get(entry.path) ?? [];
+    group.push(entry);
+    byPath.set(entry.path, group);
+  }
+
+  const resolved: T[] = [];
+  const collisions: ManifestCollision<T>[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of entries) {
+    const group = byPath.get(entry.path);
+    if (!group || group.length === 1) {
+      resolved.push(entry);
+      continue;
+    }
+    if (seen.has(entry.path)) continue;
+    seen.add(entry.path);
+    const sorted = [...group].sort((a, b) => rankCandidate(a) - rankCandidate(b));
+    const [winner, ...overridden] = sorted;
+    resolved.push(winner);
+    collisions.push({ path: entry.path, winner, overridden });
+  }
+
+  return { resolved, collisions };
+}
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+The first pass shows two likely review axes: `selectReadyTasks` is not semantically identical to `getReadyEntries`, and `collectManifest` may not be passing the metadata that the reconcile ranking depends on. I’m checking exact call-site types and line numbers before writing findings.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "selectReadyTasks|collectManifest|lane_owner|priority|dependencies|type .*Task|interface .*Task|status" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "rankCandidate|reconcileManifest|selectReadyTasks|ManifestCandidate|PRIORITY_RANK" context-conductor.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "getReadyEntries|buildPlan|PlanEntry|deps|status|done|failed" context-maestroclaw-plan.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n "rankEntry|reconcileManifests|detectManifestConflicts|CollisionReport|ManifestEntry" context-maestroclaw-reconcile.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ succeeded in 681ms:
+26:export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
+41:export interface ManifestCandidate {
+48:export interface ManifestCollision<T extends ManifestCandidate> {
+54:export interface ReconcileResult<T extends ManifestCandidate> {
+59:const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
+63:function rankCandidate(entry: ManifestCandidate): number {
+65:  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
+72:export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
+92:    const sorted = [...group].sort((a, b) => rankCandidate(a) - rankCandidate(b));
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 697ms:
+5:import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
+43:interface TaskResult {
+49:interface OrchestrateTaskResult {
+69:  status?: string;
+89:  status: string;
+120:    lane_owner: string;
+121:    lane_owner_name: string;
+123:    dependencies: string[];
+124:    priority: number;
+125:    status: string;
+135:function mapJobStatusToRunStatus(status: string): SessionRunProgress['status'] {
+136:  if (status === 'running' || status === 'claimed') return 'running';
+137:  if (status === 'succeeded') return 'succeeded';
+138:  if (status === 'failed' || status === 'cancelled' || status === 'expired') return 'failed';
+142:function isTerminalJobStatus(status: string): boolean {
+143:  return status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'expired';
+173:      status: 'idle',
+182:  const anyRunning = runs.some((run) => run.status === 'queued' || run.status === 'running');
+183:  const anyFailed = runs.some((run) => run.status === 'failed');
+186:    status: anyRunning ? 'running' : anyFailed ? 'failed' : 'succeeded',
+192:          .filter((run) => run.status === 'failed' && run.errorText)
+203:// frozen (same tasks, same statuses, same lane owners, same retry counts) —
+207:    .filter(t => t.status !== 'completed' && t.status !== 'failed' && t.status !== 'skipped')
+208:    .map(t => `${t.task_id}:${t.status}:${t.lane_owner ?? ''}:${t.retry_count}`)
+334:      completed: loaded.filter(task => task.status === 'completed').length,
+335:      failed: loaded.filter(task => task.status === 'failed').length,
+336:      skipped: loaded.filter(task => task.status === 'skipped').length,
+337:      dispatched: loaded.filter(task => task.status === 'dispatched').length,
+338:      queued: loaded.filter(task => task.status === 'queued' || task.status === 'rerouted').length,
+358:    snapshot?: Pick<ExecutorJobSnapshot, 'status' | 'error_text' | 'result_summary'>,
+367:        status: snapshot ? mapJobStatusToRunStatus(snapshot.status) : run.status,
+371:          ? (snapshot.status === 'failed' || snapshot.status === 'cancelled' || snapshot.status === 'expired'
+385:      .select('id, status, artifact_manifest, error_text, result_summary')
+398:      if (manifest.length === 0 && isTerminalJobStatus(snapshot.status)) {
+442:    if (initial && isTerminalJobStatus(initial.status)) {
+452:          if (latest && isTerminalJobStatus(latest.status)) {
+474:      if (manifest.length === 0 && isTerminalJobStatus(snapshot.status)) {
+489:    if (isTerminalJobStatus(snapshot.status)) {
+556:          if (!next?.id || typeof next.status !== 'string') return;
+559:            status: next.status,
+620:    status: BuildTaskStatus,
+623:    const updates: Record<string, unknown> = { status, ...extras };
+624:    if (status === 'completed') updates.completed_at = new Date().toISOString();
+632:      t.id === taskId ? { ...t, status, ...extras } as BuildTask : t
+643:    const agent = resolveAgent(task.lane_owner ?? '');
+668:    const agent = resolveAgent(task.lane_owner ?? '');
+692:    if (job.status === 'succeeded') {
+707:        result_builder: task.lane_owner,
+776:    if (job.approval_required || job.status !== 'approved') {
+816:      status: 'queued',
+822:    setSessionProgress({ status: 'running', filesWritten: 0, jobId: null, manifest: [], errorText: null });
+827:          status: 'failed',
+881:        updateSessionRun(spec.key, { status: 'running', errorText: null });
+917:          updateSessionRun(spec.key, { status: 'failed', errorText });
+935:          const success = job.status === 'succeeded';
+937:            status: success ? 'succeeded' : 'failed',
+954:            status: 'failed',
+974:        status: failures.length === 0 ? 'succeeded' : 'failed',
+1021:      run.status === 'running' || run.status === 'queued'
+1022:        ? { ...run, status: 'failed' as const, errorText: 'Aborted by user' }
+1028:      status: 'failed',
+1037:      status: 'idle',
+1087:        status: 'running',
+1124:    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+1127:      .update({ status, result: execResult as never } as never)
+1132:      payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+1136:      status,
+1193:    const agent = resolveAgent(task.lane_owner ?? '');
+1209:      if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+1211:          rerouted_from: task.lane_owner,
+1212:          lane_owner: task.fallback_owner,
+1274:            rerouted_from: task.lane_owner,
+1275:            lane_owner: task.fallback_owner,
+1359:        if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+1361:            rerouted_from: task.lane_owner,
+1362:            lane_owner: task.fallback_owner,
+1409:      console.log(`[Build v2] Dispatch starting: ${currentTasks.length} tasks, ${currentTasks.filter(t => t.status === 'queued').length} queued`);
+1415:          completed: currentTasks.filter(t => t.status === 'completed').length,
+1416:          failed: currentTasks.filter(t => t.status === 'failed').length,
+1417:          skipped: currentTasks.filter(t => t.status === 'skipped').length,
+1418:          dispatched: currentTasks.filter(t => t.status === 'dispatched').length,
+1419:          queued: currentTasks.filter(t => t.status === 'queued' || t.status === 'rerouted').length,
+1432:        const ready = selectReadyTasks(currentTasks);
+1458:            const ownerId = task.lane_owner ?? '';
+1471:        // change the fingerprint — only a frozen frontier (same tasks, same statuses,
+1526:      .filter(t => t.status === 'failed')
+1533:      .update({ status: 'queued', failure_reason: null, provider_error: null } as never)
+1537:      t.status === 'failed'
+1538:        ? { ...t, status: 'queued' as BuildTaskStatus, failure_reason: null, provider_error: null }
+1554:  const collectManifest = useCallback(() => {
+1556:      .filter(t => t.status === 'completed' && t.result_content)
+1563:        lane_name: t.lane_owner ?? '',
+1591:    const manifest = collectManifest();
+1602:        status: 'running',
+1635:    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+1638:      .update({ status, result: execResult as never } as never)
+1643:      payload: { ...(runData as Record<string, unknown>), status, result: execResult } as never,
+1647:      status,
+1655:  }, [state.activeSession, state.activeRepoConnection, user, collectManifest, dispatch]);
+1684:    collectManifest,
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 669ms:
+5:export type PlanEntryStatus = 'pending' | 'ready' | 'running' | 'done' | 'failed';
+7:export interface PlanEntry {
+11:  deps: string[];      // task_ids that must be 'done' before this entry is ready
+13:  status: PlanEntryStatus;
+18:  entries: PlanEntry[];
+25:  deps?: string[];
+30:export function buildPlan(tasks: RawTask[], id?: string): ConductorPlan {
+32:  const entries: PlanEntry[] = tasks.map(t => {
+33:    const validDeps = (t.deps ?? []).filter(d => entryIds.has(d));
+38:      deps: validDeps,
+40:      status: validDeps.length === 0 ? 'ready' : 'pending',
+51:export function getReadyEntries(plan: ConductorPlan): PlanEntry[] {
+52:  const doneIds = new Set(
+53:    plan.entries.filter(e => e.status === 'done').map(e => e.task_id),
+56:    if (e.status !== 'pending' && e.status !== 'ready') return false;
+57:    return e.deps.every(d => doneIds.has(d));
+61:function setStatus(plan: ConductorPlan, taskId: string, status: PlanEntryStatus): ConductorPlan {
+64:    entries: plan.entries.map(e => e.task_id === taskId ? { ...e, status } : e),
+73:  return setStatus(plan, taskId, 'done');
+77:  return setStatus(plan, taskId, 'failed');
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 691ms:
+3:// Call reconcileManifests() before submitting to github-execute for a pre-flight
+6:export interface ManifestEntry {
+15:export interface CollisionReport {
+17:  candidates: ManifestEntry[];
+18:  winner: ManifestEntry;
+19:  overridden: ManifestEntry[];
+23:  resolved: ManifestEntry[];
+24:  collisions: CollisionReport[];
+28:function rankEntry(entry: ManifestEntry): number {
+35:export function detectManifestConflicts(
+36:  entries: ManifestEntry[],
+37:): Map<string, ManifestEntry[]> {
+38:  const byPath = new Map<string, ManifestEntry[]>();
+44:  const conflicts = new Map<string, ManifestEntry[]>();
+51:export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
+52:  const conflicts = detectManifestConflicts(entries);
+57:  const collisionReports: CollisionReport[] = [];
+59:  const resolved: ManifestEntry[] = [];
+66:      const sorted = [...group].sort((a, b) => rankEntry(a) - rankEntry(b));
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+I found the key regions. Now I’m reading the surrounding code to confirm whether these are behavioral regressions versus just mirror-label inaccuracies.
+2026-07-01T21:49:09.044703Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=80; $i -le 135; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=80; $i -le 135; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1390; $i -le 1485; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1548; $i -le 1608; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=80; $i -le 135; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1390; $i -le 1485; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1548; $i -le 1608; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+2026-07-01T21:49:09.045081Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1390; $i -le 1485; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+2026-07-01T21:49:09.056811Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-useBuildExecution.ts.txt; for ($i=1548; $i -le 1608; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+2026-07-01T21:49:09.068904Z ERROR codex_core::tools::router: error=`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-conductor.ts.txt; for ($i=1; $i -le $lines.Count; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-conductor.ts.txt; for ($i=1; $i -le $lines.Count; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ declined in 0ms:
+`"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command '$lines = Get-Content -LiteralPath context-conductor.ts.txt; for ($i=1; $i -le $lines.Count; $i++) { '"'{0,5}: {1}' -f "'$i, $lines[$i-1] }'` rejected: blocked by policy
+codex
+The command wrapper rejected the manual line-number slicing, so I’m switching to `rg` context output. It still gives the needed line anchors without touching files.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 8 "interface BuildTask" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 20 "const ready = selectReadyTasks" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 18 "const collectManifest" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 6 "function rankCandidate|export function reconcileManifest|export function selectReadyTasks" context-conductor.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+2026-07-01T21:49:19.235606Z ERROR codex_core::tools::router: error=Exit code: 1
+Wall time: 0.7 seconds
+Output:
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ exited 1 in 716ms:
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 744ms:
+1536-    const updated = tasksRef.current.map(t =>
+1537-      t.status === 'failed'
+1538-        ? { ...t, status: 'queued' as BuildTaskStatus, failure_reason: null, provider_error: null }
+1539-        : t
+1540-    );
+1541-    tasksRef.current = updated;
+1542-    setTasks(updated);
+1543-    setProgress(prev => ({
+1544-      ...prev,
+1545-      failed: 0,
+1546-      queued: prev.queued + failedIds.length,
+1547-    }));
+1548-
+1549-    return failedIds.length;
+1550-  }, []);
+1551-
+1552-  // ── Collect completed tasks into file_manifest format ────────────────
+1553-
+1554:  const collectManifest = useCallback(() => {
+1555-    const completed = tasksRef.current
+1556-      .filter(t => t.status === 'completed' && t.result_content)
+1557-      .map(t => ({
+1558-        path: t.file_path,
+1559-        content: t.result_content!,
+1560-        operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+1561-        content_hash: null as string | null,
+1562-        // lane_name drives the Conductor's deterministic collision tie-break.
+1563-        lane_name: t.lane_owner ?? '',
+1564-      }));
+1565-
+1566-    // P1-4: resolve duplicate-path entries to a single deterministic winner
+1567-    // instead of letting github-execute fall back to last-write-wins on collisions.
+1568-    const { resolved, collisions } = reconcileManifest(completed);
+1569-    if (collisions.length > 0) {
+1570-      console.warn(
+1571-        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
+1572-        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 769ms:
+1412-        currentTasks = [...tasksRef.current]; // always re-read from ref
+1413-        const p: BuildProgress = {
+1414-          total: currentTasks.length,
+1415-          completed: currentTasks.filter(t => t.status === 'completed').length,
+1416-          failed: currentTasks.filter(t => t.status === 'failed').length,
+1417-          skipped: currentTasks.filter(t => t.status === 'skipped').length,
+1418-          dispatched: currentTasks.filter(t => t.status === 'dispatched').length,
+1419-          queued: currentTasks.filter(t => t.status === 'queued' || t.status === 'rerouted').length,
+1420-        };
+1421-        setProgress(p);
+1422-        return p;
+1423-      };
+1424-
+1425-      // Guard against reroute cycles: if the number of resolved tasks (completed +
+1426-      // failed + skipped) doesn't grow after a full wave, we're in a deadlock/cycle.
+1427-      // Allow up to 3 consecutive no-progress waves before aborting.
+1428-      let noProgressWaves = 0;
+1429-      while (noProgressWaves < 3) {
+1430-        // Find tasks ready to dispatch — dependency-ordered selection now lives
+1431-        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
+1432:        const ready = selectReadyTasks(currentTasks);
+1433-
+1434-        if (ready.length === 0) break;
+1435-        if (abortRef.current) break;
+1436-
+1437-        // Fingerprint the non-terminal frontier before dispatch.
+1438-        // We compare after the wave to detect genuine stalls vs. reroutes-in-progress.
+1439-        const fingerprintBefore = fingerprintNonterminalTasks(currentTasks);
+1440-
+1441-        // Build one batch of tasks to dispatch concurrently.
+1442-        //
+1443-        // Local/executor tasks: dispatch ALL ready tasks at once. The executor's
+1444-        // maxConcurrentJobs cap is the real throttle — the web side just submits and polls.
+1445-        // Submitting everything immediately lets both executors drain the queue in parallel
+1446-        // without waiting for wave-by-wave roundtrips.
+1447-        //
+1448-        // Edge tasks: cap to one per lane owner to respect cloud provider rate limits.
+1449-        const batch: BuildTask[] = [];
+1450-        const seenEdgeOwners = new Set<string>();
+1451-
+1452-        for (const task of ready) {
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 737ms:
+20-  dependencies?: string[] | null;
+21-}
+22-
+23-// A task is ready to dispatch when it is queued/rerouted AND every dependency
+24-// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
+25-// also unblock so a dead dependency can't stall the frontier forever.
+26:export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
+27-  const byId = new Map(tasks.map((t) => [t.task_id, t]));
+28-  return tasks.filter((t) => {
+29-    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+30-    const deps = t.dependencies ?? [];
+31-    if (deps.length === 0) return true;
+32-    return deps.every((depId) => {
+--
+57-}
+58-
+59-const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
+60-
+61-// Lower rank wins a path collision: conductor_approved first, then priority,
+62-// then lane_name lexicographic as a deterministic, stable tie-break.
+63:function rankCandidate(entry: ManifestCandidate): number {
+64-  if (entry.conductor_approved) return 0;
+65-  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
+66-  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
+67-}
+68-
+69-// Resolve duplicate-path entries to a single deterministic winner per path,
+70-// preserving input order for non-colliding entries. Returns the resolved
+71-// manifest plus a report of every collision (winner + overridden) for logging.
+72:export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
+73-  const byPath = new Map<string, T[]>();
+74-  for (const entry of entries) {
+75-    const group = byPath.get(entry.path) ?? [];
+76-    group.push(entry);
+77-    byPath.set(entry.path, group);
+78-  }
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+The call site confirms `collectManifest` only supplies `path`, content, operation, content hash, and `lane_name`. I’m checking the task model now to see whether priority or conductor approval exists but was omitted, which matters for whether the collision policy is actually correct.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 5 "BuildTask|BuildTaskStatus|priority|conductor_approved|result_operation|file_path|lane_owner" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 5 "priority|conductor_approved|lane_name|operation" c06.diff context-conductor.ts.txt context-maestroclaw-reconcile.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 5 "completed|failed|skipped|dependencies|selectReadyTasks|getReadyEntries|doneIds" c06.diff context-conductor.ts.txt context-maestroclaw-plan.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ succeeded in 757ms:
+25-  classifyFailure,
+26-  modelToProviderKey,
+27-  REROUTE_COST_THRESHOLD,
+28-} from '../lib/providerHealth';
+29-import {
+30:  BuildTask,
+31:  BuildTaskStatus,
+32-  Agent,
+33-  Executor,
+34-  ExecutorJob,
+35-  SessionBuildManifestEntry,
+36-  SessionBuildProgress,
+--
+114-  total_files?: number;
+115-  builder_summary?: string;
+116-  used_llm_slices?: boolean;
+117-  tasks?: Array<{
+118-    task_id: string;
+119:    file_path: string;
+120:    lane_owner: string;
+121:    lane_owner_name: string;
+122-    fallback_owner: string | null;
+123-    dependencies: string[];
+124:    priority: number;
+125-    status: string;
+126-  }>;
+127-  locked_builder_ids?: string[];
+128-  error?: string;
+129-  message?: string;
+--
+200-
+201-// Produce a stable fingerprint of all non-terminal build tasks.
+202-// Two identical fingerprints across consecutive waves means the frontier is
+203-// frozen (same tasks, same statuses, same lane owners, same retry counts) —
+204-// a true cycle or deadlock, not forward progress being masked by reroutes.
+205:function fingerprintNonterminalTasks(tasks: BuildTask[]): string {
+206-  return tasks
+207-    .filter(t => t.status !== 'completed' && t.status !== 'failed' && t.status !== 'skipped')
+208:    .map(t => `${t.task_id}:${t.status}:${t.lane_owner ?? ''}:${t.retry_count}`)
+209-    .sort()
+210-    .join('|');
+211-}
+212-
+213-// ── Hook ───────────────────────────────────────────────────────────────────
+--
+215-export function useBuildExecution() {
+216-  const { state, dispatch } = useMaestro();
+217-  const { session, user } = useAuth();
+218-  const { providerHealthRef, observeSuccess, observeFailure, awaitRerouteDecision, abortAllWaiters } = useProviderHealth();
+219-
+220:  const [tasks, setTasks] = useState<BuildTask[]>([]);
+221:  const tasksRef = useRef<BuildTask[]>([]); // synchronous truth — avoids stale-closure bugs
+222-  const [progress, setProgress] = useState<BuildProgress>({
+223-    total: 0, completed: 0, failed: 0, skipped: 0, dispatched: 0, queued: 0,
+224-  });
+225-  const [isRunning, setIsRunning] = useState(false);
+226-  const isRunningRef = useRef(false); // synchronous guard against double-execution
+--
+317-      throw new Error('Session expired. Sign in again.');
+318-    }
+319-    return data.session;
+320-  }, [session]);
+321-
+322:  const loadTasks = useCallback(async (sessionId: string): Promise<BuildTask[]> => {
+323-    const { data: taskRows } = await supabase
+324-      .from('build_tasks')
+325-      .select('*')
+326-      .eq('session_id', sessionId)
+327-      .order('created_at', { ascending: true });
+328-
+329:    const loaded = (taskRows ?? []) as unknown as BuildTask[];
+330-    tasksRef.current = loaded;
+331-    setTasks(loaded);
+332-    setProgress({
+333-      total: loaded.length,
+334-      completed: loaded.filter(task => task.status === 'completed').length,
+--
+615-    return state.agents.find(a => a.id === agentId);
+616-  }, [state.agents]);
+617-
+618-  const updateTaskStatus = useCallback(async (
+619-    taskId: string,
+620:    status: BuildTaskStatus,
+621:    extras: Partial<BuildTask> = {},
+622-  ) => {
+623-    const updates: Record<string, unknown> = { status, ...extras };
+624-    if (status === 'completed') updates.completed_at = new Date().toISOString();
+625-
+626-    await supabase
+627-      .from('build_tasks')
+628-      .update(updates as never)
+629-      .eq('id', taskId);
+630-
+631-    const updated = tasksRef.current.map(t =>
+632:      t.id === taskId ? { ...t, status, ...extras } as BuildTask : t
+633-    );
+634-    tasksRef.current = updated;
+635-    setTasks(updated);
+636-  }, []);
+637-
+638-  // ── Local execution helpers (V3 routing) ───────────────────────────
+639-
+640:  const resolveLocalAdapter = useCallback((task: BuildTask): string => {
+641-    // adapterOverrideRef is synchronous (no stale-closure lag vs useState)
+642-    if (adapterOverrideRef.current) return adapterOverrideRef.current;
+643:    const agent = resolveAgent(task.lane_owner ?? '');
+644-    return agent?.provider_group === 'maestroclaw'
+645-      ? agent.model
+646-      : 'claude_code';
+647-  }, [resolveAgent]);
+648-
+--
+660-
+661-  const findOnlineExecutor = useCallback((adapter?: string): Executor | null => {
+662-    return selectOnlineExecutor(state.executors, adapter);
+663-  }, [state.executors]);
+664-
+665:  const resolveBackend = useCallback((task: BuildTask): 'edge' | 'local' => {
+666-    const adapter = resolveLocalAdapter(task);
+667-    // Claw agents always route locally — they ARE local CLI tools
+668:    const agent = resolveAgent(task.lane_owner ?? '');
+669-    if (agent?.provider_group === 'maestroclaw') return 'local';
+670-
+671-    const backend = task.execution_backend
+672-      ?? state.activeSession?.execution_backend
+673-      ?? 'edge';
+--
+676-    return 'edge';
+677-  }, [state.activeSession?.execution_backend, findOnlineExecutor, resolveAgent, resolveLocalAdapter]);
+678-
+679-  const pollExecutorJob = useCallback(async (
+680-    jobId: string,
+681:    task: BuildTask,
+682-  ): Promise<boolean> => {
+683-    const TIMEOUT_MS = 600_000; // 10 minutes
+684-    const job = await waitForExecutorJob(
+685-      jobId,
+686-      TIMEOUT_MS,
+--
+694-
+695-      if (artifacts.length === 0) {
+696-        await updateTaskStatus(task.id, 'failed', {
+697-          failure_reason: 'Executor produced no artifacts',
+698-          executor_job_id: jobId,
+699:        } as Partial<BuildTask>);
+700-        return false;
+701-      }
+702-
+703-      const entry = artifacts[0];
+704-      await updateTaskStatus(task.id, 'completed', {
+705-        result_content: entry.content,
+706:        result_operation: (entry.operation ?? 'create') as BuildTask['result_operation'],
+707:        result_builder: task.lane_owner,
+708-        executor_job_id: jobId,
+709:      } as Partial<BuildTask>);
+710-      return true;
+711-    }
+712-
+713-    await updateTaskStatus(task.id, 'failed', {
+714-      failure_reason: job.error_text || 'Executor job failed',
+715-      provider_error: job.result_summary,
+716-      executor_job_id: jobId,
+717:    } as Partial<BuildTask>);
+718-    return false;
+719-  }, [updateTaskStatus, waitForExecutorJob]);
+720-
+721-  const dispatchTaskLocal = useCallback(async (
+722:    task: BuildTask,
+723-  ): Promise<boolean> => {
+724-    // Find repo context from the active session
+725-    const repoConn = state.activeRepoConnection;
+726-    const sessionId = state.activeSession?.id;
+727-    const cloneUrl = repoConn ? `https://github.com/${repoConn.owner}/${repoConn.repo}.git` : null;
+--
+738-    }
+739-
+740-    if (!matchingExecutor) {
+741-      await updateTaskStatus(task.id, 'failed', {
+742-        failure_reason: `No online executor advertises adapter "${adapter}"`,
+743:      } as Partial<BuildTask>);
+744-      return false;
+745-    }
+746-
+747-    let job: ExecutorJob | null = null;
+748-    try {
+--
+752-        adapter,
+753-        prompt: task.prompt_slice,
+754-        repo_url: cloneUrl,
+755-        repo_name: repoConn?.repo ?? null,
+756-        branch: repoConn?.default_branch ?? null,
+757:        allowed_paths: [task.file_path],
+758-        timeout_seconds: 600,
+759-        build_task_id: task.id,
+760-      });
+761-      job = result.job;
+762-    } catch (err) {
+763-      await updateTaskStatus(task.id, 'failed', {
+764-        failure_reason: `Failed to create executor job: ${err instanceof Error ? err.message : 'unknown'}`,
+765:      } as Partial<BuildTask>);
+766-      return false;
+767-    }
+768-
+769-    if (!job) {
+770-      await updateTaskStatus(task.id, 'failed', {
+771-        failure_reason: 'Executor job was not created',
+772:      } as Partial<BuildTask>);
+773-      return false;
+774-    }
+775-
+776-    if (job.approval_required || job.status !== 'approved') {
+777-      await updateTaskStatus(task.id, 'failed', {
+778-        failure_reason: 'Build task unexpectedly requires manual approval',
+779:      } as Partial<BuildTask>);
+780-      return false;
+781-    }
+782-
+783-    await updateTaskStatus(task.id, 'dispatched', {
+784-      executor_job_id: job.id,
+785:    } as Partial<BuildTask>);
+786-
+787-    return await pollExecutorJob(job.id, task);
+788-  }, [state.activeRepoConnection, state.activeSession?.id, updateTaskStatus, pollExecutorJob, resolveLocalAdapter, findOnlineExecutor, refreshExecutors]);
+789-
+790-  // ── Session Build (Phase 4) ─────────────────────────────────────────────
+--
+1101-      agent_name: `Session Build (${adapterLabel})`,
+1102-      agent_id: 'build-session',
+1103-      content: `${manifest.length} files from session build`,
+1104-      scoped_paths: [] as string[],
+1105-      commit_message: commitMessage,
+1106:      conductor_approved: true,
+1107-      file_manifest: manifest.map((entry) => ({
+1108-        path: entry.path,
+1109-        content: entry.content,
+1110-        operation: entry.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+1111-        content_hash: null,
+--
+1116-      session_id: state.activeSession.id,
+1117-      execution_run_id: (runData as { id: string }).id,
+1118-      repo_connection_id: state.activeRepoConnection.id,
+1119-      patches,
+1120-      mode: 'synthesized',
+1121:      conductor_approved: true,
+1122-    });
+1123-
+1124-    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+1125-    await supabase
+1126-      .from('execution_runs')
+--
+1177-          // not valid JSON
+1178-        }
+1179-      }
+1180-
+1181-      // Strategy 4: Content is the raw file itself (path lost in parseResult).
+1182:      // Use task.file_path as path. Only accept if content looks non-empty and
+1183-      // doesn't look like a model refusal/explanation.
+1184-      if (text.length > 5 && !text.startsWith('I cannot') && !text.startsWith('I\'m unable')) {
+1185-        return { path: taskFilePath, content: text, operation: 'create' };
+1186-      }
+1187-    }
+1188-
+1189-    return null;
+1190-  };
+1191-
+1192:  const dispatchTask = useCallback(async (task: BuildTask): Promise<boolean> => {
+1193:    const agent = resolveAgent(task.lane_owner ?? '');
+1194-    if (!agent) {
+1195-      await updateTaskStatus(task.id, 'failed', {
+1196-        failure_reason: 'Builder agent not found in workspace',
+1197:      } as Partial<BuildTask>);
+1198-      return false;
+1199-    }
+1200-
+1201-    await updateTaskStatus(task.id, 'dispatched');
+1202-
+--
+1204-    const backend = resolveBackend(task);
+1205-
+1206-    // Guard: openrouter_a agents cannot execute cloud build tasks (reliably 504 or return stubs).
+1207-    // This is defense-in-depth; the upstream architect fix prevents them from being assigned.
+1208-    if (backend === 'edge' && agent.provider_group === 'openrouter_a') {
+1209:      if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+1210-        await updateTaskStatus(task.id, 'rerouted', {
+1211:          rerouted_from: task.lane_owner,
+1212:          lane_owner: task.fallback_owner,
+1213-          failure_reason: `Ineligible build agent: ${agent.display_name} (openrouter_a) cannot execute cloud build tasks — rerouted to fallback`,
+1214:        } as Partial<BuildTask>);
+1215-        return false;
+1216-      }
+1217-      await updateTaskStatus(task.id, 'failed', {
+1218-        failure_reason: `Ineligible build agent: "${agent.display_name}" (openrouter_a) cannot execute cloud build tasks. Re-run the architect to reassign lanes.`,
+1219:      } as Partial<BuildTask>);
+1220-      return false;
+1221-    }
+1222-
+1223-    if (backend === 'local') {
+1224-      try {
+--
+1230-          console.warn(`[Build v3] Local dispatch failed, falling back to edge: ${errMsg}`);
+1231-          await updateTaskStatus(task.id, 'queued', {
+1232-            retry_count: (task.retry_count ?? 0) + 1,
+1233-            execution_backend: 'edge',
+1234-            failure_reason: `Local execution failed, retrying via edge: ${errMsg.slice(0, 200)}`,
+1235:          } as Partial<BuildTask>);
+1236-          return false;
+1237-        }
+1238-        await updateTaskStatus(task.id, 'failed', {
+1239-          failure_reason: errMsg.slice(0, 500),
+1240:        } as Partial<BuildTask>);
+1241-        return false;
+1242-      }
+1243-    }
+1244-
+1245-    // ── Edge execution (DIFF-04: health-aware model selection) ───────────
+--
+1263-        session_id: state.activeSession?.id,
+1264-      });
+1265-
+1266-      observeSuccess(selectedModel);
+1267-
+1268:      const parsed = parseTaskResult(result, task.file_path);
+1269-      if (!parsed || !parsed.content) {
+1270-        // Retry with fallback agent if available
+1271-        if (task.fallback_owner && (task.retry_count ?? 0) < (task.max_retries ?? 2)) {
+1272-          await updateTaskStatus(task.id, 'rerouted', {
+1273-            retry_count: (task.retry_count ?? 0) + 1,
+1274:            rerouted_from: task.lane_owner,
+1275:            lane_owner: task.fallback_owner,
+1276-            failure_reason: 'Primary builder returned empty/unparseable result — raw: ' + JSON.stringify(result).slice(0, 300),
+1277:          } as Partial<BuildTask>);
+1278-          // Re-queue for next pass
+1279-          return false;
+1280-        }
+1281-
+1282-        await updateTaskStatus(task.id, 'failed', {
+1283-          failure_reason: 'Builder returned empty or unparseable result',
+1284-          provider_error: JSON.stringify(result).slice(0, 500),
+1285:        } as Partial<BuildTask>);
+1286-        return false;
+1287-      }
+1288-
+1289-      await updateTaskStatus(task.id, 'completed', {
+1290-        result_content: parsed.content,
+1291:        result_operation: parsed.operation as BuildTask['result_operation'],
+1292-        result_builder: agent.id,
+1293:      } as Partial<BuildTask>);
+1294-
+1295-      return true;
+1296-    } catch (err) {
+1297-      const errMsg = err instanceof Error ? err.message : String(err);
+1298-      const failureClass = classifyFailure(errMsg);
+--
+1302-
+1303-      if (isRetryable && (task.retry_count ?? 0) < (task.max_retries ?? 2)) {
+1304-        await updateTaskStatus(task.id, 'queued', {
+1305-          retry_count: (task.retry_count ?? 0) + 1,
+1306-          failure_reason: `Retry ${(task.retry_count ?? 0) + 1}: ${errMsg.slice(0, 200)}`,
+1307:        } as Partial<BuildTask>);
+1308-        return false;
+1309-      }
+1310-
+1311-      // Cost-gated reroute: check whether switching models crosses the threshold
+1312-      const chain = buildFallbackChain(agent.model);
+--
+1329-            content: `Reroute approval needed: ${agent.model} → ${nextModel}`,
+1330-            metadata: {
+1331-              kind: 'reroute_approval',
+1332-              reroute_approval: {
+1333-                build_task_id: task.id,
+1334:                file_path: task.file_path,
+1335-                from_model: agent.model,
+1336-                to_model: nextModel,
+1337-                cost_delta: costDelta,
+1338-                failure_reason: errMsg.slice(0, 200),
+1339-              },
+--
+1347-          const decision: RerouteDecision = await awaitRerouteDecision(task.id);
+1348-          if (decision === 'skip') {
+1349-            await updateTaskStatus(task.id, 'failed', {
+1350-              failure_reason: `User skipped reroute. Original error: ${errMsg.slice(0, 300)}`,
+1351-              provider_error: errMsg.slice(0, 500),
+1352:            } as Partial<BuildTask>);
+1353-            return false;
+1354-          }
+1355-          // 'approved' or 'emergency' — fall through to reroute
+1356-        }
+1357-
+1358-        // Reroute to next-best model via fallback_owner if available, else re-queue with updated model hint
+1359:        if (task.fallback_owner && task.lane_owner !== task.fallback_owner) {
+1360-          await updateTaskStatus(task.id, 'rerouted', {
+1361:            rerouted_from: task.lane_owner,
+1362:            lane_owner: task.fallback_owner,
+1363-            failure_reason: errMsg.slice(0, 200),
+1364:          } as Partial<BuildTask>);
+1365-          return false;
+1366-        }
+1367-      }
+1368-
+1369-      // No viable fallback
+1370-      await updateTaskStatus(task.id, 'failed', {
+1371-        failure_reason: errMsg.slice(0, 500),
+1372-        provider_error: errMsg.slice(0, 500),
+1373:      } as Partial<BuildTask>);
+1374-      return false;
+1375-    }
+1376-  }, [resolveAgent, updateTaskStatus, state.activeSession?.id, state.providerConnections, state.threads, resolveBackend, dispatchTaskLocal, providerHealthRef, observeSuccess, observeFailure, awaitRerouteDecision, dispatch]);
+1377-
+1378-  // ── Main execution loop ──────────────────────────────────────────────
+--
+1393-          .from('build_tasks')
+1394-          .select('*')
+1395-          .eq('session_id', state.activeSession.id)
+1396-          .order('created_at', { ascending: true });
+1397-        if (fallback && fallback.length > 0) {
+1398:          currentTasks = fallback as unknown as BuildTask[];
+1399-          tasksRef.current = currentTasks;
+1400-          setTasks(currentTasks);
+1401-        }
+1402-      }
+1403-
+--
+1444-        // maxConcurrentJobs cap is the real throttle — the web side just submits and polls.
+1445-        // Submitting everything immediately lets both executors drain the queue in parallel
+1446-        // without waiting for wave-by-wave roundtrips.
+1447-        //
+1448-        // Edge tasks: cap to one per lane owner to respect cloud provider rate limits.
+1449:        const batch: BuildTask[] = [];
+1450-        const seenEdgeOwners = new Set<string>();
+1451-
+1452-        for (const task of ready) {
+1453-          if (abortRef.current) break;
+1454-          const isLocal = resolveBackend(task) === 'local';
+1455-          if (isLocal) {
+1456-            batch.push(task);
+1457-          } else {
+1458:            const ownerId = task.lane_owner ?? '';
+1459-            if (!seenEdgeOwners.has(ownerId)) {
+1460-              batch.push(task);
+1461-              seenEdgeOwners.add(ownerId);
+1462-            }
+1463-          }
+--
+1493-  }, [abortAllWaiters]);
+1494-
+1495-  const skipTask = useCallback(async (taskId: string, reason: string) => {
+1496-    await updateTaskStatus(taskId, 'skipped', {
+1497-      skip_reason: reason,
+1498:    } as Partial<BuildTask>);
+1499-    setProgress(prev => ({
+1500-      ...prev,
+1501-      skipped: prev.skipped + 1,
+1502-      queued: Math.max(0, prev.queued - 1),
+1503-    }));
+--
+1506-  const retryTask = useCallback(async (taskId: string) => {
+1507-    await updateTaskStatus(taskId, 'queued', {
+1508-      retry_count: 0,
+1509-      failure_reason: null,
+1510-      provider_error: null,
+1511:    } as Partial<BuildTask>);
+1512-    setProgress(prev => ({
+1513-      ...prev,
+1514-      failed: Math.max(0, prev.failed - 1),
+1515-      queued: prev.queued + 1,
+1516-    }));
+--
+1533-      .update({ status: 'queued', failure_reason: null, provider_error: null } as never)
+1534-      .in('id', failedIds);
+1535-
+1536-    const updated = tasksRef.current.map(t =>
+1537-      t.status === 'failed'
+1538:        ? { ...t, status: 'queued' as BuildTaskStatus, failure_reason: null, provider_error: null }
+1539-        : t
+1540-    );
+1541-    tasksRef.current = updated;
+1542-    setTasks(updated);
+1543-    setProgress(prev => ({
+--
+1553-
+1554-  const collectManifest = useCallback(() => {
+1555-    const completed = tasksRef.current
+1556-      .filter(t => t.status === 'completed' && t.result_content)
+1557-      .map(t => ({
+1558:        path: t.file_path,
+1559-        content: t.result_content!,
+1560:        operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+1561-        content_hash: null as string | null,
+1562-        // lane_name drives the Conductor's deterministic collision tie-break.
+1563:        lane_name: t.lane_owner ?? '',
+1564-      }));
+1565-
+1566-    // P1-4: resolve duplicate-path entries to a single deterministic winner
+1567-    // instead of letting github-execute fall back to last-write-wins on collisions.
+1568-    const { resolved, collisions } = reconcileManifest(completed);
+--
+1612-      agent_name: 'Build v2 (task queue)',
+1613-      agent_id: 'build-v2',
+1614-      content: `${manifest.length} files from task-queued build`,
+1615-      scoped_paths: [] as string[],
+1616-      commit_message: `Build v2: ${manifest.length} files for ${state.activeSession.title ?? 'session'}`,
+1617:      conductor_approved: true,
+1618-      file_manifest: manifest.map((entry) => ({
+1619-        path: entry.path,
+1620-        content: entry.content,
+1621-        operation: entry.operation === 'delete' ? 'delete' as const : 'upsert' as const,
+1622-        content_hash: null,
+--
+1627-      session_id: state.activeSession.id,
+1628-      execution_run_id: (runData as { id: string }).id,
+1629-      repo_connection_id: state.activeRepoConnection.id,
+1630-      patches,
+1631-      mode: 'synthesized',
+1632:      conductor_approved: true,
+1633-    });
+1634-
+1635-    const status = (execResult.errors?.length ?? 0) > 0 ? 'partial' : 'completed';
+1636-    await supabase
+1637-      .from('execution_runs')
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 767ms:
+context-maestroclaw-reconcile.ts.txt-4-// view of which entries will win in case of path conflicts.
+context-maestroclaw-reconcile.ts.txt-5-
+context-maestroclaw-reconcile.ts.txt-6-export interface ManifestEntry {
+context-maestroclaw-reconcile.ts.txt-7-  path: string;
+context-maestroclaw-reconcile.ts.txt-8-  content?: string;
+context-maestroclaw-reconcile.ts.txt:9:  operation: 'create' | 'update' | 'delete';
+context-maestroclaw-reconcile.ts.txt:10:  lane_name: string;
+context-maestroclaw-reconcile.ts.txt:11:  conductor_approved?: boolean;
+context-maestroclaw-reconcile.ts.txt:12:  priority?: 'P0' | 'P1' | 'P2';
+context-maestroclaw-reconcile.ts.txt-13-}
+context-maestroclaw-reconcile.ts.txt-14-
+context-maestroclaw-reconcile.ts.txt-15-export interface CollisionReport {
+context-maestroclaw-reconcile.ts.txt-16-  path: string;
+context-maestroclaw-reconcile.ts.txt-17-  candidates: ManifestEntry[];
+--
+context-maestroclaw-reconcile.ts.txt-22-export interface ReconcileResult {
+context-maestroclaw-reconcile.ts.txt-23-  resolved: ManifestEntry[];
+context-maestroclaw-reconcile.ts.txt-24-  collisions: CollisionReport[];
+context-maestroclaw-reconcile.ts.txt-25-}
+context-maestroclaw-reconcile.ts.txt-26-
+context-maestroclaw-reconcile.ts.txt:27:// Lower number = higher priority (wins collision).
+context-maestroclaw-reconcile.ts.txt-28-function rankEntry(entry: ManifestEntry): number {
+context-maestroclaw-reconcile.ts.txt:29:  if (entry.conductor_approved) return 0;
+context-maestroclaw-reconcile.ts.txt:30:  const pRank = { P0: 1, P1: 2, P2: 3 }[entry.priority ?? 'P1'] ?? 2;
+context-maestroclaw-reconcile.ts.txt:31:  // Tie-break deterministically by lane_name lexicographic order.
+context-maestroclaw-reconcile.ts.txt:32:  return pRank * 1000 + entry.lane_name.codePointAt(0)!;
+context-maestroclaw-reconcile.ts.txt-33-}
+context-maestroclaw-reconcile.ts.txt-34-
+context-maestroclaw-reconcile.ts.txt-35-export function detectManifestConflicts(
+context-maestroclaw-reconcile.ts.txt-36-  entries: ManifestEntry[],
+context-maestroclaw-reconcile.ts.txt-37-): Map<string, ManifestEntry[]> {
+--
+c06.diff-68-+    const completed = tasksRef.current
+c06.diff-69-       .filter(t => t.status === 'completed' && t.result_content)
+c06.diff-70-       .map(t => ({
+c06.diff-71-         path: t.file_path,
+c06.diff-72-         content: t.result_content!,
+c06.diff:73:         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+c06.diff-74--        content_hash: null,
+c06.diff-75-+        content_hash: null as string | null,
+c06.diff:76:+        // lane_name drives the Conductor's deterministic collision tie-break.
+c06.diff:77:+        lane_name: t.lane_owner ?? '',
+c06.diff-78-       }));
+c06.diff-79-+
+c06.diff-80-+    // P1-4: resolve duplicate-path entries to a single deterministic winner
+c06.diff-81-+    // instead of letting github-execute fall back to last-write-wins on collisions.
+c06.diff-82-+    const { resolved, collisions } = reconcileManifest(completed);
+c06.diff-83-+    if (collisions.length > 0) {
+c06.diff-84-+      console.warn(
+c06.diff-85-+        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
+c06.diff:86:+        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
+c06.diff-87-+      );
+c06.diff-88-+    }
+c06.diff-89-+    return resolved.map(e => ({
+c06.diff-90-+      path: e.path,
+c06.diff-91-+      content: e.content,
+c06.diff:92:+      operation: e.operation,
+c06.diff-93-+      content_hash: e.content_hash,
+c06.diff-94-+    }));
+c06.diff-95-   }, []);
+c06.diff-96- 
+c06.diff-97-   const pushTaskBuildToGithub = useCallback(async () => {
+--
+c06.diff-141-+
+c06.diff-142-+// ── Deterministic manifest reconcile (mirror of reconcile.ts — fixes P1-4) ───
+c06.diff-143-+
+c06.diff-144-+export interface ManifestCandidate {
+c06.diff-145-+  path: string;
+c06.diff:146:+  lane_name?: string;
+c06.diff:147:+  priority?: TaskPriority;
+c06.diff:148:+  conductor_approved?: boolean;
+c06.diff-149-+}
+c06.diff-150-+
+c06.diff-151-+export interface ManifestCollision<T extends ManifestCandidate> {
+c06.diff-152-+  path: string;
+c06.diff-153-+  winner: T;
+--
+c06.diff-159-+  collisions: ManifestCollision<T>[];
+c06.diff-160-+}
+c06.diff-161-+
+c06.diff-162-+const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
+c06.diff-163-+
+c06.diff:164:+// Lower rank wins a path collision: conductor_approved first, then priority,
+c06.diff:165:+// then lane_name lexicographic as a deterministic, stable tie-break.
+c06.diff-166-+function rankCandidate(entry: ManifestCandidate): number {
+c06.diff:167:+  if (entry.conductor_approved) return 0;
+c06.diff:168:+  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
+c06.diff:169:+  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
+c06.diff-170-+}
+c06.diff-171-+
+c06.diff-172-+// Resolve duplicate-path entries to a single deterministic winner per path,
+c06.diff-173-+// preserving input order for non-colliding entries. Returns the resolved
+c06.diff-174-+// manifest plus a report of every collision (winner + overridden) for logging.
+--
+context-conductor.ts.txt-38-
+context-conductor.ts.txt-39-// ── Deterministic manifest reconcile (mirror of reconcile.ts — fixes P1-4) ───
+context-conductor.ts.txt-40-
+context-conductor.ts.txt-41-export interface ManifestCandidate {
+context-conductor.ts.txt-42-  path: string;
+context-conductor.ts.txt:43:  lane_name?: string;
+context-conductor.ts.txt:44:  priority?: TaskPriority;
+context-conductor.ts.txt:45:  conductor_approved?: boolean;
+context-conductor.ts.txt-46-}
+context-conductor.ts.txt-47-
+context-conductor.ts.txt-48-export interface ManifestCollision<T extends ManifestCandidate> {
+context-conductor.ts.txt-49-  path: string;
+context-conductor.ts.txt-50-  winner: T;
+--
+context-conductor.ts.txt-56-  collisions: ManifestCollision<T>[];
+context-conductor.ts.txt-57-}
+context-conductor.ts.txt-58-
+context-conductor.ts.txt-59-const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
+context-conductor.ts.txt-60-
+context-conductor.ts.txt:61:// Lower rank wins a path collision: conductor_approved first, then priority,
+context-conductor.ts.txt:62:// then lane_name lexicographic as a deterministic, stable tie-break.
+context-conductor.ts.txt-63-function rankCandidate(entry: ManifestCandidate): number {
+context-conductor.ts.txt:64:  if (entry.conductor_approved) return 0;
+context-conductor.ts.txt:65:  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
+context-conductor.ts.txt:66:  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
+context-conductor.ts.txt-67-}
+context-conductor.ts.txt-68-
+context-conductor.ts.txt-69-// Resolve duplicate-path entries to a single deterministic winner per path,
+context-conductor.ts.txt-70-// preserving input order for non-colliding entries. Returns the resolved
+context-conductor.ts.txt-71-// manifest plus a report of every collision (winner + overridden) for logging.
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 615ms:
+context-conductor.ts.txt-10-// dispatch and deterministic collision reconcile are real in the web layer
+context-conductor.ts.txt-11-// instead of inline/ad-hoc.
+context-conductor.ts.txt-12-
+context-conductor.ts.txt-13-export type TaskPriority = 'P0' | 'P1' | 'P2';
+context-conductor.ts.txt-14-
+context-conductor.ts.txt:15:// ── Dependency-ordered ready selection (mirror of plan.getReadyEntries) ──────
+context-conductor.ts.txt-16-
+context-conductor.ts.txt-17-export interface ReadyTask {
+context-conductor.ts.txt-18-  task_id: string;
+context-conductor.ts.txt-19-  status: string;
+context-conductor.ts.txt:20:  dependencies?: string[] | null;
+context-conductor.ts.txt-21-}
+context-conductor.ts.txt-22-
+context-conductor.ts.txt-23-// A task is ready to dispatch when it is queued/rerouted AND every dependency
+context-conductor.ts.txt:24:// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
+context-conductor.ts.txt-25-// also unblock so a dead dependency can't stall the frontier forever.
+context-conductor.ts.txt:26:export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
+context-conductor.ts.txt-27-  const byId = new Map(tasks.map((t) => [t.task_id, t]));
+context-conductor.ts.txt-28-  return tasks.filter((t) => {
+context-conductor.ts.txt-29-    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+context-conductor.ts.txt:30:    const deps = t.dependencies ?? [];
+context-conductor.ts.txt-31-    if (deps.length === 0) return true;
+context-conductor.ts.txt-32-    return deps.every((depId) => {
+context-conductor.ts.txt-33-      const dep = byId.get(depId);
+context-conductor.ts.txt:34:      return !!dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+context-conductor.ts.txt-35-    });
+context-conductor.ts.txt-36-  });
+context-conductor.ts.txt-37-}
+context-conductor.ts.txt-38-
+context-conductor.ts.txt-39-// ── Deterministic manifest reconcile (mirror of reconcile.ts — fixes P1-4) ───
+--
+context-maestroclaw-plan.ts.txt-1-// Pure types and functions for the Conductor's task dependency graph.
+context-maestroclaw-plan.ts.txt-2-// Immutable updates — every mutation returns a new plan object.
+context-maestroclaw-plan.ts.txt-3-
+context-maestroclaw-plan.ts.txt-4-export type TaskPriority = 'P0' | 'P1' | 'P2';
+context-maestroclaw-plan.ts.txt:5:export type PlanEntryStatus = 'pending' | 'ready' | 'running' | 'done' | 'failed';
+context-maestroclaw-plan.ts.txt-6-
+context-maestroclaw-plan.ts.txt-7-export interface PlanEntry {
+context-maestroclaw-plan.ts.txt-8-  task_id: string;
+context-maestroclaw-plan.ts.txt-9-  file_path: string;
+context-maestroclaw-plan.ts.txt-10-  priority: TaskPriority;
+--
+context-maestroclaw-plan.ts.txt-46-    entries,
+context-maestroclaw-plan.ts.txt-47-    created_at: new Date().toISOString(),
+context-maestroclaw-plan.ts.txt-48-  };
+context-maestroclaw-plan.ts.txt-49-}
+context-maestroclaw-plan.ts.txt-50-
+context-maestroclaw-plan.ts.txt:51:export function getReadyEntries(plan: ConductorPlan): PlanEntry[] {
+context-maestroclaw-plan.ts.txt:52:  const doneIds = new Set(
+context-maestroclaw-plan.ts.txt-53-    plan.entries.filter(e => e.status === 'done').map(e => e.task_id),
+context-maestroclaw-plan.ts.txt-54-  );
+context-maestroclaw-plan.ts.txt-55-  return plan.entries.filter(e => {
+context-maestroclaw-plan.ts.txt-56-    if (e.status !== 'pending' && e.status !== 'ready') return false;
+context-maestroclaw-plan.ts.txt:57:    return e.deps.every(d => doneIds.has(d));
+context-maestroclaw-plan.ts.txt-58-  });
+context-maestroclaw-plan.ts.txt-59-}
+context-maestroclaw-plan.ts.txt-60-
+context-maestroclaw-plan.ts.txt-61-function setStatus(plan: ConductorPlan, taskId: string, status: PlanEntryStatus): ConductorPlan {
+context-maestroclaw-plan.ts.txt-62-  return {
+--
+context-maestroclaw-plan.ts.txt-72-export function markEntryDone(plan: ConductorPlan, taskId: string): ConductorPlan {
+context-maestroclaw-plan.ts.txt-73-  return setStatus(plan, taskId, 'done');
+context-maestroclaw-plan.ts.txt-74-}
+context-maestroclaw-plan.ts.txt-75-
+context-maestroclaw-plan.ts.txt-76-export function markEntryFailed(plan: ConductorPlan, taskId: string): ConductorPlan {
+context-maestroclaw-plan.ts.txt:77:  return setStatus(plan, taskId, 'failed');
+context-maestroclaw-plan.ts.txt-78-}
+--
+c06.diff-4-+++ b/MAESTRO_STATE.md
+c06.diff-5-@@ -208,6 +208,7 @@ These areas change often and should be re-verified after any significant work se
+c06.diff-6- 2. **OpenClaw cloned** to `.openclaw/` (gitignored) for assessment. Verdict: **borrow the sandbox/net-policy/fs-policy patterns, do NOT adopt the runtime** — OpenClaw's `VISION.md` explicitly rejects "agent-hierarchy frameworks" and "heavy orchestration layers" (i.e. Maestro's core thesis). Same call as Ruflo. Their sandbox stack (`net-policy`, `sandbox-exec-server`, Docker sandbox, agent-specific mounted-paths) maps directly onto Opus audit P0-1/P0-2 (soft local trust boundary).
+c06.diff-7- 3. **Graphify integration** (claude.ai sprint): installed `graphifyy[mcp]` v0.8.49; resolved two blockers — (a) auto-mode classifier blocks agent-initiated package installs (user ran via `!`); (b) WDAC blocks uv standalone Python `_ssl` DLL → reinstalled against system Python 3.12. Built scoped code-only graph (212 files, 1235 nodes, 2668 edges, 68 communities, zero token cost), generated GRAPH_REPORT.md + graph.html + callflow, labeled 68 communities via `claude-cli`/haiku (user session). Installed git auto-rebuild hooks. Committed `b9dfe7d` + `3a9bc6c`.
+c06.diff-8- 4. **Graph findings**: god node `useMaestro()` (99 edges — confirms Opus's god-context finding); 2 import cycles in maestroclaw adapters; `repo_memory` is loosely coupled (isolated community); **Conductor module (C11) is a structural island, not wired into runIterationLoop (C3)** — corroborates the C-06 gap; **no reputation/scoring community** — agent-grading (Rate) is net-new.
+c06.diff:9:+5. **C-06 Conductor wiring (web layer)** ✅ — finding: the conductor module is build-PLAN-shaped and can't be imported across the Vite/node/Deno boundary (its only consumer was a dead per-loop `createConductorRun([])`); the dispatch loop already does dep-ordered, lane-parallel dispatch (the "2-at-a-time cap" is effectively gone — local uncapped, edge per-lane-throttled *deliberately* for rate limits). So C-06 = new `src/lib/conductor.ts` (faithful frontend mirror of `plan.ts`+`reconcile.ts`) wired into `useBuildExecution.ts`: dep-ready selection (`selectReadyTasks`) replaces the inline filter + **deterministic manifest reconcile (`reconcileManifest`) before `github-execute` — the real P1-4 fix** (was last-write-wins on duplicate paths). typecheck/lint/build clean; NOT runtime-tested (no live executor). On branch `c-06-conductor-web-dispatch` (PR) pending review.
+c06.diff-10- 
+c06.diff-11- **Files touched:** `.gitignore`, `.graphifyignore` (new), `graphify-out/*` (new), `MAESTRO_STATE.md`. (`.openclaw/` gitignored, not committed.)
+c06.diff-12- 
+c06.diff-13-@@ -217,7 +218,7 @@ These areas change often and should be re-verified after any significant work se
+c06.diff-14- - Vision captured (collective-intelligence thesis, emergent personas Malakh/Axiom/Ari, Claude+GPT analysis-paralysis loop, grading-is-nearly-free, skill flywheel, local-LLM-as-loyal-spine north star). Sequence agreed: wire Conductor (C-06) → Rate → Skills flywheel → local concierge spine.
+--
+c06.diff-25-+++ b/src/hooks/useBuildExecution.ts
+c06.diff-26-@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
+c06.diff-27- import { invokeEdgeFunction } from '../lib/functions';
+c06.diff-28- import { supabase } from '../lib/supabase';
+c06.diff-29- import { sumBuildCost } from '../lib/cost';
+c06.diff:30:+import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
+c06.diff-31- import {
+c06.diff-32-   applyArtifactPayloadToBuffer,
+c06.diff-33-   cancelBuildSessionJob,
+c06.diff-34-@@ -1426,25 +1427,9 @@ export function useBuildExecution() {
+c06.diff-35-       // Allow up to 3 consecutive no-progress waves before aborting.
+c06.diff-36-       let noProgressWaves = 0;
+c06.diff-37-       while (noProgressWaves < 3) {
+c06.diff-38--        // Find tasks ready to dispatch
+c06.diff-39--        const ready = currentTasks.filter(t => {
+c06.diff-40--          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+c06.diff:41:-          // Check dependencies
+c06.diff:42:-          if (t.dependencies && t.dependencies.length > 0) {
+c06.diff:43:-            const depsComplete = t.dependencies.every(depId =>
+c06.diff:44:-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
+c06.diff-45--            );
+c06.diff-46--            if (!depsComplete) {
+c06.diff:47:-              // Check if deps are failed/skipped — unblock if so
+c06.diff:48:-              const depsResolved = t.dependencies.every(depId => {
+c06.diff-49--                const dep = currentTasks.find(d => d.task_id === depId);
+c06.diff:50:-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+c06.diff-51--              });
+c06.diff-52--              if (!depsResolved) return false;
+c06.diff-53--            }
+c06.diff-54--          }
+c06.diff-55--          return true;
+c06.diff-56--        });
+c06.diff-57-+        // Find tasks ready to dispatch — dependency-ordered selection now lives
+c06.diff-58-+        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
+c06.diff:59:+        const ready = selectReadyTasks(currentTasks);
+c06.diff-60- 
+c06.diff-61-         if (ready.length === 0) break;
+c06.diff-62-         if (abortRef.current) break;
+c06.diff-63-@@ -1567,14 +1552,32 @@ export function useBuildExecution() {
+c06.diff:64:   // ── Collect completed tasks into file_manifest format ────────────────
+c06.diff-65- 
+c06.diff-66-   const collectManifest = useCallback(() => {
+c06.diff-67--    return tasksRef.current
+c06.diff:68:+    const completed = tasksRef.current
+c06.diff:69:       .filter(t => t.status === 'completed' && t.result_content)
+c06.diff-70-       .map(t => ({
+c06.diff-71-         path: t.file_path,
+c06.diff-72-         content: t.result_content!,
+c06.diff-73-         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+c06.diff-74--        content_hash: null,
+--
+c06.diff-77-+        lane_name: t.lane_owner ?? '',
+c06.diff-78-       }));
+c06.diff-79-+
+c06.diff-80-+    // P1-4: resolve duplicate-path entries to a single deterministic winner
+c06.diff-81-+    // instead of letting github-execute fall back to last-write-wins on collisions.
+c06.diff:82:+    const { resolved, collisions } = reconcileManifest(completed);
+c06.diff-83-+    if (collisions.length > 0) {
+c06.diff-84-+      console.warn(
+c06.diff-85-+        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
+c06.diff-86-+        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
+c06.diff-87-+      );
+--
+c06.diff-113-+// dispatch and deterministic collision reconcile are real in the web layer
+c06.diff-114-+// instead of inline/ad-hoc.
+c06.diff-115-+
+c06.diff-116-+export type TaskPriority = 'P0' | 'P1' | 'P2';
+c06.diff-117-+
+c06.diff:118:+// ── Dependency-ordered ready selection (mirror of plan.getReadyEntries) ──────
+c06.diff-119-+
+c06.diff-120-+export interface ReadyTask {
+c06.diff-121-+  task_id: string;
+c06.diff-122-+  status: string;
+c06.diff:123:+  dependencies?: string[] | null;
+c06.diff-124-+}
+c06.diff-125-+
+c06.diff-126-+// A task is ready to dispatch when it is queued/rerouted AND every dependency
+c06.diff:127:+// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
+c06.diff-128-+// also unblock so a dead dependency can't stall the frontier forever.
+c06.diff:129:+export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
+c06.diff-130-+  const byId = new Map(tasks.map((t) => [t.task_id, t]));
+c06.diff-131-+  return tasks.filter((t) => {
+c06.diff-132-+    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+c06.diff:133:+    const deps = t.dependencies ?? [];
+c06.diff-134-+    if (deps.length === 0) return true;
+c06.diff-135-+    return deps.every((depId) => {
+c06.diff-136-+      const dep = byId.get(depId);
+c06.diff:137:+      return !!dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+c06.diff-138-+    });
+c06.diff-139-+  });
+c06.diff-140-+}
+c06.diff-141-+
+c06.diff-142-+// ── Deterministic manifest reconcile (mirror of reconcile.ts — fixes P1-4) ───
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+The task model evidence points to a concrete P1-4 problem: the new caller does not forward priority or approval information into the ranking function, so the advertised collision policy collapses to lane ordering. I’m checking the loop exit path to avoid overstating any dependency behavior.
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command 'rg -n -C 12 "noProgressWaves|ready.length === 0|fingerprintBefore|Promise.all|return progress" context-useBuildExecution.ts.txt' in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 8 \"tasks\\?: Array|priority: number|dependencies: string\" context-useBuildExecution.ts.txt" in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+exec
+"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -Command "rg -n -C 8 \"created_at|order\\('created_at'|tasksRef.current = loaded|tasksRef.current = currentTasks\" context-useBuildExecution.ts.txt" in C:\New folder\MaestroOrchestra\project\Maestro\grading-lab\tasks\task-001-c06-review
+ succeeded in 690ms:
+109-}
+110-
+111-interface DecomposeResult {
+112-  phase?: string;
+113-  total_tasks?: number;
+114-  total_files?: number;
+115-  builder_summary?: string;
+116-  used_llm_slices?: boolean;
+117:  tasks?: Array<{
+118-    task_id: string;
+119-    file_path: string;
+120-    lane_owner: string;
+121-    lane_owner_name: string;
+122-    fallback_owner: string | null;
+123:    dependencies: string[];
+124:    priority: number;
+125-    status: string;
+126-  }>;
+127-  locked_builder_ids?: string[];
+128-  error?: string;
+129-  message?: string;
+130-}
+131-
+132-const MAX_SESSION_CONTEXT_FILES = 3;
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 695ms:
+848-          action: 'get_file',
+849-          repo_connection_id: repoConnectionId,
+850-          path: normalizedPath,
+851-        }).then((file) => {
+852-          const content = typeof file.content === 'string' ? file.content : '';
+853-          if (!content || content.length > MAX_SESSION_CONTEXT_CHARS) return null;
+854-          return { path: normalizedPath, content };
+855-        }).catch(() => null);
+856-
+857-        repoFileCache.set(normalizedPath, request);
+858-        return await request;
+859-      };
+860:      const results = await Promise.all(normalizedSpecs.map(async (spec) => {
+861-        const expectedFiles = listLiteralScopeFiles(spec.scopePaths);
+862-        const contextCandidates = normalizedSpecs
+863-          .filter((candidate) => candidate.key !== spec.key)
+864-          .flatMap((candidate) => listLiteralScopeFiles(candidate.scopePaths))
+865-          .filter((path, index, all) => all.indexOf(path) === index)
+866-          .filter((path) => !expectedFiles.includes(path))
+867-          .slice(0, MAX_SESSION_CONTEXT_FILES);
+868:        const contextFiles = (await Promise.all(contextCandidates.map((path) => fetchRepoContextFile(path))))
+869-          .filter((entry): entry is { path: string; content: string } => entry !== null);
+870-        const prompt = [
+871-          basePrompt,
+872-          '',
+873-          `ASSIGNED BUILDER: ${spec.builderName}`,
+874-          spec.instruction?.trim() ? `BUILDER INSTRUCTION: ${spec.instruction.trim()}` : '',
+875-          'ASSIGNED SCOPE PATHS:',
+876-          ...spec.scopePaths.map(path => `- ${path}`),
+877-          '',
+878-          'Build the full implementation for your assigned scope. Respect ARCHITECT.md and do not modify files outside your assigned paths.',
+879-        ].filter(Boolean).join('\n');
+880-
+--
+1006-      adapter,
+1007-      scopePaths: [scope],
+1008-    }]);
+1009-  }, [executeSessionPlan]);
+1010-
+1011-  const abortSessionBuild = useCallback(async () => {
+1012-    const jobIds = Array.from(new Set(
+1013-      sessionRunsRef.current
+1014-        .map((run) => run.jobId)
+1015-        .filter((jobId): jobId is string => typeof jobId === 'string' && jobId.length > 0),
+1016-    ));
+1017-
+1018:    await Promise.all(jobIds.map((jobId) => cancelBuildSessionJob(jobId)));
+1019-
+1020-    const nextRuns: SessionRunProgress[] = sessionRunsRef.current.map((run) => (
+1021-      run.status === 'running' || run.status === 'queued'
+1022-        ? { ...run, status: 'failed' as const, errorText: 'Aborted by user' }
+1023-        : run
+1024-    ));
+1025-    setSessionRuns(nextRuns);
+1026-    setSessionProgress({
+1027-      ...deriveSessionProgress(nextRuns),
+1028-      status: 'failed',
+1029-      errorText: 'Aborted by user',
+1030-    });
+--
+1416-          failed: currentTasks.filter(t => t.status === 'failed').length,
+1417-          skipped: currentTasks.filter(t => t.status === 'skipped').length,
+1418-          dispatched: currentTasks.filter(t => t.status === 'dispatched').length,
+1419-          queued: currentTasks.filter(t => t.status === 'queued' || t.status === 'rerouted').length,
+1420-        };
+1421-        setProgress(p);
+1422-        return p;
+1423-      };
+1424-
+1425-      // Guard against reroute cycles: if the number of resolved tasks (completed +
+1426-      // failed + skipped) doesn't grow after a full wave, we're in a deadlock/cycle.
+1427-      // Allow up to 3 consecutive no-progress waves before aborting.
+1428:      let noProgressWaves = 0;
+1429:      while (noProgressWaves < 3) {
+1430-        // Find tasks ready to dispatch — dependency-ordered selection now lives
+1431-        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
+1432-        const ready = selectReadyTasks(currentTasks);
+1433-
+1434:        if (ready.length === 0) break;
+1435-        if (abortRef.current) break;
+1436-
+1437-        // Fingerprint the non-terminal frontier before dispatch.
+1438-        // We compare after the wave to detect genuine stalls vs. reroutes-in-progress.
+1439:        const fingerprintBefore = fingerprintNonterminalTasks(currentTasks);
+1440-
+1441-        // Build one batch of tasks to dispatch concurrently.
+1442-        //
+1443-        // Local/executor tasks: dispatch ALL ready tasks at once. The executor's
+1444-        // maxConcurrentJobs cap is the real throttle — the web side just submits and polls.
+1445-        // Submitting everything immediately lets both executors drain the queue in parallel
+1446-        // without waiting for wave-by-wave roundtrips.
+1447-        //
+1448-        // Edge tasks: cap to one per lane owner to respect cloud provider rate limits.
+1449-        const batch: BuildTask[] = [];
+1450-        const seenEdgeOwners = new Set<string>();
+1451-
+--
+1454-          const isLocal = resolveBackend(task) === 'local';
+1455-          if (isLocal) {
+1456-            batch.push(task);
+1457-          } else {
+1458-            const ownerId = task.lane_owner ?? '';
+1459-            if (!seenEdgeOwners.has(ownerId)) {
+1460-              batch.push(task);
+1461-              seenEdgeOwners.add(ownerId);
+1462-            }
+1463-          }
+1464-        }
+1465-
+1466:        await Promise.all(batch.map(task => dispatchTask(task)));
+1467-        recountProgress();
+1468-
+1469-        // Progress check: compare the nonterminal-task frontier fingerprint.
+1470-        // A reroute to a new lane, a retry increment, or any task completing all
+1471-        // change the fingerprint — only a frozen frontier (same tasks, same statuses,
+1472-        // same lanes, same retry counts) signals a true deadlock.
+1473-        const fingerprintAfter = fingerprintNonterminalTasks(currentTasks);
+1474:        if (fingerprintAfter === fingerprintBefore) {
+1475:          noProgressWaves++;
+1476-        } else {
+1477:          noProgressWaves = 0;
+1478-        }
+1479-      }
+1480-
+1481-      recountProgress();
+1482-    } finally {
+1483-      isRunningRef.current = false;
+1484-      setIsRunning(false);
+1485-    }
+1486-  }, [dispatchTask, resolveBackend, state.activeSession?.id]);
+1487-
+1488-  // ── Manual actions ───────────────────────────────────────────────────
+1489-
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+ succeeded in 680ms:
+319-    return data.session;
+320-  }, [session]);
+321-
+322-  const loadTasks = useCallback(async (sessionId: string): Promise<BuildTask[]> => {
+323-    const { data: taskRows } = await supabase
+324-      .from('build_tasks')
+325-      .select('*')
+326-      .eq('session_id', sessionId)
+327:      .order('created_at', { ascending: true });
+328-
+329-    const loaded = (taskRows ?? []) as unknown as BuildTask[];
+330:    tasksRef.current = loaded;
+331-    setTasks(loaded);
+332-    setProgress({
+333-      total: loaded.length,
+334-      completed: loaded.filter(task => task.status === 'completed').length,
+335-      failed: loaded.filter(task => task.status === 'failed').length,
+336-      skipped: loaded.filter(task => task.status === 'skipped').length,
+337-      dispatched: loaded.filter(task => task.status === 'dispatched').length,
+338-      queued: loaded.filter(task => task.status === 'queued' || task.status === 'rerouted').length,
+--
+647-  }, [resolveAgent]);
+648-
+649-  const refreshExecutors = useCallback(async (): Promise<Executor[]> => {
+650-    const authSession = await ensureSession();
+651-    const { data } = await supabase
+652-      .from('executors')
+653-      .select('*')
+654-      .eq('owner_user_id', authSession.user.id)
+655:      .order('created_at', { ascending: false });
+656-    const executors = (data ?? []) as Executor[];
+657-    dispatch({ type: 'SET_EXECUTORS', payload: executors });
+658-    return executors;
+659-  }, [ensureSession, dispatch]);
+660-
+661-  const findOnlineExecutor = useCallback((adapter?: string): Executor | null => {
+662-    return selectOnlineExecutor(state.executors, adapter);
+663-  }, [state.executors]);
+--
+1388-      let currentTasks = [...tasksRef.current];
+1389-
+1390-      // Safety: if ref is empty (stale closure edge case), re-fetch from DB
+1391-      if (currentTasks.length === 0 && state.activeSession?.id) {
+1392-        const { data: fallback } = await supabase
+1393-          .from('build_tasks')
+1394-          .select('*')
+1395-          .eq('session_id', state.activeSession.id)
+1396:          .order('created_at', { ascending: true });
+1397-        if (fallback && fallback.length > 0) {
+1398-          currentTasks = fallback as unknown as BuildTask[];
+1399:          tasksRef.current = currentTasks;
+1400-          setTasks(currentTasks);
+1401-        }
+1402-      }
+1403-
+1404-      if (currentTasks.length === 0) {
+1405-        console.warn('[Build v2] execute() called with 0 tasks — nothing to dispatch');
+1406-        return;
+1407-      }
+The specified drive root "C:\Users\Owner\AppData\Local\Temp\" either does not exist, or it is not a folder.
+InvalidOperation: Cannot set property. Property setting is supported only on core types in this language mode.
+
+codex
+## Findings
+
+1. **[major] `context-useBuildExecution.ts.txt:1557`**  
+   `collectManifest` does not pass `priority` or `conductor_approved` into `reconcileManifest`; it only passes `path`, `content`, `operation`, `content_hash`, and `lane_name`. The reconcile ranking in `context-conductor.ts.txt:64-66` therefore always defaults every task to non-approved `P1`, so the advertised priority/approval collision policy is never applied in the web dispatch path. Real consequence: a higher-priority or conductor-approved candidate can lose a same-path collision to a lower-priority lane solely because of lane ordering.
+
+2. **[major] `context-conductor.ts.txt:66`**  
+   The claimed lexicographic lane tie-break is not lexicographic. It ranks only `lane_name?.codePointAt(0)`, so lanes such as `claude` and `codex`, or UUID-like agent ids sharing the same first character, compare equal. JavaScript’s stable sort then preserves input order, which comes from task row order (`created_at` ordering in `context-useBuildExecution.ts.txt:327` / `1396`). Real consequence: same-priority path collisions can still be resolved by incidental task creation order rather than by the stated deterministic lane-name policy.
+
+3. **[major] `context-conductor.ts.txt:34`**  
+   `selectReadyTasks` treats `failed` and `skipped` dependencies as satisfied. The maestroclaw plan semantics only consider dependencies satisfied when their status is `done` (`context-maestroclaw-plan.ts.txt:51-57`). Real consequence: the web dispatcher can run downstream tasks after prerequisite work failed or was skipped, producing output against missing prerequisite changes instead of holding/failing/skipping the dependent frontier.
+
+## Mirror-Faithfulness Assessment
+
+`src/lib/conductor.ts` is not a faithful mirror of `packages/maestroclaw/src/conductor/`.
+
+Divergences from `plan.ts`:
+
+- `getReadyEntries` uses plan statuses `pending` / `ready` / `running` / `done` / `failed`; `selectReadyTasks` uses build task statuses `queued` / `rerouted` / `completed` / `failed` / `skipped`.
+- `getReadyEntries` only unblocks on `done`; `selectReadyTasks` unblocks on `completed`, `failed`, or `skipped`.
+- `buildPlan` filters dependencies to valid task ids before planning; `selectReadyTasks` treats a missing dependency id as not ready forever.
+- The frontend file does not mirror `buildPlan`, `ConductorPlan`, `PlanEntry`, `markEntryRunning`, `markEntryDone`, or `markEntryFailed`.
+- `ReadyTask` drops conductor fields such as `file_path`, `priority`, `deps`, and `lane_name`.
+
+Divergences from `reconcile.ts`:
+
+- The source exports `detectManifestConflicts`; the frontend mirror does not.
+- The source collision report includes `candidates`; the frontend report only includes `path`, `winner`, and `overridden`.
+- The source `ManifestEntry` requires `lane_name`; the frontend makes it optional and silently ranks missing lane names as `0`.
+- The source operation type is `create | update | delete`; the frontend caller uses `create | upsert | delete`.
+- The frontend reconcile is generic and preserves extra fields like `content_hash`, which is useful, but it is not the same public contract as maestroclaw.
+- Both implementations use only the first code point of `lane_name`, so the frontend is faithful to the current source implementation there, but both diverge from their own “lexicographic” comment.
+
+## Does It Fix P1-4?
+
+Partially, but not correctly enough.
+
+The new `collectManifest` does collapse duplicate paths before calling `github-execute`, so this specific client path no longer sends multiple manifest entries for the same path and therefore avoids raw downstream last-write-wins behavior.
+
+However, the caller does not pass the data required for the intended policy. Since `priority` and `conductor_approved` are absent, all candidates rank as default `P1` and non-approved. Resolution then depends only on `lane_name`, and even that tie-break only compares the first character. So P1-4 is mitigated from “last write wins” to “lane/order wins,” but it is not deterministic and correct under the stated conductor policy.
+
+Also, the commit itself notes that authoritative server-side enforcement in `github-execute` remains open, so other callers can still submit colliding manifests.
+
+## Verdict
+
+**rework required**
+
+The commit moves collision handling in the right direction, but the core P1-4 fix is incomplete because the web caller discards the ranking metadata and the tie-break is not actually lexicographic. The new conductor mirror also materially diverges from maestroclaw dependency semantics, especially by dispatching dependents after failed/skipped prerequisites.
+2026-07-01T21:50:57.558347Z ERROR codex_core::session: failed to record rollout items: thread 019f1fa7-97ee-7981-aa80-bf897f768b7f not found
+tokens used
+61,778
