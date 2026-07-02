@@ -66,5 +66,5 @@ grading-lab/
 
 | Task | Date | Workers | State |
 |------|------|---------|-------|
-| task-001-c06-review | 2026-07-01 | codex (gpt-5.5), copilot (auto→claude-fable-5), copilot (gpt-5.4), grok, kimi (K2.7) | complete — 5/5 `rework required`; human anchor Spearman 0.90 vs peer consensus; enterprise-Fable 6th audit pending (`docs/ENTERPRISE_FABLE_AUDIT.md`) |
-| task-002-direction-memo | 2026-07-01 | same council (subjective task — grader-stability test without right/wrong answers) | dispatching |
+| task-001-c06-review | 2026-07-01 | codex (gpt-5.5), copilot (auto→claude-fable-5), copilot (gpt-5.4), grok, kimi (K2.7) + enterprise-fable | complete — **7/7** `rework required`; human anchor Spearman 0.90; enterprise audit added 2 net-new findings and refuted "Enterprise=more aggressive" (it's a Copilot-harness replication) |
+| task-002-direction-memo | 2026-07-01 | same council (subjective task — grader-stability test without right/wrong answers) | peer grading done — 3/5 identical rankings; grok's trust-path memo won though 3/5 workers bet Rate; gpt-5.4 contrarian confirmed; human anchor pending |

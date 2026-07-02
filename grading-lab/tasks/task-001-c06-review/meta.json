@@ -43,5 +43,16 @@
     "result": "human ranking matches peer consensus except one adjacent swap (codex/grok); spearman 0.90, kendall tau 0.80",
     "verbosity_confound_update": "human anchor independently ranked the longest review 1st and confirmed its unique findings are real — for this task, length tracked genuine thoroughness, not grader bias"
   },
+  "enterprise_fable_audit": {
+    "date": "2026-07-01",
+    "file": "outputs/enterprise-fable.md (commit 5941758)",
+    "verdict": "rework required — 7/7 unanimous",
+    "net_new_findings": [
+      "F3: second client push path (collectSessionManifest -> pushSessionBuildToGithub via mergeSessionManifest) is unreconciled — P1-4 survives on the session-build path; arguably the most consequential single addition to the corpus",
+      "F6: duplicate task_id resolution silently changed first-wins (find) -> last-wins (Map) in selectReadyTasks",
+      "F5 extension: created_at ordering has no secondary sort key — batch-inserted equal timestamps make the tie-break winner reload-dependent"
+    ],
+    "harness_hypothesis_result": "does NOT support 'Enterprise Fable is more aggressive' — Enterprise reproduced the individual-plan copilot-fable review near-verbatim (same weights, same harness family = replication, not independent corroboration). The real harness effect in the corpus is Copilot-vs-Claude-Code, not Enterprise-vs-Pro. Self-flagged by the auditor."
+  },
   "prompt_steering_note": "TASK.md deliverable item 3 ('consider what data the caller in collectManifest actually passes') was written after the conductor had already found the starved-ranking bug — it leaked a prior and partially steered workers toward finding 1. The codePointAt tie-break bug, the mirror divergences, and all unique copilot findings were NOT hinted and were found independently. Lesson for task-002: author the task spec before the conductor forms its own review, or strip analytical hints from deliverable questions."
 }

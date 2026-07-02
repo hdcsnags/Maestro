@@ -1,0 +1,77 @@
+{
+  "grader": "copilot",
+  "letter_to_model": {
+    "A": "copilot",
+    "B": "copilot-gpt54",
+    "C": "codex",
+    "D": "kimi",
+    "E": "grok"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "grounding": 9,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 9,
+      "overall": 9,
+      "justification": "Exceptionally grounded: correctly identifies that the philosophy's 'grading loop is the engine / stable in repo' claim is contradicted by the graph report's absence of any scoring community, cites the PRO-01 false-deploy incident as a reason to distrust unverified claims, and quotes task-001's actual calibration stats (4/5 stable rankings, Spearman 0.90, wrapper lesson). Its bet is committed and tightly scoped ('grades in, grades stored, one routing surface reading them'), with a single well-justified security carve-out (approved-shell, because dogfooding aggravates exactly that surface). The sharpest insight of the field: grading data is the one deferrable that is irreplaceable \u2014 every ungraded session is training data lost forever \u2014 which uniquely justifies 'why now.' Steps name real entities (grades schema keyed on resolved model+harness, _shared/grading.ts port of PROTOCOL.md, scoreBuildCandidate() as first consumer, backfilling task-001) and cleverly folds the deferred local E2E smoke test in as the first graded build. Slightly less code-path-specific than E in its execution plan, and it underweights E's objection that the build path feeding the grades is itself unverified.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "B",
+      "grounding": 7,
+      "decision_quality": 8,
+      "insight": 7,
+      "actionability": 6,
+      "overall": 7,
+      "justification": "A sound and honest read \u2014 correctly refuses the 'empirically adaptive council' claim using the graph report, and its kill-criteria discipline ('if the learning loop does not beat the manual roster... stop romanticizing it and pivot') is the most falsifiability-minded statement in the field, along with the smart shadow-rank-before-live-routing sequencing. But it is the thinnest memo: factual engagement stays at the level of the documents' own summaries with no file, function, table, or commit-level specifics, and it could nearly have been written from an executive summary. The three steps are directional rather than executable \u2014 'rework the known defects,' 'declare one canonical lane,' and 'run the router in shadow mode' (a router that does not yet exist and whose construction is never scoped). Good judgment, weak operational payload.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "C",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 8,
+      "actionability": 8,
+      "overall": 8,
+      "justification": "A solid Rate-first memo that accurately separates 'code exists / smoke-tested once' from 'works,' and correctly ties the bet to the graph report's missing scoring community. Its deferrals are the most honestly costed of the Rate camp (RAG deferred because 'the more important memory right now is outcome memory' \u2014 a genuinely good line), and it contributes two non-obvious points others miss: reputation identity must key on resolved model + harness + adapter + role, and Rate must not reward agents that succeed by bypassing safety (security findings as negative grading signal). The data model in step 1 (task_run / agent_attempt / grade / routing_decision) is concrete. It loses ground to A and E on specificity \u2014 it rarely touches actual code entities (no sessionBuild.ts, no scoreBuildCandidate, no reconcile.ts) \u2014 and its golden path quietly bundles in the same local-build closure work E makes explicit, without costing that scope.",
+      "model": "codex"
+    },
+    {
+      "candidate": "D",
+      "grounding": 7,
+      "decision_quality": 7,
+      "insight": 8,
+      "actionability": 7,
+      "overall": 7,
+      "justification": "Strong framing ('a flywheel with a disconnected axle doesn't turn'; 'if it doesn't change default behavior, it isn't real'; use the grading lab to grade Rate's own decisions) and an accurate independent read, including the observation that 'code verified' often means 'the typecheck passed.' But execution judgment slips where it matters: the two-week A/B cohort plan (half of sessions Rate-selected, confidence intervals, minimum sample sizes before weight flips) is statistically fantastical for a single-builder project \u2014 a feasibility gap the memo never costs. Step 3 wires Rate into runIterationLoop via the Conductor while glossing over that the Conductor is an unwired island whose reconcile logic just received a unanimous 6/6 rework verdict \u2014 the exact hazard E flags. Numerous typos ('differentiatedthesis', 'Itcreates', 'noisyto') suggest a hastier pass than its peers.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "E",
+      "grounding": 10,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 10,
+      "overall": 9,
+      "justification": "The best-grounded memo in the field and the only one to make the contrarian bet \u2014 close the local build loop before shipping Rate \u2014 and it argues the position superbly. It catches details no other candidate does: the PRO-02 internal contradiction (listed under 'What's Working' with a pending migration), the specific task-001 bug list (codePointAt tie-break, starved ranking inputs), Windows-specific hazards (8K stdin, WDAC), and the state file's own Next Steps 10/14/15 converging on this closure. Its central insight is the strongest rebuttal to the Rate-first majority: measuring quality on an untested build path is measuring noise, and routing on uncalibrated grades encodes bad roster decisions \u2014 while still importing the wrapper lesson (log adapter + resolved model per job) so grading is served later. Deferrals are honestly costed, the security carve-outs are surgically chosen to guard exactly the surface this bet activates, and the steps are the most executable delivered: fix reconcile.ts against the merged rework list gated on the enterprise-Fable audit, wire createConductorRun into runIterationLoop, complete the artifact\u2192github-execute bridge, and ship a three-project smoke harness including a deliberate manifest conflict. Its main exposure is the one A names: six weeks without grading forfeits irreplaceable outcome data.",
+      "model": "grok"
+    }
+  ],
+  "ranking_letters": [
+    "E",
+    "A",
+    "C",
+    "D",
+    "B"
+  ],
+  "ranking_models": [
+    "grok",
+    "copilot",
+    "codex",
+    "kimi",
+    "copilot-gpt54"
+  ],
+  "self_rank": 2
+}

@@ -1,0 +1,77 @@
+{
+  "grader": "grok",
+  "letter_to_model": {
+    "A": "grok",
+    "B": "codex",
+    "C": "copilot",
+    "D": "copilot-gpt54",
+    "E": "kimi"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "grounding": 9,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 10,
+      "overall": 9,
+      "justification": "The most project-specific memo: it cross-checks philosophy, state, graph, and July 1 Grading Lab evidence, calls out internal contradictions (PRO-02 pending vs working, grading loop claimed stable but just founded), and commits to one bet with explicit deferral costs. The contrarian substrate-first argument is well-reasoned\u2014grading on an unproven build path is noise\u2014and the steps name exact modules, failure modes, acceptance criteria, and a three-project smoke harness a team could start tomorrow.",
+      "model": "grok"
+    },
+    {
+      "candidate": "B",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 7,
+      "actionability": 8,
+      "overall": 8,
+      "justification": "Solid grounding on the missing Rate community and Conductor island, with a clear single bet to ship grading on one narrow local build path rather than rating everything. Risks are operational (identity modeling from the wrapper lesson, vanity scoreboard) and mitigations are real, but the memo is less penetrating on document oversell than A or E and the steps, while concrete, lack the file-level precision and sequencing detail of the strongest memos.",
+      "model": "codex"
+    },
+    {
+      "candidate": "C",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 8,
+      "actionability": 6,
+      "overall": 7,
+      "justification": "Accurately frames Maestro as ambitious shell with incomplete core thesis and commits cleanly to a closed learning loop with unusually good judgment touches\u2014shadow-rank before live reroute and explicit kill criteria if adaptive routing cannot beat manual roster. However, it is noticeably thinner on project-specific evidence and the three steps stay at lane/policy level without migrations, functions, or test harness detail needed for immediate execution.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "D",
+      "grounding": 10,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 9,
+      "overall": 9,
+      "justification": "Exceptional evidence work: cites the April 16 merged-PR proof, the false PRO-01 deploy claim, zero product-code engine, manual grading-lab protocol, and wrapper lesson with dates and consequences. The Rate bet is sharply scoped with a feature freeze, compounding-cost-of-delay insight, and day-bounded schema/function steps including backfill and a graded E2E smoke as proof\u2014though deferring C-06 entirely is a tradeoff it costs honestly, and dogfooding-as-side-effect is slightly optimistic given known E2E gaps.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "E",
+      "grounding": 7,
+      "decision_quality": 7,
+      "insight": 7,
+      "actionability": 7,
+      "overall": 7,
+      "justification": "Correctly identifies the central gap (no Rate community, disconnected Conductor) and argues well for making the adaptive-council thesis falsifiable with A/B roster comparison and advisory-then-cutover discipline. Typos and formatting slips undermine polish, several claims are accurate but less deeply evidenced than peers, and Step 3's Conductor-Rate wiring within six weeks understates known C-06 rework while remaining lighter on implementation sequencing than A or D.",
+      "model": "kimi"
+    }
+  ],
+  "ranking_letters": [
+    "A",
+    "D",
+    "B",
+    "C",
+    "E"
+  ],
+  "ranking_models": [
+    "grok",
+    "copilot-gpt54",
+    "codex",
+    "copilot",
+    "kimi"
+  ],
+  "self_rank": 1
+}

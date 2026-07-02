@@ -1,0 +1,36 @@
+{
+  "task": "task-002-direction-memo",
+  "date": "2026-07-01",
+  "conductor": "claude-fable-5 (Claude Code)",
+  "task_type": "subjective — direction memo, no correct answer; grader-stability test on non-legible work",
+  "workers": {
+    "codex": "OpenAI Codex CLI, model gpt-5.5",
+    "copilot": "GitHub Copilot CLI, resolved model claude-fable-5",
+    "copilot-gpt54": "GitHub Copilot CLI, model gpt-5.4",
+    "grok": "Grok CLI (xAI)",
+    "kimi": "Kimi CLI, model K2.7 Code"
+  },
+  "worker_bets": {
+    "copilot": "ship Rate (grading loop) into the product, thin end-to-end; freeze everything else; one security carve-out (approved-shell injection)",
+    "copilot-gpt54": "one closed learning loop for build-mode code work, nothing else primary",
+    "kimi": "closed-loop Rate layer: grading -> automatic routing-weight/roster updates",
+    "grok": "one trustworthy path from intent to merged code on the local-first stack (trust/verification over new engines)",
+    "codex": "past toy stage, not past prototype trust — stabilization-leaning"
+  },
+  "context_lean_note": "3/5 workers converged on Rate — evidence-driven, not independent invention: the context package itself (philosophy declares 'the grading loop is the engine'; graph report shows no scoring community) points at the gap.",
+  "peer_ranking_consensus": ["grok", "codex", "copilot", "kimi", "copilot-gpt54"],
+  "mean_ranks_excl_self": { "grok": 2.0, "codex": 2.5, "copilot": 2.75, "kimi": 3.75, "copilot-gpt54": 4.25 },
+  "observations": {
+    "stability": "3/5 identical rankings (task-001: 4/5) — held up better than predicted on subjective work",
+    "graded_judgment_not_agreement": "graders ranked grok's trust-path memo 1st even though 3/5 of them (as workers) bet Rate — kimi-the-grader put the opposing position first",
+    "gpt54_contrarian_confirmed": "second consecutive outlier, amplitude grew: put grok LAST where four graders put it FIRST, uniquely crowned codex. Candidate calibration offset for Rate.",
+    "self_preference": "grok ranked itself 1st but 3/4 rivals agreed — unproven; watch across tasks",
+    "score_compression": "overall scores 7.5-8.5 (task-001: 6.0-9.25) — subjective work inflates scores while ranks still separate; rank-primary design vindicated",
+    "verbosity": "length still tracks rank (grok longest -> 1st; gpt-5.4 shortest -> last) across a different length order than task-001 — now the #1 confound; consider a length-capped task-003"
+  },
+  "human_grading": {
+    "status": "pending",
+    "blind_set": "anonymized/candidate-{A..E}.md, fresh shuffle (seed 99260702), mapping held in conductor scratchpad",
+    "note": "anchor grade doubles as the actual six-week roadmap decision"
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "grader": "copilot-gpt54",
+  "letter_to_model": {
+    "A": "codex",
+    "B": "grok",
+    "C": "copilot",
+    "D": "kimi",
+    "E": "copilot-gpt54"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "grounding": 10,
+      "decision_quality": 10,
+      "insight": 9,
+      "actionability": 10,
+      "overall": 10,
+      "justification": "This is the strongest memo. It is deeply grounded in the actual evidence across all three context documents and the July 1 session log, catches important contradictions in the state narrative, and ties its recommendation directly to the project\u2019s stated next steps and dependency order. Its core insight\u2014that grading on top of an unproven local build path would optimize noise rather than product value\u2014is both non-obvious and persuasive, and the memo follows through with a real six-week program rather than a slogan.",
+      "model": "codex"
+    },
+    {
+      "candidate": "D",
+      "grounding": 10,
+      "decision_quality": 9,
+      "insight": 10,
+      "actionability": 8,
+      "overall": 9,
+      "justification": "This memo is exceptionally sharp on the philosophical gap between Maestro\u2019s claimed moat and the product that actually exists, and it uses the grading-lab evidence better than almost any other candidate. It makes a clear, defensible bet on Rate as the differentiator and proposes concrete first steps for schema, write-path, and first consumer. What keeps it behind A is that it underweights the operational dependency implied by the current state file itself: the local build/Conductor path is still brittle enough that broad productized grading risks getting ahead of the execution substrate it needs.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "C",
+      "grounding": 9,
+      "decision_quality": 9,
+      "insight": 8,
+      "actionability": 9,
+      "overall": 8,
+      "justification": "This is a strong memo with a good independent read of the project and a disciplined version of the Rate thesis. It is especially good on identity modeling, the need to instrument one golden path, and the difference between context memory and outcome memory. It is slightly less compelling than the top two because it treats the grading/reputation loop as a bit more execution-ready than the session-log sequencing and unfinished local-build closure really support, but it is still thoughtful, concrete, and coherent.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "E",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 7,
+      "actionability": 8,
+      "overall": 7,
+      "justification": "This memo makes a real decision, connects it to Maestro\u2019s differentiation, and proposes a plausible closed-loop plan with reasonable rollout safeguards. It is adequately grounded in the context, especially on the absence of scoring in the graph and the need to turn grading into routing behavior. It ranks lower because it is less specific about the project\u2019s immediate execution gaps and dependency order than the stronger memos, and the writeup shows some sloppiness that makes the judgment feel a bit less disciplined.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "B",
+      "grounding": 7,
+      "decision_quality": 7,
+      "insight": 6,
+      "actionability": 6,
+      "overall": 6,
+      "justification": "This memo is directionally right about the strategic importance of a learning loop and correctly argues against spending the next six weeks on more product surface area. But it stays comparatively abstract, draws on fewer concrete details from the state and graph materials, and does not really grapple with the local build/Conductor closure issues that appear to gate the rest of the roadmap. The result is a sensible strategy sketch, not quite an execution-ready direction memo.",
+      "model": "grok"
+    }
+  ],
+  "ranking_letters": [
+    "A",
+    "D",
+    "C",
+    "E",
+    "B"
+  ],
+  "ranking_models": [
+    "codex",
+    "kimi",
+    "copilot",
+    "copilot-gpt54",
+    "grok"
+  ],
+  "self_rank": 4
+}
