@@ -220,6 +220,11 @@ These areas change often and should be re-verified after any significant work se
 - task-002 = subjective direction-memo brainstorm (no right answer) to test grader stability on non-legible tasks — code review has "legible right-and-wrong-ness"; grading may destabilize without it.
 - Grading data lives in-repo (`grading-lab/`) → syncs across machines, feeds future pattern-library RAG.
 
+**Six-week direction decided (task-002 outcome, end of session):**
+- **Adopted: the copilot/fable-5 memo's Rate-v1 plan, with the grok memo's trust-spine prerequisite pulled forward.** Weeks 1–2: trust spine (c-06 rework per the 7-review fix-list, local build E2E smoke, `approved-shell` injection fix). Weeks 3–6: Rate v1 thin (grades schema keyed on resolved model + harness, post-round blind grading, builder-lane scoring as first consumer).
+- **Precision note (per claude.ai review):** this is NOT a synthesis that satisfies both memos on their own terms — grok's actual bet was "defer Rate entirely this cycle" and that was **not adopted**. Logged as: picked D's plan, absorbed B's prerequisite. Future re-reads should not assume grok's recommendation won; its memo won the *grading*, not the roadmap.
+- Rubric change for task-003+: split "argument soundness" and "writing quality" into separate axes (surfaced by the human anchor ranking grok #1 on writing while doubting its argument).
+
 **What didn't work / notes:**
 - Two stale kimi processes (June 4/23) hold `~/.kimi/logs/kimi.log` → noisy non-fatal rotation errors on every kimi run.
 - Auto-mode classifier blocked agent-run `graphify hook install` twice (persistence); user in-conversation authorization unblocked it.

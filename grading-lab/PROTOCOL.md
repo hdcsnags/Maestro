@@ -37,6 +37,16 @@ Graders return, per candidate: a 1–10 score on each rubric axis, an overall 1�
 a one-paragraph justification, and a forced **rank ordering** of all candidates.
 Ranks are the primary signal (scores drift; ranks compare).
 
+**Rubric rule (from task-002):** on subjective tasks, always score
+**argument soundness** and **writing quality** as separate axes — they correlate
+but are not identical, and a single quality score lets a verbose, well-organized
+entry win on style while losing on substance. (Surfaced by the task-002 human
+anchor ranking a memo #1 on writing while explicitly doubting its argument.)
+
+**Open confound (tasks 001–002):** rank tracks output length for model graders
+AND the human anchor. Schedule a hard length-capped task to separate
+thoroughness from verbosity.
+
 ## Task folder schema
 
 ```
