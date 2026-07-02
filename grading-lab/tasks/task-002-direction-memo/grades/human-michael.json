@@ -1,0 +1,24 @@
+{
+  "grader": "michael (human anchor)",
+  "date": "2026-07-01",
+  "blind": true,
+  "mapping_seed": 99260702,
+  "ranking_letters": ["B", "D", "E", "C", "A"],
+  "ranking_models": ["grok", "copilot", "codex", "copilot-gpt54", "kimi"],
+  "numeric_scores": null,
+  "notes": {
+    "B (grok)": "strongest writing for sure, but huge disagreement with the others; not sure he landed the reasoning — kinda undercut himself; human not fully sold on the argument despite the #1 rank",
+    "D (copilot / claude-fable-5)": "nice specificity for Rate v1 — possibly the only one with that (verified: only memo with day-by-day schema/edge-function/first-consumer steps)",
+    "E (codex / gpt-5.5)": "strong, felt like it knew me, straight to it — but almost no specifics",
+    "C (copilot-gpt54)": "'you askin too many questions' energy — thin",
+    "A (kimi / K2.7)": "had some issues; human ALSO detected it as the same model that was candidate-A in task-001 — blind cross-task style identification (both shuffles coincidentally dealt kimi the letter A)"
+  },
+  "agreement_vs_peer_consensus": {
+    "peer_consensus": ["grok", "codex", "copilot", "kimi", "copilot-gpt54"],
+    "spearman_rho": 0.8,
+    "kendall_tau": 0.6,
+    "difference": "two adjacent swaps: human puts copilot 2nd / codex 3rd, and gpt-5.4 above kimi",
+    "trend": "agreement dropped 0.90 (legible task) -> 0.80 (subjective task) — consistent with the subjectivity-loosens-grading hypothesis, but still high"
+  },
+  "verbosity_note": "human ranking also tracks memo length (near-perfectly, one swap) — the length/quality confound is universal (models AND human), not a model bias; settle it with a length-capped task"
+}

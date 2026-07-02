@@ -29,8 +29,9 @@
     "verbosity": "length still tracks rank (grok longest -> 1st; gpt-5.4 shortest -> last) across a different length order than task-001 — now the #1 confound; consider a length-capped task-003"
   },
   "human_grading": {
-    "status": "pending",
-    "blind_set": "anonymized/candidate-{A..E}.md, fresh shuffle (seed 99260702), mapping held in conductor scratchpad",
-    "note": "anchor grade doubles as the actual six-week roadmap decision"
+    "status": "done — see grades/human-michael.json",
+    "result": "human: grok > copilot > codex > gpt-5.4 > kimi; Spearman 0.80 vs peer consensus (0.90 on task-001) — two adjacent swaps",
+    "notable": "human blindly identified kimi as 'the same model that was candidate-A last time' across task types — human-detectable cross-task style signature; and human ranked grok #1 on writing strength while explicitly doubting its argument ('undercut himself') — writing quality vs argument soundness may need separate rubric axes",
+    "verbosity": "human ranking also tracked length — confound is universal; schedule a length-capped task"
   }
 }
