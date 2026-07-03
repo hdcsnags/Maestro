@@ -271,6 +271,9 @@ export interface BuildTask {
   lane_owner: string | null;
   fallback_owner: string | null;
   dependencies: string[];
+  // Decompose priority (lower = build first). Nullable for pre-migration rows.
+  // Mapped to the Conductor's P0/P1/P2 reconcile tier at manifest-collect time.
+  priority?: number | null;
   status: BuildTaskStatus;
   retry_count: number;
   max_retries: number;

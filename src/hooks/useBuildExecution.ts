@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import { sumBuildCost } from '../lib/cost';
-import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
+import { selectReadyTasks, reconcileManifest, type TaskPriority } from '../lib/conductor';
 import {
   applyArtifactPayloadToBuffer,
   cancelBuildSessionJob,
@@ -158,6 +158,17 @@ function appendJobOutput(existing: string, incoming: string): string {
   const next = [existing, incoming.trim()].filter(Boolean).join('\n\n').trim();
   if (next.length <= 6000) return next;
   return next.slice(next.length - 6000);
+}
+
+// Map the concierge's granular numeric decompose priority (lower = build first)
+// onto the Conductor's coarse P0/P1/P2 reconcile tier. Null (pre-migration rows)
+// yields undefined, so the reconciler falls back to its lane_name → task_id
+// tie-break for those entries.
+function mapTaskPriority(priority?: number | null): TaskPriority | undefined {
+  if (priority == null) return undefined;
+  if (priority <= 1) return 'P0';
+  if (priority <= 3) return 'P1';
+  return 'P2';
 }
 
 function normalizeScopedPath(path: string): string {
@@ -1604,16 +1615,14 @@ export function useBuildExecution() {
         content: t.result_content!,
         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
         content_hash: null as string | null,
-        // lane_name is the primary collision tie-break; task_id is the stable
-        // final key so same-lane retry/reroute collisions resolve deterministically.
+        // Ranking tiers for collision reconcile: priority (from decompose) →
+        // lane_name → task_id (stable final key). task_id guarantees same-lane
+        // retry/reroute collisions resolve deterministically.
+        priority: mapTaskPriority(t.priority),
         lane_name: t.lane_owner ?? '',
         tie_break: t.task_id,
-        // NOTE: `priority` and per-entry `conductor_approved` are intentionally
-        // not supplied here. `priority` is not yet persisted on `build_tasks`
-        // (needs a migration + decompose plumbing — see C-06 follow-up); approval
-        // is uniform at the patch level on this path, so it is not a per-entry
-        // differentiator. Ranking therefore resolves on lane_name → task_id,
-        // which is deterministic. When priority is persisted, map it in here.
+        // per-entry `conductor_approved` is intentionally omitted: approval is
+        // uniform at the patch level on this path, so it is not a differentiator.
       }));
 
     // P1-4: resolve duplicate-path entries to a single deterministic winner
