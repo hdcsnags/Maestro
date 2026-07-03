@@ -1,0 +1,77 @@
+{
+  "grader": "codex",
+  "letter_to_model": {
+    "A": "grok",
+    "B": "copilot-gpt54",
+    "C": "copilot",
+    "D": "codex",
+    "E": "kimi"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "grounding": 9,
+      "argument_soundness": 9,
+      "writing_quality": 8,
+      "prioritization": 9,
+      "overall": 9,
+      "justification": "Strongly grounded in the actual state: no scoring community, Conductor island, deployed synthesis, Build v2 evidence, Sonnet timeouts, trust-spine issues, and the gap between the philosophy and runtime behavior. The argument is sound and committed: ship the thinnest end-to-end grading loop because that is the thesis, while limiting public exposure. Writing is clear and forceful, though slightly denser than necessary in places. There is little gap between argument and prose; both are strong, with the argument slightly stronger because it makes the central tradeoff explicit.",
+      "model": "grok"
+    },
+    {
+      "candidate": "B",
+      "grounding": 7,
+      "argument_soundness": 8,
+      "writing_quality": 8,
+      "prioritization": 8,
+      "overall": 8,
+      "justification": "This memo is accurately grounded in the broad facts: Maestro is feature-rich but not yet the adaptive council it claims, the UX has too many concepts before value, and public launch would outrun reality. It is less specific than the strongest candidates and relies more on generalized product framing than concrete evidence from the state and graph. The argument for one trustworthy golden path is coherent, though it somewhat defers the grading loop despite identifying adaptation as the core missing claim. Writing is clean and well organized; here the prose is a bit stronger than the depth of grounding.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "C",
+      "grounding": 10,
+      "argument_soundness": 9,
+      "writing_quality": 9,
+      "prioritization": 9,
+      "overall": 9,
+      "justification": "The best-grounded memo: it cites deployed functions, migrations, Build v2, CI, lint, the June 9 drift recovery, the graph's lack of reputation/scoring, Conductor's isolation, setup friction, and the grading-lab lesson about writing versus correctness. The argument is strong: Rate v1 plus trust-spine discipline is the right way to prove the thesis before launch, and the receipts point is especially sharp. Writing is economical, specific, and persuasive. The only small weakness is a slight overstatement around there being no empirical artifact while also citing grading-lab evidence, but the reasoning remains very sound.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "D",
+      "grounding": 8,
+      "argument_soundness": 8,
+      "writing_quality": 9,
+      "prioritization": 10,
+      "overall": 8,
+      "justification": "This is the most economical memo and uses the 800-word cap well. It names the decisive facts: serious prototype, no productized adaptive composition, no reputation/scoring community, Conductor separation, unproven Claw-to-PR path, and the need for proof packaging. The argument for one narrow golden path with a grade record is sound, though it does not reason as deeply about trust sequencing or how grading should feed routing. Writing is stronger than the argument: crisp, compressed, and easy to scan, but with less supporting analysis than the top memos.",
+      "model": "codex"
+    },
+    {
+      "candidate": "E",
+      "grounding": 8,
+      "argument_soundness": 7,
+      "writing_quality": 8,
+      "prioritization": 8,
+      "overall": 7,
+      "justification": "The memo is well grounded in structural facts: low cohesion, the `useMaestro()` god context, import cycles, missing reputation/scoring, security risks, setup friction, and untested build bridges. The main weakness is argumentative tension: it says the biggest missing thing is the closed empirical loop but recommends not building Rate v1 next, without fully resolving why a stranger journey and trust spine should precede the core engine. The writing is clear and direct, so the prose slightly outperforms the reasoning. It is a useful memo, but less decisive and internally aligned than the stronger entries.",
+      "model": "kimi"
+    }
+  ],
+  "ranking_letters": [
+    "C",
+    "A",
+    "D",
+    "B",
+    "E"
+  ],
+  "ranking_models": [
+    "copilot",
+    "grok",
+    "codex",
+    "copilot-gpt54",
+    "kimi"
+  ],
+  "self_rank": 3
+}

@@ -1,0 +1,40 @@
+{
+  "task": "task-003-launch-readiness",
+  "date": "2026-07-02",
+  "conductor": "claude-fable-5 (Claude Code)",
+  "task_type": "subjective + hard 800-word cap; designed to (a) test grader stability on whole-product reasoning and (b) separate verbosity from thoroughness via the length cap",
+  "workers": {
+    "codex": "OpenAI Codex CLI, model gpt-5.5",
+    "copilot": "GitHub Copilot CLI, resolved model claude-fable-5",
+    "copilot-gpt54": "GitHub Copilot CLI, model gpt-5.4",
+    "grok": "Grok CLI (xAI)",
+    "kimi": "Kimi CLI, model K2.7 Code"
+  },
+  "word_counts": { "codex": 441, "copilot": 740, "copilot-gpt54": 725, "grok": 677, "kimi": 431 },
+  "cap_compliance": "5/5 under 800 (spread 431-740, ~1.7x vs ~3x in task-002 and ~10x in task-001)",
+  "worker_readiness_verdicts": {
+    "all_five": "NOT YET — unanimous, all anchored to the same structural evidence (graph report: no reputation/scoring community; Conductor is a structural island)",
+    "next-step split": {
+      "copilot (fable-5)": "ship Rate v1 now, freeze all new surface — moat-first (solo, as in task-002)",
+      "codex": "no new grand system; make ONE narrow loop work repeatedly for a stranger on a prepared demo repo, instrumented",
+      "copilot-gpt54": "close the gap between 'present in code' and 'lived path' (E2E Claw, split build UX) before the thesis",
+      "grok": "usability/trust-first — deliver the operator path before 'learning which compositions win'",
+      "kimi": "usability/trust-first — fix install friction, streaming, split UX, security before inviting users"
+    },
+    "majority": "4/5 lean prove-one-usable-path-first; copilot/fable-5 holds moat-first alone across BOTH subjective tasks (stable signature)"
+  },
+  "peer_ranking_consensus": ["copilot", "grok", "codex", "kimi", "copilot-gpt54"],
+  "mean_ranks_excl_self": { "copilot": 1.75, "grok": 2.0, "codex": 3.25, "kimi": 3.5, "copilot-gpt54": 4.5 },
+  "observations": {
+    "stability": "3/5 IDENTICAL rankings (codex, gpt-5.4, kimi all produced copilot>grok>codex>gpt54>kimi). Consistent with task-001 (4/5) and task-002 (3/5).",
+    "contrarian_is_task_dependent_not_fixed": "IMPORTANT correction to the task-002 story: this round the outlier was GROK (ranked kimi #1 where all others ranked kimi last; put copilot 4th). gpt-5.4 matched consensus exactly this time. So the 'contrarian' role is NOT a fixed per-model fingerprint — it moves by task. Do not hard-code gpt-5.4 as 'the contrarian'.",
+    "self_preference": "none/inverted again: kimi ranked itself LAST (5th); grok ranked itself 2nd (= consensus); copilot 1st but 4/4 rivals agreed. Three tasks, zero self-inflation.",
+    "VERBOSITY_CONFOUND_RESULT": "The length cap BROKE the length-tracks-rank correlation from tasks 001-002. gpt-5.4 wrote the 2nd-MOST words (725) and ranked DEAD LAST; codex wrote nearly the FEWEST (441) and ranked 3rd. Within a compressed length range, quality separated on merit, not length. STRONG EVIDENCE that the earlier correlation was mostly 'longer = more thorough = genuinely better', NOT raw verbosity bias. Good news for the grading loop's trustworthiness.",
+    "two_axis_rubric": "first task to score argument_soundness and writing_quality separately (per task-002 lesson)"
+  },
+  "human_grading": {
+    "status": "pending",
+    "blind_set": "anonymized/candidate-{A..E}.md, fresh shuffle (seed 99260703)",
+    "note": "human anchor here is a genuine launch-readiness gut check on the builder's own project"
+  }
+}
