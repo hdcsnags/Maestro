@@ -103,6 +103,17 @@ interface JobOutputState {
   stderr: string;
 }
 
+// A path collision resolved before a GitHub push. Surfaced (not just logged) so
+// the UI / approval layer can show that completed work was overridden — dropping
+// it silently on a `console.warn` was C-06 review finding F2.
+export interface SurfacedManifestCollision {
+  source: 'task-queue' | 'session';
+  path: string;
+  winner_lane: string;
+  dropped_count: number;
+  dropped_detail: string;
+}
+
 interface GitHubReadFileResult {
   path: string;
   content: string;
@@ -232,6 +243,9 @@ export function useBuildExecution() {
   const isSessionRunning = state.sessionBuildState.isRunning;
   const sessionRuns = state.sessionBuildState.runs;
   const [jobOutputs, setJobOutputs] = useState<Record<string, JobOutputState>>({});
+  // Last path collisions resolved during a manifest collect (task-queue or
+  // session). Read by the push/approval UI so overridden work is visible.
+  const lastManifestCollisionsRef = useRef<SurfacedManifestCollision[]>([]);
   const sessionRunsRef = useRef(sessionRuns);
   const sessionProgressRef = useRef(sessionProgress);
   const jobOutputsRef = useRef<Record<string, JobOutputState>>({});
@@ -1048,8 +1062,39 @@ export function useBuildExecution() {
 
   /** Returns the manifest from the last succeeded session build (for GitHub push). */
   const collectSessionManifest = useCallback(() => {
+    // C-06 F3: the session-build path flat-maps multiple executor runs and dedups
+    // with `mergeSessionManifest` (last-write-wins by path). Session manifest
+    // entries carry no lane/priority/task metadata, so priority-based reconcile
+    // is not possible here — but a silent last-write-wins drop was the same class
+    // of bug as the task-queue path. Detect cross-run path collisions and surface
+    // them (last run still wins, by design, but the drop is no longer invisible).
+    const flat = sessionRuns.length > 0
+      ? sessionRuns.flatMap(run => run.manifest)
+      : sessionProgress.manifest;
+
+    const seenPaths = new Map<string, number>();
+    for (const entry of flat) {
+      seenPaths.set(entry.path, (seenPaths.get(entry.path) ?? 0) + 1);
+    }
+    lastManifestCollisionsRef.current = Array.from(seenPaths.entries())
+      .filter(([, n]) => n > 1)
+      .map(([path, n]) => ({
+        source: 'session' as const,
+        path,
+        winner_lane: 'last-write-wins (session builds carry no lane metadata)',
+        dropped_count: n - 1,
+        dropped_detail: `${n} runs wrote ${path}; last kept`,
+      }));
+    if (lastManifestCollisionsRef.current.length > 0) {
+      console.warn(
+        `[Conductor] session build: ${lastManifestCollisionsRef.current.length} path(s) written by ` +
+        `multiple runs; last-write-wins applied: ` +
+        lastManifestCollisionsRef.current.map(c => c.path).join(', '),
+      );
+    }
+
     const sourceManifest = sessionRuns.length > 0
-      ? mergeSessionManifest(sessionRuns.flatMap(run => run.manifest))
+      ? mergeSessionManifest(flat)
       : sessionProgress.manifest;
 
     return sourceManifest.map(f => ({
@@ -1559,17 +1604,35 @@ export function useBuildExecution() {
         content: t.result_content!,
         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
         content_hash: null as string | null,
-        // lane_name drives the Conductor's deterministic collision tie-break.
+        // lane_name is the primary collision tie-break; task_id is the stable
+        // final key so same-lane retry/reroute collisions resolve deterministically.
         lane_name: t.lane_owner ?? '',
+        tie_break: t.task_id,
+        // NOTE: `priority` and per-entry `conductor_approved` are intentionally
+        // not supplied here. `priority` is not yet persisted on `build_tasks`
+        // (needs a migration + decompose plumbing — see C-06 follow-up); approval
+        // is uniform at the patch level on this path, so it is not a per-entry
+        // differentiator. Ranking therefore resolves on lane_name → task_id,
+        // which is deterministic. When priority is persisted, map it in here.
       }));
 
     // P1-4: resolve duplicate-path entries to a single deterministic winner
     // instead of letting github-execute fall back to last-write-wins on collisions.
     const { resolved, collisions } = reconcileManifest(completed);
+    lastManifestCollisionsRef.current = collisions.map(c => ({
+      source: 'task-queue' as const,
+      path: c.path,
+      winner_lane: c.winner.lane_name ?? '',
+      dropped_count: c.overridden.length,
+      dropped_detail: c.overridden.map(o => `${o.tie_break} (lane "${o.lane_name}")`).join(', '),
+    }));
     if (collisions.length > 0) {
       console.warn(
-        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
-        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
+        `[Conductor] reconciled ${collisions.length} path collision(s) before push; ` +
+        `overridden completed work: ` +
+        lastManifestCollisionsRef.current
+          .map(c => `${c.path} kept lane "${c.winner_lane}", dropped ${c.dropped_count} [${c.dropped_detail}]`)
+          .join('; '),
       );
     }
     return resolved.map(e => ({
@@ -1682,5 +1745,8 @@ export function useBuildExecution() {
     retryTask,
     swapAdapter,
     collectManifest,
+    // Path collisions from the most recent collect (task-queue or session).
+    // The approval/push UI should show these so overridden work is visible.
+    getLastManifestCollisions: () => lastManifestCollisionsRef.current,
   };
 }
