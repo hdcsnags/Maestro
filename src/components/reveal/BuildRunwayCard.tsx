@@ -352,15 +352,20 @@ export default function BuildRunwayCard({ session }: { session: ClawBuildSession
         pushWrittenFiles: result.writtenFiles,
         pushSkippedFiles: result.skippedFiles,
         pushBackupBranch: result.backupBranch,
-        pushCollisionCount: result.collisionCount,
+        // Server-side push collisions + client-side Conductor reconcile
+        // collisions (C-06 F2): overridden completed work counts as a collision.
+        pushCollisionCount: result.collisionCount + result.manifestCollisions.length,
         pushHandoffs: result.handoffs,
       });
+      const collisionNote = result.manifestCollisions.length > 0
+        ? ` · ${result.manifestCollisions.length} path collision${result.manifestCollisions.length === 1 ? '' : 's'} reconciled (overridden: ${result.manifestCollisions.map(c => c.path).join(', ')})`
+        : '';
       await addMessage(session.threadId, 'system', 'Pull request ready.', undefined, {
         kind: 'pr_opened',
         system_event: {
           tone: 'pr',
           title: 'Pull request ready',
-          body: `${result.writtenFiles.length} files written${result.skippedFiles.length > 0 ? ` · ${result.skippedFiles.length} skipped` : ''}`,
+          body: `${result.writtenFiles.length} files written${result.skippedFiles.length > 0 ? ` · ${result.skippedFiles.length} skipped` : ''}${collisionNote}`,
           pr_urls: result.prUrls,
           written_files: result.writtenFiles,
           skipped_files: result.skippedFiles,

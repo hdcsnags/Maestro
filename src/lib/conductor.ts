@@ -31,6 +31,17 @@
 
 export type TaskPriority = 'P0' | 'P1' | 'P2';
 
+// Map the concierge's granular numeric decompose priority (lower = build first)
+// onto the Conductor's coarse P0/P1/P2 reconcile tier. Null (pre-migration rows)
+// yields undefined, so the reconciler falls back to its lane_name → tie_break
+// ordering for those entries.
+export function mapTaskPriority(priority?: number | null): TaskPriority | undefined {
+  if (priority == null) return undefined;
+  if (priority <= 1) return 'P0';
+  if (priority <= 3) return 'P1';
+  return 'P2';
+}
+
 // ── Dependency-ordered ready selection ───────────────────────────────────────
 
 export type ReadyTaskStatus =
