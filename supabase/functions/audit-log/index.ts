@@ -46,6 +46,12 @@ Deno.serve(async (req: Request) => {
           typeof body.execution_mode === "string" ? body.execution_mode : "",
         requires_approval: body.requires_approval === true,
         succeeded: body.succeeded !== false,
+        // Optional structured detail (e.g. C-06 manifest-reconcile collision
+        // reports). Must be a plain object; anything else is dropped.
+        metadata:
+          body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+            ? body.metadata
+            : {},
       })
       .select()
       .maybeSingle();

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invokeEdgeFunction } from '../lib/functions';
 import { supabase } from '../lib/supabase';
 import { sumBuildCost } from '../lib/cost';
+import { selectReadyTasks, reconcileManifest, mapTaskPriority } from '../lib/conductor';
 import {
   applyArtifactPayloadToBuffer,
   cancelBuildSessionJob,
@@ -102,6 +103,17 @@ interface JobOutputState {
   stderr: string;
 }
 
+// A path collision resolved before a GitHub push. Surfaced (not just logged) so
+// the UI / approval layer can show that completed work was overridden — dropping
+// it silently on a `console.warn` was C-06 review finding F2.
+export interface SurfacedManifestCollision {
+  source: 'task-queue' | 'session';
+  path: string;
+  winner_lane: string;
+  dropped_count: number;
+  dropped_detail: string;
+}
+
 interface GitHubReadFileResult {
   path: string;
   content: string;
@@ -146,6 +158,36 @@ function appendJobOutput(existing: string, incoming: string): string {
   const next = [existing, incoming.trim()].filter(Boolean).join('\n\n').trim();
   if (next.length <= 6000) return next;
   return next.slice(next.length - 6000);
+}
+
+// F2: overridden completed work must reach a durable sink, not just the console.
+// Writes one audit_events row per push that resolved collisions, with the full
+// winner/dropped detail in metadata. Best-effort — an audit failure must never
+// block a GitHub push (the reconcile itself already happened).
+async function logCollisionAudit(sessionId: string, collisions: SurfacedManifestCollision[]): Promise<void> {
+  if (collisions.length === 0) return;
+  try {
+    await invokeEdgeFunction('audit-log', {
+      session_id: sessionId,
+      event_type: 'manifest_reconcile',
+      actor: 'Conductor',
+      execution_mode: 'execute',
+      requires_approval: false,
+      succeeded: true,
+      metadata: {
+        collision_count: collisions.length,
+        collisions: collisions.map(c => ({
+          source: c.source,
+          path: c.path,
+          winner_lane: c.winner_lane,
+          dropped_count: c.dropped_count,
+          dropped_detail: c.dropped_detail,
+        })),
+      },
+    });
+  } catch (err) {
+    console.warn('[Conductor] failed to write manifest_reconcile audit event:', err);
+  }
 }
 
 function normalizeScopedPath(path: string): string {
@@ -231,6 +273,9 @@ export function useBuildExecution() {
   const isSessionRunning = state.sessionBuildState.isRunning;
   const sessionRuns = state.sessionBuildState.runs;
   const [jobOutputs, setJobOutputs] = useState<Record<string, JobOutputState>>({});
+  // Last path collisions resolved during a manifest collect (task-queue or
+  // session). Read by the push/approval UI so overridden work is visible.
+  const lastManifestCollisionsRef = useRef<SurfacedManifestCollision[]>([]);
   const sessionRunsRef = useRef(sessionRuns);
   const sessionProgressRef = useRef(sessionProgress);
   const jobOutputsRef = useRef<Record<string, JobOutputState>>({});
@@ -1047,9 +1092,45 @@ export function useBuildExecution() {
 
   /** Returns the manifest from the last succeeded session build (for GitHub push). */
   const collectSessionManifest = useCallback(() => {
-    const sourceManifest = sessionRuns.length > 0
-      ? mergeSessionManifest(sessionRuns.flatMap(run => run.manifest))
+    // C-06 F3: the session-build path flat-maps multiple executor runs and dedups
+    // with `mergeSessionManifest` (last-write-wins by path). Session manifest
+    // entries carry no lane/priority/task metadata, so priority-based reconcile
+    // is not possible here — but a silent last-write-wins drop was the same class
+    // of bug as the task-queue path. Detect cross-run path collisions and surface
+    // them (last run still wins, by design, but the drop is no longer invisible).
+    const flat = sessionRuns.length > 0
+      ? sessionRuns.flatMap(run => run.manifest)
       : sessionProgress.manifest;
+
+    const seenPaths = new Map<string, number>();
+    for (const entry of flat) {
+      seenPaths.set(entry.path, (seenPaths.get(entry.path) ?? 0) + 1);
+    }
+    lastManifestCollisionsRef.current = Array.from(seenPaths.entries())
+      .filter(([, n]) => n > 1)
+      .map(([path, n]) => ({
+        source: 'session' as const,
+        path,
+        winner_lane: 'last-write-wins (session builds carry no lane metadata)',
+        dropped_count: n - 1,
+        // "appears N times", not "N runs wrote it" — duplicates can come from one
+        // run writing a path twice, or from sessionProgress when there are no runs.
+        dropped_detail: `${path} appears ${n} times in the session output; last occurrence kept`,
+      }));
+    if (lastManifestCollisionsRef.current.length > 0) {
+      console.warn(
+        `[Conductor] session build: ${lastManifestCollisionsRef.current.length} path(s) duplicated ` +
+        `in session output; last occurrence kept: ` +
+        lastManifestCollisionsRef.current.map(c => c.path).join(', '),
+      );
+    }
+
+    // Always dedup through mergeSessionManifest — including the no-runs branch,
+    // where `flat` IS sessionProgress.manifest. The old code returned that
+    // manifest raw, so the collision report claimed "last kept" while no dedup
+    // had actually been applied (task-004 review R3). Identity when paths are
+    // already unique.
+    const sourceManifest = mergeSessionManifest(flat);
 
     return sourceManifest.map(f => ({
       path: f.path,
@@ -1076,6 +1157,10 @@ export function useBuildExecution() {
     if (manifest.length === 0) {
       throw new Error('Session produced no files. Cannot push to GitHub.');
     }
+    // Snapshot the collisions this collect resolved, before anything else can
+    // overwrite the ref; they ride on the push result and land in audit_events.
+    const manifestCollisions = [...lastManifestCollisionsRef.current];
+    await logCollisionAudit(state.activeSession.id, manifestCollisions);
 
     const { data: runData, error: runErr } = await supabase
       .from('execution_runs')
@@ -1136,7 +1221,10 @@ export function useBuildExecution() {
       writtenFiles: execResult.written_files ?? [],
       skippedFiles: execResult.skipped_files ?? [],
       prUrls: execResult.prs ?? [],
+      // Server-side collisions (github-execute) and client-side reconcile
+      // collisions are reported separately — different layers, both visible.
       collisionCount: (execResult.collisions ?? []).length,
+      manifestCollisions,
       handoffs: (execResult.handoffs_requested ?? []) as Array<{ from_agent: string; path: string }>,
       backupBranch: execResult.backup_branch ?? '',
     };
@@ -1426,25 +1514,9 @@ export function useBuildExecution() {
       // Allow up to 3 consecutive no-progress waves before aborting.
       let noProgressWaves = 0;
       while (noProgressWaves < 3) {
-        // Find tasks ready to dispatch
-        const ready = currentTasks.filter(t => {
-          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
-          // Check dependencies
-          if (t.dependencies && t.dependencies.length > 0) {
-            const depsComplete = t.dependencies.every(depId =>
-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
-            );
-            if (!depsComplete) {
-              // Check if deps are failed/skipped — unblock if so
-              const depsResolved = t.dependencies.every(depId => {
-                const dep = currentTasks.find(d => d.task_id === depId);
-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
-              });
-              if (!depsResolved) return false;
-            }
-          }
-          return true;
-        });
+        // Find tasks ready to dispatch — dependency-ordered selection now lives
+        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
+        const ready = selectReadyTasks(currentTasks);
 
         if (ready.length === 0) break;
         if (abortRef.current) break;
@@ -1567,14 +1639,48 @@ export function useBuildExecution() {
   // ── Collect completed tasks into file_manifest format ────────────────
 
   const collectManifest = useCallback(() => {
-    return tasksRef.current
+    const completed = tasksRef.current
       .filter(t => t.status === 'completed' && t.result_content)
       .map(t => ({
         path: t.file_path,
         content: t.result_content!,
         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
-        content_hash: null,
+        content_hash: null as string | null,
+        // Ranking tiers for collision reconcile: priority (from decompose) →
+        // lane_name → task_id (stable final key). task_id guarantees same-lane
+        // retry/reroute collisions resolve deterministically.
+        priority: mapTaskPriority(t.priority),
+        lane_name: t.lane_owner ?? '',
+        tie_break: t.task_id,
+        // per-entry `conductor_approved` is intentionally omitted: approval is
+        // uniform at the patch level on this path, so it is not a differentiator.
       }));
+
+    // P1-4: resolve duplicate-path entries to a single deterministic winner
+    // instead of letting github-execute fall back to last-write-wins on collisions.
+    const { resolved, collisions } = reconcileManifest(completed);
+    lastManifestCollisionsRef.current = collisions.map(c => ({
+      source: 'task-queue' as const,
+      path: c.path,
+      winner_lane: c.winner.lane_name ?? '',
+      dropped_count: c.overridden.length,
+      dropped_detail: c.overridden.map(o => `${o.tie_break} (lane "${o.lane_name}")`).join(', '),
+    }));
+    if (collisions.length > 0) {
+      console.warn(
+        `[Conductor] reconciled ${collisions.length} path collision(s) before push; ` +
+        `overridden completed work: ` +
+        lastManifestCollisionsRef.current
+          .map(c => `${c.path} kept lane "${c.winner_lane}", dropped ${c.dropped_count} [${c.dropped_detail}]`)
+          .join('; '),
+      );
+    }
+    return resolved.map(e => ({
+      path: e.path,
+      content: e.content,
+      operation: e.operation,
+      content_hash: e.content_hash,
+    }));
   }, []);
 
   const pushTaskBuildToGithub = useCallback(async () => {
@@ -1589,6 +1695,10 @@ export function useBuildExecution() {
     if (manifest.length === 0) {
       throw new Error('No completed tasks to execute. Build more files first.');
     }
+    // Snapshot the collisions this collect resolved, before anything else can
+    // overwrite the ref; they ride on the push result and land in audit_events.
+    const manifestCollisions = [...lastManifestCollisionsRef.current];
+    await logCollisionAudit(state.activeSession.id, manifestCollisions);
 
     const { data: runData, error: runErr } = await supabase
       .from('execution_runs')
@@ -1645,7 +1755,10 @@ export function useBuildExecution() {
       writtenFiles: execResult.written_files ?? [],
       skippedFiles: execResult.skipped_files ?? [],
       prUrls: execResult.prs ?? [],
+      // Server-side collisions (github-execute) and client-side reconcile
+      // collisions are reported separately — different layers, both visible.
       collisionCount: (execResult.collisions ?? []).length,
+      manifestCollisions,
       handoffs: (execResult.handoffs_requested ?? []) as Array<{ from_agent: string; path: string }>,
       backupBranch: execResult.backup_branch ?? '',
     };
@@ -1679,5 +1792,8 @@ export function useBuildExecution() {
     retryTask,
     swapAdapter,
     collectManifest,
+    // Path collisions from the most recent collect (task-queue or session).
+    // The approval/push UI should show these so overridden work is visible.
+    getLastManifestCollisions: () => lastManifestCollisionsRef.current,
   };
 }

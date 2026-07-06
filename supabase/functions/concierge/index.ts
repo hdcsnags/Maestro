@@ -893,6 +893,9 @@ RULES:
         status: "queued" as const,
         retry_count: 0,
         max_retries: 2,
+        // C-06 F1: persist decompose priority (lower = build first) so the
+        // Conductor manifest-reconcile priority tier has real data to rank on.
+        priority: t.priority,
         // Structured prompts are already fully rendered; legacy tasks get the prefix wrapper.
         prompt_slice: t.is_structured_prompt
           ? t.prompt_slice

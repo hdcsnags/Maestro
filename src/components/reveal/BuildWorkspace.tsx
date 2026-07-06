@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
-import { useBuildExecution } from '../../hooks/useBuildExecution';
+import { useBuildExecution, type SurfacedManifestCollision } from '../../hooks/useBuildExecution';
 import { useBouncerReview } from '../../hooks/useBouncerReview';
 import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
@@ -168,6 +168,7 @@ export default function BuildWorkspace() {
       setSkippedFiles(result.skippedFiles);
       setPrUrls(result.prUrls);
       setCollisionCount(result.collisionCount);
+      setManifestCollisions(result.manifestCollisions);
       setHandoffs(result.handoffs);
       setBackupBranch(result.backupBranch);
 
@@ -224,6 +225,9 @@ export default function BuildWorkspace() {
   const [skippedFiles, setSkippedFiles] = useState<{ path: string; reason: string }[]>([]);
   const [prUrls, setPrUrls] = useState<string[]>([]);
   const [collisionCount, setCollisionCount] = useState(0);
+  // Client-side Conductor reconcile collisions (C-06 F2): completed work that
+  // was overridden before the push. Shown in Build Results so drops are visible.
+  const [manifestCollisions, setManifestCollisions] = useState<SurfacedManifestCollision[]>([]);
   const [handoffs, setHandoffs] = useState<{ from_agent: string; path: string }[]>([]);
   const [backupBranch, setBackupBranch] = useState('');
 
@@ -746,6 +750,7 @@ export default function BuildWorkspace() {
       setSkippedFiles(result.skippedFiles);
       setPrUrls(result.prUrls);
       setCollisionCount(result.collisionCount);
+      setManifestCollisions(result.manifestCollisions);
       setHandoffs(result.handoffs);
       setBackupBranch(result.backupBranch);
 
@@ -2309,9 +2314,33 @@ export default function BuildWorkspace() {
               <div className="flex flex-wrap gap-4" style={{ marginBottom: '16px' }}>
                 <StatChip label="Files written" value={writtenFiles.length} color="var(--ok)" />
                 <StatChip label="Skipped" value={skippedFiles.length} color="var(--gold)" />
-                <StatChip label="Collisions" value={collisionCount} color={collisionCount > 0 ? 'var(--risk)' : 'var(--text-dim)'} />
+                <StatChip label="Collisions" value={collisionCount + manifestCollisions.length} color={collisionCount + manifestCollisions.length > 0 ? 'var(--risk)' : 'var(--text-dim)'} />
                 <StatChip label="Handoffs" value={handoffs.length} color={handoffs.length > 0 ? 'var(--gold)' : 'var(--text-dim)'} />
               </div>
+
+              {/* Reconciled path collisions — overridden completed work (C-06 F2) */}
+              {manifestCollisions.length > 0 && (
+                <div style={{ marginBottom: '16px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(224,122,95,0.06)', border: '1px solid rgba(224,122,95,0.18)' }}>
+                  <div className="flex items-center gap-2" style={{ marginBottom: '8px' }}>
+                    <AlertTriangle size={12} style={{ color: 'var(--risk)' }} />
+                    <span className="font-mono-dm" style={{ fontSize: '9px', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--risk)' }}>
+                      Overridden work ({manifestCollisions.length} path{manifestCollisions.length === 1 ? '' : 's'})
+                    </span>
+                  </div>
+                  {manifestCollisions.map((c, i) => (
+                    <div key={i} style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                      <span className="font-mono-dm" style={{ color: 'var(--text)' }}>{c.path}</span>
+                      {' — '}
+                      {c.source === 'task-queue'
+                        ? <>kept lane <span style={{ color: 'var(--gold)' }}>{c.winner_lane || '(unnamed)'}</span>, dropped {c.dropped_count}: {c.dropped_detail}</>
+                        : c.dropped_detail}
+                    </div>
+                  ))}
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '6px' }}>
+                    Resolved deterministically before push · logged to the audit trail
+                  </div>
+                </div>
+              )}
 
               {/* PR links */}
               {prUrls.length > 0 && (

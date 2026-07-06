@@ -24,12 +24,44 @@ export interface ReconcileResult {
   collisions: CollisionReport[];
 }
 
-// Lower number = higher priority (wins collision).
-function rankEntry(entry: ManifestEntry): number {
-  if (entry.conductor_approved) return 0;
-  const pRank = { P0: 1, P1: 2, P2: 3 }[entry.priority ?? 'P1'] ?? 2;
-  // Tie-break deterministically by lane_name lexicographic order.
-  return pRank * 1000 + entry.lane_name.codePointAt(0)!;
+const PRIORITY_RANK: Record<'P0' | 'P1' | 'P2', number> = { P0: 0, P1: 1, P2: 2 };
+
+// Deterministic, environment-independent string order (UTF-16 code unit).
+// NOT String.localeCompare — its default locale/collation varies across
+// runtimes, so Node (this module) and the browser (src/lib/conductor.ts) could
+// order the same lane names differently. Code-unit order is identical
+// everywhere. KEEP THIS IDENTICAL to conductor.ts `compareStrings`.
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// Total ordering over collision candidates; lower sorts first (wins the path).
+// Tiers in order: conductor_approved, then priority, then lane_name (full
+// code-unit comparison — NOT first-code-point, which tied on any shared leading
+// char and could overflow a numeric band on non-ASCII names), then the entry's
+// original input index as a stable final tie-break so same-lane retries resolve
+// deterministically instead of by unspecified sort order.
+//
+// SYNC CONTRACT with src/lib/conductor.ts compareCandidates: the first three
+// tiers (approved → priority → lane_name) are identical and MUST stay so. The
+// final tie-break KEY differs by design — this module uses input index (its
+// caller controls a stable array order) while the web module uses task_id (its
+// DB row order is unstable). Both are deterministic.
+function compareEntries(
+  a: ManifestEntry,
+  b: ManifestEntry,
+  indexOf: Map<ManifestEntry, number>,
+): number {
+  const approved = (a.conductor_approved ? 0 : 1) - (b.conductor_approved ? 0 : 1);
+  if (approved !== 0) return approved;
+
+  const priority = (PRIORITY_RANK[a.priority ?? 'P1'] ?? 1) - (PRIORITY_RANK[b.priority ?? 'P1'] ?? 1);
+  if (priority !== 0) return priority;
+
+  const lane = compareStrings(a.lane_name ?? '', b.lane_name ?? '');
+  if (lane !== 0) return lane;
+
+  return (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0);
 }
 
 export function detectManifestConflicts(
@@ -54,6 +86,10 @@ export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
     return { resolved: [...entries], collisions: [] };
   }
 
+  // Original input position of each entry — the stable final tie-break.
+  const indexOf = new Map<ManifestEntry, number>();
+  entries.forEach((entry, i) => indexOf.set(entry, i));
+
   const collisionReports: CollisionReport[] = [];
   const resolvedPaths = new Set<string>();
   const resolved: ManifestEntry[] = [];
@@ -63,7 +99,7 @@ export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
     if (!group) {
       resolved.push(entry);
     } else if (!resolvedPaths.has(entry.path)) {
-      const sorted = [...group].sort((a, b) => rankEntry(a) - rankEntry(b));
+      const sorted = [...group].sort((a, b) => compareEntries(a, b, indexOf));
       const winner = sorted[0];
       const overridden = sorted.slice(1);
       collisionReports.push({ path: entry.path, candidates: group, winner, overridden });

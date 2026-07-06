@@ -10,7 +10,7 @@
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | All 19 functions ACTIVE (verified 2026-06-09): `orchestrate` v39 (Karpathy embed, 2026-06-02); `synthesize` v14 (PRO-01 deliberation-aware synthesis, 2026-06-09 — v13 and earlier did NOT have it); `repo-memory-update` v2 (graph_update action + kind/relations columns, 2026-06-02); `github-execute` v30 (C-03 intra-agent path dedup, 2026-06-02); `deliberate` v3 (SOM-04 2026-05-12); `concierge-triage` v8 (ACTIVE — not unbuilt as SPRINT_MASTER claims); `executor-api` v19 (ACTIVE); `iteration-init` v2 (2026-05-08) |
-| Unapplied migrations | None — all 51 migrations applied remotely (verified 2026-06-02) |
+| Unapplied migrations | `20260703000000_build_tasks_priority.sql` NOT yet applied remotely (52nd migration, added on the C-06 branch). Apply BEFORE deploying `concierge` (its decompose now persists `priority`). All prior 51 applied (verified 2026-06-02) |
 | CI | `.github/workflows/ci.yml` — typecheck + lint + build + maestroclaw tests on push/PR to main (first run green 2026-06-09) |
 | Active locks | None |
 | MaestroClaw version | v0.1.0 |
@@ -27,6 +27,7 @@
 
 | Capability | Verified |
 |------------|----------|
+| **C-06 Conductor web dispatch — review-gated and closed out**: all blocking findings from the task-001 (7 reviewers, unanimous rework) and task-004 (codex/copilot/gpt54/grok/kimi) review gates are resolved on `c-06-conductor-web-dispatch`. Code-unit `compareStrings` replaces `localeCompare` in BOTH reconcilers (sync contract documented; tie-break KEY divergence web `task_id` vs claw input-index is by-design). F2/F3: reconciled collisions now land in `audit_events` (`manifest_reconcile`, best-effort), BuildWorkspace "Overridden work" panel, BuildRunwayCard stat + `pr_opened` thread note. R3: `collectSessionManifest` always dedups via `mergeSessionManifest`. **Frontend now has a test runner**: vitest 4 scoped to `src/**` (`npm test`, wired into CI); `src/lib/conductor.test.ts` = 20 tests incl. a cross-module parity fixture that imports maestroclaw's `reconcileManifests` and proves identical winners under every input permutation on the shared ranking tiers. `mapTaskPriority` moved into `src/lib/conductor.ts` (testable). NOT runtime-tested against a live executor | 2026-07-06 (vitest 20/20, claw tests 34/34, tsc/lint/build clean; commits `4863d61`→`19b1498`) |
 | **Graphify knowledge graph**: `graphifyy` v0.8.49 installed (against system Python 3.12 — uv standalone Python `_ssl` DLL is blocked by WDAC). `.graphifyignore` scopes to Maestro source (212 code files → 1235 nodes / 2668 edges / 68 communities). Code-only graph committed to `graphify-out/` (graph.json/html, GRAPH_REPORT.md, callflow); 68 communities labeled via `claude-cli`/haiku backend (user session, no API spend). Git post-commit/post-checkout hooks installed (AST-only auto-rebuild). God node: `useMaestro()` 99 edges. Graph confirms Conductor (C11 "Conductor Task Execution") is a separate island from the iteration runner (C3); no reputation/scoring community exists (Rate layer net-new) | 2026-06-26 (built/queried/labeled/committed `b9dfe7d`,`3a9bc6c`) |
 | **CI pipeline**: `.github/workflows/ci.yml` — frontend job (typecheck, lint, vite build) + maestroclaw job (tsc build, shell-analyzer tests) on push/PR to main | 2026-06-09 (first run green, run 27244113269) |
 | **Repo-wide lint zero**: `npm run lint` = 0 errors / 10 warnings (was 117/36). ESLint now allowlists only `packages/maestroclaw/src`+`test`; `_`-prefixed unused vars/args allowed by config | 2026-06-09 (`npm run lint`, commit `d1c091d`) |
@@ -142,6 +143,8 @@
 
 | Issue | Since | Owner |
 |-------|-------|-------|
+| **Pending deploys from the C-06 branch**: migration `20260703000000_build_tasks_priority.sql` unapplied remotely; `concierge` (persists decompose `priority` — deploy only AFTER the migration) and `audit-log` (optional `metadata` passthrough for `manifest_reconcile` events) not redeployed. Until then: priority tier falls back to lane/tie-break ordering (harmless), and collision audit rows are written without metadata detail (deployed fn ignores unknown body fields). | 2026-07-06 | Unassigned |
+| **R4 (review nit, policy question for the Conductor)**: a task with empty `lane_name` sorts before every named lane in the reconcile (code-unit `''` is minimal) — deterministic and test-acknowledged, but "no owner outranks every owner" deserves a deliberate decision. | 2026-07-06 | Conductor |
 | ~~**GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug~~ ✅ Fixed (2026-05-04, commit `c6ed517`): `isBuilderEligible()` predicate added; `openrouter_a` filtered from LLM roster text, candidate pool for builder lanes, stale-ID fallback, and Pre-Build candidate list; edge-path dispatch guard added; `architect` + `concierge` redeployed | 2026-04-19 | Done |
 | ~~**Legacy broadcast can still include Claw agents**: "Provider maestroclaw not supported" error if local executors were in selectedAgentIds~~ ✅ Fixed (2026-05-04, commit `c6ed517`): `provider_group !== 'maestroclaw'` filter added in `useOrchestration.ts` broadcast; early-return guard added when no cloud-eligible agents remain | 2026-04-19 | Done |
 | ~~**ClawCopilot / ClawCodex are not executable yet**~~: ✅ Fixed and smoke-tested — `packages/maestroclaw` now ships `copilot_cli` and `codex_cli` adapters, so capability-aware routing can advertise and claim those jobs when the local CLIs are installed. | 2026-04-21 (validated locally; workers must rebuild/restart to advertise) | Done |
@@ -201,6 +204,32 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-07-06 — Claude Code (claude-fable-5) — C-06 merge gate closed: rework verification, F2/F3 surfacing, first web test suite, README rewrite
+
+**What was done:**
+1. **README.md rewritten** (`88ab26e`) — was frozen at 2026-04-17; now covers Claw shell, deliberation/personas, build pipeline + Conductor, MaestroClaw, memory layers, graphify, grading-lab, agent workflow, security model.
+2. **Acted as merge gate on the task-004 verdict split** (codex + copilot-gpt54 "rework again"; kimi + grok "merge after nits"). Consolidated every blocking finding and closed them:
+   - **Comparator determinism** (`4863d61`): committed the pending code-unit `compareStrings` fix in both reconcilers + anti-locale regression test ("Zeta" beats "alpha"). Sync contract rewritten on both sides; tie-break KEY divergence documented as by-design.
+   - **F2/F3 runtime surfacing** (`12ea1d6`): `getLastManifestCollisions()` finally has consumers — one best-effort `audit_events` row (`event_type: manifest_reconcile`, winner/dropped detail in `metadata`; `audit-log` fn gains validated metadata passthrough) per collision-resolving push; push results carry `manifestCollisions`; BuildWorkspace renders an "Overridden work" panel + folds count into the Collisions StatChip; BuildRunwayCard folds count into its stat and appends overridden paths to the `pr_opened` thread event. R2 wording fixed ("appears N times in the session output").
+   - **F7 web-side tests** (`754a96e`): vitest 4 added (scoped `src/**` so maestroclaw's node:test suite isn't double-collected), `npm test` + CI step. `src/lib/conductor.test.ts` — 20 tests: ranking tiers, collision reports, **cross-module parity fixture** (imports maestroclaw `reconcileManifests` directly; asserts identical winners under every input permutation on the shared tiers — the "shared ranking fixture" copilot's review asked for), `selectReadyTasks` dep gating + F6 first-occurrence lock, `mapTaskPriority` (moved to `src/lib/conductor.ts` for testability).
+   - **R3** (`9a93dcd`): `collectSessionManifest` now always dedups via `mergeSessionManifest` — the no-runs branch previously claimed "last kept" while applying no dedup.
+3. **grading-lab committed** (`2f80ae6`) — task-004 briefs + 5 raw reviewer outputs; first grading corpus for the Rate layer. **graphify-out refreshed** (`19b1498`): 1274 nodes / 2613 edges / 64 communities.
+
+**Verification:** vitest 20/20; maestroclaw node:test 34/34; `npm run typecheck` clean (both packages); `npm run lint` 0 errors / 10 pre-existing warnings; `npm run build` clean. NOT runtime-tested against a live executor (same caveat as 2026-06-26 — smoke test still item #10).
+
+**Accepted residuals (documented, non-blocking):** `collectManifest` omits `conductor_approved` (uniform at patch level, not a differentiator — reviewers accepted as documented); tie-break KEY divergence (web `task_id` / claw input-index — both deterministic, contract documented); R4 empty-lane precedence nit (logged in What's Broken for a Conductor decision).
+
+**Files touched:** `README.md`, `src/lib/conductor.ts`, `src/lib/conductor.test.ts` (new), `src/hooks/useBuildExecution.ts`, `src/components/reveal/BuildWorkspace.tsx`, `src/components/reveal/BuildRunwayCard.tsx`, `supabase/functions/audit-log/index.ts`, `packages/maestroclaw/src/conductor/reconcile.ts`, `packages/maestroclaw/test/reconcile.test.ts`, `vitest.config.ts` (new), `package.json`, `package-lock.json`, `.github/workflows/ci.yml`, `grading-lab/*` (new), `graphify-out/*`, `MAESTRO_STATE.md`
+
+**Decisions made:**
+- vitest include scoped to `src/**` — collecting `packages/maestroclaw/test` under vitest would double-run its node:test files.
+- grading-lab raw outputs are repo history now: they are the seed corpus for the Rate (agent reputation) layer.
+- Strategic sequence proposed to the Conductor this session (written before this machine saw the 07-01 six-week decision; it *converges* with it and extends past week 6): land C-06 → **Rate layer** (grades schema + reputation view; Fable designs scoring math — decay, grader-agreement weighting, cold-start priors) → **MoE-style reputation routing** (concierge dispatches top-k by problem-type reputation instead of broadcast-to-all; builder-lane scoring is the week-3–6 first consumer per the 07-01 decision) → **skills flywheel** (OpenClaw SKILL.md-compatible format) → **sandbox hardening** (OpenClaw fs/net-policy patterns onto P0-1/P0-2). Deliberation becomes an escalation path when graders disagree, not default ceremony. Per the 07-01 wrapper lesson, all reputation keys on *resolved model + harness*.
+
+**What didn't work:** nothing notable; graphify post-commit hook rebuilds run ~1 min in background after every code commit — commit `graphify-out/` last or it stays perpetually dirty.
+
+---
+
 ### 2026-07-01 — Claude Code (claude-fable-5) — Grading Lab founded: task-001 calibration cycle (c-06 review) + graphify on main machine
 
 > ⚠️ **Enterprise-Fable / blind auditors: STOP here** — if you were sent to do the independent c-06 audit (`docs/ENTERPRISE_FABLE_AUDIT.md`), skip this entry until your review is written. It contains results that would unblind you.
@@ -229,6 +258,8 @@ These areas change often and should be re-verified after any significant work se
 - Two stale kimi processes (June 4/23) hold `~/.kimi/logs/kimi.log` → noisy non-fatal rotation errors on every kimi run.
 - Auto-mode classifier blocked agent-run `graphify hook install` twice (persistence); user in-conversation authorization unblocked it.
 
+---
+
 ### 2026-06-26 — Claude Code (claude-opus-4-8) — Graphify knowledge-graph integration + OpenClaw reference clone
 
 **What was done:**
@@ -236,6 +267,7 @@ These areas change often and should be re-verified after any significant work se
 2. **OpenClaw cloned** to `.openclaw/` (gitignored) for assessment. Verdict: **borrow the sandbox/net-policy/fs-policy patterns, do NOT adopt the runtime** — OpenClaw's `VISION.md` explicitly rejects "agent-hierarchy frameworks" and "heavy orchestration layers" (i.e. Maestro's core thesis). Same call as Ruflo. Their sandbox stack (`net-policy`, `sandbox-exec-server`, Docker sandbox, agent-specific mounted-paths) maps directly onto Opus audit P0-1/P0-2 (soft local trust boundary).
 3. **Graphify integration** (claude.ai sprint): installed `graphifyy[mcp]` v0.8.49; resolved two blockers — (a) auto-mode classifier blocks agent-initiated package installs (user ran via `!`); (b) WDAC blocks uv standalone Python `_ssl` DLL → reinstalled against system Python 3.12. Built scoped code-only graph (212 files, 1235 nodes, 2668 edges, 68 communities, zero token cost), generated GRAPH_REPORT.md + graph.html + callflow, labeled 68 communities via `claude-cli`/haiku (user session). Installed git auto-rebuild hooks. Committed `b9dfe7d` + `3a9bc6c`.
 4. **Graph findings**: god node `useMaestro()` (99 edges — confirms Opus's god-context finding); 2 import cycles in maestroclaw adapters; `repo_memory` is loosely coupled (isolated community); **Conductor module (C11) is a structural island, not wired into runIterationLoop (C3)** — corroborates the C-06 gap; **no reputation/scoring community** — agent-grading (Rate) is net-new.
+5. **C-06 Conductor wiring (web layer)** ✅ — finding: the conductor module is build-PLAN-shaped and can't be imported across the Vite/node/Deno boundary (its only consumer was a dead per-loop `createConductorRun([])`); the dispatch loop already does dep-ordered, lane-parallel dispatch (the "2-at-a-time cap" is effectively gone — local uncapped, edge per-lane-throttled *deliberately* for rate limits). So C-06 = new `src/lib/conductor.ts` (faithful frontend mirror of `plan.ts`+`reconcile.ts`) wired into `useBuildExecution.ts`: dep-ready selection (`selectReadyTasks`) replaces the inline filter + **deterministic manifest reconcile (`reconcileManifest`) before `github-execute` — the real P1-4 fix** (was last-write-wins on duplicate paths). typecheck/lint/build clean; NOT runtime-tested (no live executor). On branch `c-06-conductor-web-dispatch` (PR) pending review.
 
 **Files touched:** `.gitignore`, `.graphifyignore` (new), `graphify-out/*` (new), `MAESTRO_STATE.md`. (`.openclaw/` gitignored, not committed.)
 
@@ -245,7 +277,7 @@ These areas change often and should be re-verified after any significant work se
 - Vision captured (collective-intelligence thesis, emergent personas Malakh/Axiom/Ari, Claude+GPT analysis-paralysis loop, grading-is-nearly-free, skill flywheel, local-LLM-as-loyal-spine north star). Sequence agreed: wire Conductor (C-06) → Rate → Skills flywheel → local concierge spine.
 
 **What didn't work / notes:**
-- C-06 Conductor wiring deliberately NOT started (claude.ai handoff: defer until graph review).
+- C-06 Conductor wiring: done this session (web layer) on Michael's explicit go — consciously overriding the claude.ai "defer C-06" handoff, since the graph (their stated precondition) is now built. On branch `c-06-conductor-web-dispatch` pending review/merge. Authoritative server-side P1-4 fix in `github-execute` (Deno) still open — this is the client-side deterministic reconcile.
 - Graphify community *names* drift on AST auto-rebuild (re-run `graphify label . --backend claude-cli --model haiku` to refresh).
 
 ---
