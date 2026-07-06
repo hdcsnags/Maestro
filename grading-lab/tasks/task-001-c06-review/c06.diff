@@ -1,0 +1,202 @@
+diff --git a/MAESTRO_STATE.md b/MAESTRO_STATE.md
+index 6e3aac1..b860ca9 100644
+--- a/MAESTRO_STATE.md
++++ b/MAESTRO_STATE.md
+@@ -208,6 +208,7 @@ These areas change often and should be re-verified after any significant work se
+ 2. **OpenClaw cloned** to `.openclaw/` (gitignored) for assessment. Verdict: **borrow the sandbox/net-policy/fs-policy patterns, do NOT adopt the runtime** — OpenClaw's `VISION.md` explicitly rejects "agent-hierarchy frameworks" and "heavy orchestration layers" (i.e. Maestro's core thesis). Same call as Ruflo. Their sandbox stack (`net-policy`, `sandbox-exec-server`, Docker sandbox, agent-specific mounted-paths) maps directly onto Opus audit P0-1/P0-2 (soft local trust boundary).
+ 3. **Graphify integration** (claude.ai sprint): installed `graphifyy[mcp]` v0.8.49; resolved two blockers — (a) auto-mode classifier blocks agent-initiated package installs (user ran via `!`); (b) WDAC blocks uv standalone Python `_ssl` DLL → reinstalled against system Python 3.12. Built scoped code-only graph (212 files, 1235 nodes, 2668 edges, 68 communities, zero token cost), generated GRAPH_REPORT.md + graph.html + callflow, labeled 68 communities via `claude-cli`/haiku (user session). Installed git auto-rebuild hooks. Committed `b9dfe7d` + `3a9bc6c`.
+ 4. **Graph findings**: god node `useMaestro()` (99 edges — confirms Opus's god-context finding); 2 import cycles in maestroclaw adapters; `repo_memory` is loosely coupled (isolated community); **Conductor module (C11) is a structural island, not wired into runIterationLoop (C3)** — corroborates the C-06 gap; **no reputation/scoring community** — agent-grading (Rate) is net-new.
++5. **C-06 Conductor wiring (web layer)** ✅ — finding: the conductor module is build-PLAN-shaped and can't be imported across the Vite/node/Deno boundary (its only consumer was a dead per-loop `createConductorRun([])`); the dispatch loop already does dep-ordered, lane-parallel dispatch (the "2-at-a-time cap" is effectively gone — local uncapped, edge per-lane-throttled *deliberately* for rate limits). So C-06 = new `src/lib/conductor.ts` (faithful frontend mirror of `plan.ts`+`reconcile.ts`) wired into `useBuildExecution.ts`: dep-ready selection (`selectReadyTasks`) replaces the inline filter + **deterministic manifest reconcile (`reconcileManifest`) before `github-execute` — the real P1-4 fix** (was last-write-wins on duplicate paths). typecheck/lint/build clean; NOT runtime-tested (no live executor). On branch `c-06-conductor-web-dispatch` (PR) pending review.
+ 
+ **Files touched:** `.gitignore`, `.graphifyignore` (new), `graphify-out/*` (new), `MAESTRO_STATE.md`. (`.openclaw/` gitignored, not committed.)
+ 
+@@ -217,7 +218,7 @@ These areas change often and should be re-verified after any significant work se
+ - Vision captured (collective-intelligence thesis, emergent personas Malakh/Axiom/Ari, Claude+GPT analysis-paralysis loop, grading-is-nearly-free, skill flywheel, local-LLM-as-loyal-spine north star). Sequence agreed: wire Conductor (C-06) → Rate → Skills flywheel → local concierge spine.
+ 
+ **What didn't work / notes:**
+-- C-06 Conductor wiring deliberately NOT started (claude.ai handoff: defer until graph review).
++- C-06 Conductor wiring: done this session (web layer) on Michael's explicit go — consciously overriding the claude.ai "defer C-06" handoff, since the graph (their stated precondition) is now built. On branch `c-06-conductor-web-dispatch` pending review/merge. Authoritative server-side P1-4 fix in `github-execute` (Deno) still open — this is the client-side deterministic reconcile.
+ - Graphify community *names* drift on AST auto-rebuild (re-run `graphify label . --backend claude-cli --model haiku` to refresh).
+ 
+ ---
+diff --git a/src/hooks/useBuildExecution.ts b/src/hooks/useBuildExecution.ts
+index 45c11c4..5f530b1 100644
+--- a/src/hooks/useBuildExecution.ts
++++ b/src/hooks/useBuildExecution.ts
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
+ import { invokeEdgeFunction } from '../lib/functions';
+ import { supabase } from '../lib/supabase';
+ import { sumBuildCost } from '../lib/cost';
++import { selectReadyTasks, reconcileManifest } from '../lib/conductor';
+ import {
+   applyArtifactPayloadToBuffer,
+   cancelBuildSessionJob,
+@@ -1426,25 +1427,9 @@ export function useBuildExecution() {
+       // Allow up to 3 consecutive no-progress waves before aborting.
+       let noProgressWaves = 0;
+       while (noProgressWaves < 3) {
+-        // Find tasks ready to dispatch
+-        const ready = currentTasks.filter(t => {
+-          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+-          // Check dependencies
+-          if (t.dependencies && t.dependencies.length > 0) {
+-            const depsComplete = t.dependencies.every(depId =>
+-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
+-            );
+-            if (!depsComplete) {
+-              // Check if deps are failed/skipped — unblock if so
+-              const depsResolved = t.dependencies.every(depId => {
+-                const dep = currentTasks.find(d => d.task_id === depId);
+-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+-              });
+-              if (!depsResolved) return false;
+-            }
+-          }
+-          return true;
+-        });
++        // Find tasks ready to dispatch — dependency-ordered selection now lives
++        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
++        const ready = selectReadyTasks(currentTasks);
+ 
+         if (ready.length === 0) break;
+         if (abortRef.current) break;
+@@ -1567,14 +1552,32 @@ export function useBuildExecution() {
+   // ── Collect completed tasks into file_manifest format ────────────────
+ 
+   const collectManifest = useCallback(() => {
+-    return tasksRef.current
++    const completed = tasksRef.current
+       .filter(t => t.status === 'completed' && t.result_content)
+       .map(t => ({
+         path: t.file_path,
+         content: t.result_content!,
+         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+-        content_hash: null,
++        content_hash: null as string | null,
++        // lane_name drives the Conductor's deterministic collision tie-break.
++        lane_name: t.lane_owner ?? '',
+       }));
++
++    // P1-4: resolve duplicate-path entries to a single deterministic winner
++    // instead of letting github-execute fall back to last-write-wins on collisions.
++    const { resolved, collisions } = reconcileManifest(completed);
++    if (collisions.length > 0) {
++      console.warn(
++        `[Conductor] reconciled ${collisions.length} path collision(s) before push: ` +
++        collisions.map(c => `${c.path} → lane "${c.winner.lane_name}" (dropped ${c.overridden.length})`).join('; '),
++      );
++    }
++    return resolved.map(e => ({
++      path: e.path,
++      content: e.content,
++      operation: e.operation,
++      content_hash: e.content_hash,
++    }));
+   }, []);
+ 
+   const pushTaskBuildToGithub = useCallback(async () => {
+diff --git a/src/lib/conductor.ts b/src/lib/conductor.ts
+new file mode 100644
+index 0000000..1f3ba9d
+--- /dev/null
++++ b/src/lib/conductor.ts
+@@ -0,0 +1,99 @@
++// Conductor logic for the web build-dispatch layer.
++//
++// This is a faithful FRONTEND MIRROR of `packages/maestroclaw/src/conductor/`
++// (`plan.ts` + `reconcile.ts`). The maestroclaw conductor is a Node package and
++// cannot be imported into the Vite browser bundle (nor into the Deno edge
++// functions), so the same deterministic plan + reconcile semantics live here.
++// KEEP THIS IN SYNC with the maestroclaw module — same ranking, same rules.
++//
++// C-06: wires the Conductor into `useBuildExecution.ts` so dependency-ordered
++// dispatch and deterministic collision reconcile are real in the web layer
++// instead of inline/ad-hoc.
++
++export type TaskPriority = 'P0' | 'P1' | 'P2';
++
++// ── Dependency-ordered ready selection (mirror of plan.getReadyEntries) ──────
++
++export interface ReadyTask {
++  task_id: string;
++  status: string;
++  dependencies?: string[] | null;
++}
++
++// A task is ready to dispatch when it is queued/rerouted AND every dependency
++// has reached a terminal state. `completed` unblocks normally; `failed`/`skipped`
++// also unblock so a dead dependency can't stall the frontier forever.
++export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
++  const byId = new Map(tasks.map((t) => [t.task_id, t]));
++  return tasks.filter((t) => {
++    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
++    const deps = t.dependencies ?? [];
++    if (deps.length === 0) return true;
++    return deps.every((depId) => {
++      const dep = byId.get(depId);
++      return !!dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
++    });
++  });
++}
++
++// ── Deterministic manifest reconcile (mirror of reconcile.ts — fixes P1-4) ───
++
++export interface ManifestCandidate {
++  path: string;
++  lane_name?: string;
++  priority?: TaskPriority;
++  conductor_approved?: boolean;
++}
++
++export interface ManifestCollision<T extends ManifestCandidate> {
++  path: string;
++  winner: T;
++  overridden: T[];
++}
++
++export interface ReconcileResult<T extends ManifestCandidate> {
++  resolved: T[];
++  collisions: ManifestCollision<T>[];
++}
++
++const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 1, P1: 2, P2: 3 };
++
++// Lower rank wins a path collision: conductor_approved first, then priority,
++// then lane_name lexicographic as a deterministic, stable tie-break.
++function rankCandidate(entry: ManifestCandidate): number {
++  if (entry.conductor_approved) return 0;
++  const pRank = PRIORITY_RANK[entry.priority ?? 'P1'] ?? 2;
++  return pRank * 1000 + (entry.lane_name?.codePointAt(0) ?? 0);
++}
++
++// Resolve duplicate-path entries to a single deterministic winner per path,
++// preserving input order for non-colliding entries. Returns the resolved
++// manifest plus a report of every collision (winner + overridden) for logging.
++export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
++  const byPath = new Map<string, T[]>();
++  for (const entry of entries) {
++    const group = byPath.get(entry.path) ?? [];
++    group.push(entry);
++    byPath.set(entry.path, group);
++  }
++
++  const resolved: T[] = [];
++  const collisions: ManifestCollision<T>[] = [];
++  const seen = new Set<string>();
++
++  for (const entry of entries) {
++    const group = byPath.get(entry.path);
++    if (!group || group.length === 1) {
++      resolved.push(entry);
++      continue;
++    }
++    if (seen.has(entry.path)) continue;
++    seen.add(entry.path);
++    const sorted = [...group].sort((a, b) => rankCandidate(a) - rankCandidate(b));
++    const [winner, ...overridden] = sorted;
++    resolved.push(winner);
++    collisions.push({ path: entry.path, winner, overridden });
++  }
++
++  return { resolved, collisions };
++}

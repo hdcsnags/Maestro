@@ -1,0 +1,77 @@
+{
+  "grader": "copilot",
+  "letter_to_model": {
+    "A": "codex",
+    "B": "grok",
+    "C": "copilot",
+    "D": "kimi",
+    "E": "copilot-gpt54"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "correctness": 8,
+      "coverage": 7,
+      "precision": 8,
+      "judgment": 7,
+      "overall": 7,
+      "justification": "Compact and accurate: the dead ranking-inputs finding, the first-codepoint tie-break (with a verified trace to created_at row ordering at lines 327/1396), and a solid mirror-divergence list including the unknown-dep permanent block and operation-type drift. Its weakness is framing finding 3 (failed/skipped deps unblock) as a major defect with a real-world consequence without noting the removed inline filter had identical semantics \u2014 so it is a mirror divergence, not a regression \u2014 and its P1-4 section slightly overstates by calling the result 'not deterministic' when it is deterministic-but-arbitrary. Verdict of rework required is well proportioned.",
+      "model": "codex"
+    },
+    {
+      "candidate": "B",
+      "correctness": 9,
+      "coverage": 9,
+      "precision": 9,
+      "judgment": 9,
+      "overall": 8,
+      "justification": "Thorough and essentially error-free. Catches the missing ranking inputs, the first-codepoint bug, and \u2014 crucially \u2014 correctly downgrades the failed/skipped divergence to minor because it is behavior-preserving versus the removed inline filter, which is the right severity call. Verifies the NaN-vs-0 empty-lane divergence, notes patch-level conductor_approved never reaches per-entry ranking, flags absent tests against the KEEP-IN-SYNC contract, and gives a precise P1-4 scorecard distinguishing symptom fix from policy fix. Concrete, actionable rework list. Missed only a few of C's deeper edge cases (non-ASCII priority inversion, operation-blind delete/create, same-lane ties).",
+      "model": "grok"
+    },
+    {
+      "candidate": "C",
+      "correctness": 9,
+      "coverage": 10,
+      "precision": 9,
+      "judgment": 9,
+      "overall": 9,
+      "justification": "The most complete and deepest review; every claim I checked against the code is correct, including uniquely-found real defects: the pRank*1000 overflow causing priority inversion for non-ASCII lane names, same-lane collisions (the likeliest real case) resolving by array order, priority being a number so even naive pass-through would miss PRIORITY_RANK, operation-blind delete-vs-create resolution, the create\u2192upsert collapse at line 1621, and the empty-lane rank-0-vs-NaN divergence with correct NaN sort analysis. Correctly distinguishes divergences from regressions, ties findings to consequences, surfaces the still-silent data-loss angle, and gives a prioritized, proportionate rework plan. Only tiny dings: a couple of references (audit_events, 'Rule 2') lean on context outside the provided package.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "D",
+      "correctness": 6,
+      "coverage": 4,
+      "precision": 6,
+      "judgment": 6,
+      "overall": 5,
+      "justification": "What it reports is largely correct \u2014 dead ranking inputs, non-lexicographic tie-break, and API-surface divergences \u2014 but it affirmatively asserts that selectReadyTasks is 'semantically faithful' to getReadyEntries with only vocabulary differences, which is false: it misses the failed/skipped-dependency unblock divergence and the unknown-dep permanent-block divergence entirely, the very things the task asked reviewers to verify. That false faithfulness claim is a correctness error, not just a coverage gap, and would give a maintainer false sync confidence. The verdict and fix list are reasonable but the review is the thinnest and contains sloppy typos.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "E",
+      "correctness": 7,
+      "coverage": 6,
+      "precision": 7,
+      "judgment": 7,
+      "overall": 6,
+      "justification": "Hits the two core issues (missing priority/conductor_approved inputs; first-codepoint tie-break) and a decent mirror-divergence list including the invalid-dep-id block and the omitted plan lifecycle functions. However, finding 2 states downstream tasks 'can now proceed' after failed/skipped prerequisites, wrongly implying a regression \u2014 the removed inline filter behaved identically \u2014 and rates it major on that basis, a real precision/severity error. The P1-4 assessment ('only partially deterministic') slightly misdiagnoses determinism versus arbitrariness. Overall sound but noticeably thinner than A/B/C, with a terse verdict rationale.",
+      "model": "copilot-gpt54"
+    }
+  ],
+  "ranking_letters": [
+    "C",
+    "B",
+    "A",
+    "E",
+    "D"
+  ],
+  "ranking_models": [
+    "copilot",
+    "grok",
+    "codex",
+    "copilot-gpt54",
+    "kimi"
+  ],
+  "self_rank": 1
+}

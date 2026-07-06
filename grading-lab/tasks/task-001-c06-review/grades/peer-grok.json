@@ -1,0 +1,77 @@
+{
+  "grader": "grok",
+  "letter_to_model": {
+    "A": "codex",
+    "B": "copilot",
+    "C": "kimi",
+    "D": "grok",
+    "E": "copilot-gpt54"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "correctness": 8,
+      "coverage": 8,
+      "precision": 7,
+      "judgment": 8,
+      "overall": 8,
+      "justification": "Correctly verifies that collectManifest omits priority and conductor_approved so reconcile degenerates to lane-based tie-breaks, and that rankCandidate uses only the first code point rather than lexicographic comparison. The mirror-faithfulness and partial P1-4 analyses are sound. Finding 3 is real for maestroclaw divergence but overstated as a new web-layer defect: the replaced inline filter already unblocked on failed/skipped dependencies, so it is not a regression introduced by this commit.",
+      "model": "codex"
+    },
+    {
+      "candidate": "B",
+      "correctness": 10,
+      "coverage": 10,
+      "precision": 9,
+      "judgment": 10,
+      "overall": 10,
+      "justification": "The most thorough and accurate review. Every major finding checks out against the code: missing ranking inputs in collectManifest, first-code-point tie-break with stable-sort fallback to task order, failed/skipped dependency semantics diverging from maestroclaw while preserving prior inline behavior, unknown-dep permanent stall, empty lane_name winning, non-ASCII priority inversion, and patch-level conductor_approved not reaching per-entry ranking. Mirror-faithfulness and P1-4 assessments are nuanced and proportionate, with a well-argued rework-required verdict and concrete remediation steps.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "C",
+      "correctness": 6,
+      "coverage": 6,
+      "precision": 5,
+      "judgment": 6,
+      "overall": 6,
+      "justification": "Correctly identifies the missing priority/conductor_approved inputs and the first-code-point tie-break, and reaches an appropriate rework-required verdict. However, it falsely claims selectReadyTasks is semantically faithful to getReadyEntries despite the failed/skipped versus done-only dependency divergence, which undermines the mirror assessment. Coverage is thinner than peers: it downgrades the tie-break to minor, omits unknown-dep behavior, empty-lane handling, and caller data-shape issues such as numeric priority versus TaskPriority.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "D",
+      "correctness": 9,
+      "coverage": 8,
+      "precision": 9,
+      "judgment": 9,
+      "overall": 9,
+      "justification": "Strong, well-calibrated review with verified major findings on missing ranking metadata and the non-lexicographic tie-break. Correctly notes failed/skipped unblocking is a mirror divergence but not a regression versus the removed inline filter, and accurately assesses P1-4 as symptom-fixed but policy-incomplete. Slightly less comprehensive than B on edge cases (non-ASCII priority inversion, same-lane collisions, silent user-visible data loss, numeric priority mapping), and the missing-tests point is process advice rather than a code defect.",
+      "model": "grok"
+    },
+    {
+      "candidate": "E",
+      "correctness": 7,
+      "coverage": 6,
+      "precision": 7,
+      "judgment": 7,
+      "overall": 7,
+      "justification": "Concise and mostly accurate on the core P1-4 gap (collectManifest only passes lane_name) and the first-code-point tie-break bug. The failed/skipped dependency finding is valid as a mirror-faithfulness issue but framed as a new web behavior change without acknowledging the old inline filter had the same unblock semantics. Coverage is limited relative to stronger reviews, missing several verified edge cases and caller wiring details.",
+      "model": "copilot-gpt54"
+    }
+  ],
+  "ranking_letters": [
+    "B",
+    "D",
+    "A",
+    "E",
+    "C"
+  ],
+  "ranking_models": [
+    "copilot",
+    "grok",
+    "codex",
+    "copilot-gpt54",
+    "kimi"
+  ],
+  "self_rank": 2
+}

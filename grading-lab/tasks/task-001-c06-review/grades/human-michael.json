@@ -1,0 +1,23 @@
+{
+  "grader": "michael (human anchor)",
+  "date": "2026-07-01",
+  "blind": true,
+  "mapping_seed": 99260701,
+  "ranking_letters": ["C", "E", "B", "D", "A"],
+  "ranking_models": ["copilot", "codex", "grok", "copilot-gpt54", "kimi"],
+  "numeric_scores": null,
+  "notes": {
+    "C (copilot / claude-fable-5)": "best overall; caught something none of the others did (verified: non-ASCII priority inversion, unknown-dep permanent stall, empty-lane-wins)",
+    "E (codex / gpt-5.5)": "second; on par with C but tighter, may not have caught everything extra",
+    "B (grok)": "very well organized",
+    "D (copilot-gpt54)": "fourth",
+    "A (kimi / K2.7)": "probably the weakest"
+  },
+  "agreement_vs_peer_consensus": {
+    "peer_consensus": ["copilot", "grok", "codex", "copilot-gpt54", "kimi"],
+    "spearman_rho": 0.9,
+    "kendall_tau": 0.8,
+    "difference": "single adjacent swap: human puts codex 2nd / grok 3rd; peers the reverse"
+  },
+  "model_guess_attempts": "guessed B might be OpenAI (was grok); wondered if A or D was Gemini (Gemini was not in the set)"
+}

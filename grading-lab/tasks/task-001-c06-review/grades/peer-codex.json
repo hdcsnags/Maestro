@@ -1,0 +1,77 @@
+{
+  "grader": "codex",
+  "letter_to_model": {
+    "A": "copilot",
+    "B": "kimi",
+    "C": "grok",
+    "D": "codex",
+    "E": "copilot-gpt54"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "correctness": 9,
+      "coverage": 10,
+      "precision": 8,
+      "judgment": 9,
+      "overall": 9,
+      "justification": "Candidate A verifies the central defects against the actual caller and mirror sources: missing ranking inputs in collectManifest, first-code-point tie-breaking, dependency semantics divergence from maestroclaw, unknown dependency behavior, empty lane handling, and weak collision visibility. Most claims are real and well contextualized, including noting which issues are pre-existing rather than regressions. A few points are lower-impact or somewhat speculative, such as operation-blind resolution and some determinism framing, but the review has the best coverage and proportional verdict.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "B",
+      "correctness": 6,
+      "coverage": 5,
+      "precision": 6,
+      "judgment": 5,
+      "overall": 5,
+      "justification": "Candidate B catches the most important P1-4 caller bug and the first-code-point tie-break issue, but it incorrectly says selectReadyTasks is semantically faithful to maestroclaw getReadyEntries even though the web version unblocks on failed/skipped dependencies and lacks buildPlan's invalid-dependency pruning. It also downplays several mirror divergences as API-only and misses important consequences around dependency semantics and unknown deps. The rework verdict is right, but the mirror-faithfulness assessment is materially flawed.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "C",
+      "correctness": 9,
+      "coverage": 8,
+      "precision": 9,
+      "judgment": 8,
+      "overall": 8,
+      "justification": "Candidate C accurately identifies the missing priority/conductor_approved inputs, the non-lexicographic lane tie-break, the failed/skipped dependency divergence, empty lane divergence, and the need for sync tests. It correctly separates behavior-preserving web dispatch from the false mirror claim and gives a balanced P1-4 assessment. It misses some secondary issues such as user/audit visibility of collisions and unknown dependencies is discussed mainly in the assessment, but overall it is precise and well judged.",
+      "model": "grok"
+    },
+    {
+      "candidate": "D",
+      "correctness": 8,
+      "coverage": 8,
+      "precision": 7,
+      "judgment": 7,
+      "overall": 7,
+      "justification": "Candidate D catches the core P1-4 gap, the first-code-point tie-break, and the maestroclaw dependency divergence, and it gives a useful mirror inventory including invalid dependency IDs and collision report shape. Its main weakness is precision: it treats the failed/skipped dependency behavior as a major runtime regression even though the removed inline filter already did that, and it overstates the determinism problem by conflating incidental row order with nondeterminism. The verdict is still sound.",
+      "model": "codex"
+    },
+    {
+      "candidate": "E",
+      "correctness": 8,
+      "coverage": 7,
+      "precision": 7,
+      "judgment": 7,
+      "overall": 6,
+      "justification": "Candidate E identifies the two central collision-resolution defects and the dependency-semantics mirror divergence, and it notes invalid dependency IDs and missing candidates in the mirror assessment. It is concise and mostly accurate, but it has less coverage than the stronger reviews, overstates the failed/skipped behavior as a new runtime issue rather than a preserved web behavior, and its P1-4 analysis is less nuanced about what is deterministic for a fixed task order versus what is policy-correct.",
+      "model": "copilot-gpt54"
+    }
+  ],
+  "ranking_letters": [
+    "A",
+    "C",
+    "D",
+    "E",
+    "B"
+  ],
+  "ranking_models": [
+    "copilot",
+    "grok",
+    "codex",
+    "copilot-gpt54",
+    "kimi"
+  ],
+  "self_rank": 3
+}

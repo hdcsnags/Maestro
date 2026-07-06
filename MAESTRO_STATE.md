@@ -224,9 +224,39 @@ These areas change often and should be re-verified after any significant work se
 **Decisions made:**
 - vitest include scoped to `src/**` — collecting `packages/maestroclaw/test` under vitest would double-run its node:test files.
 - grading-lab raw outputs are repo history now: they are the seed corpus for the Rate (agent reputation) layer.
-- Strategic sequence confirmed with the Conductor this session: land C-06 → **Rate layer** (grades schema + reputation view; Fable designs scoring math) → **MoE-style reputation routing** (concierge dispatches top-k by problem-type reputation instead of broadcast-to-all) → **skills flywheel** (OpenClaw SKILL.md-compatible format) → **sandbox hardening** (OpenClaw fs/net-policy patterns onto P0-1/P0-2). Deliberation becomes an escalation path when graders disagree, not default ceremony.
+- Strategic sequence proposed to the Conductor this session (written before this machine saw the 07-01 six-week decision; it *converges* with it and extends past week 6): land C-06 → **Rate layer** (grades schema + reputation view; Fable designs scoring math — decay, grader-agreement weighting, cold-start priors) → **MoE-style reputation routing** (concierge dispatches top-k by problem-type reputation instead of broadcast-to-all; builder-lane scoring is the week-3–6 first consumer per the 07-01 decision) → **skills flywheel** (OpenClaw SKILL.md-compatible format) → **sandbox hardening** (OpenClaw fs/net-policy patterns onto P0-1/P0-2). Deliberation becomes an escalation path when graders disagree, not default ceremony. Per the 07-01 wrapper lesson, all reputation keys on *resolved model + harness*.
 
 **What didn't work:** nothing notable; graphify post-commit hook rebuilds run ~1 min in background after every code commit — commit `graphify-out/` last or it stays perpetually dirty.
+
+---
+
+### 2026-07-01 — Claude Code (claude-fable-5) — Grading Lab founded: task-001 calibration cycle (c-06 review) + graphify on main machine
+
+> ⚠️ **Enterprise-Fable / blind auditors: STOP here** — if you were sent to do the independent c-06 audit (`docs/ENTERPRISE_FABLE_AUDIT.md`), skip this entry until your review is written. It contains results that would unblind you.
+
+**What was done:**
+1. **Git sync**: fast-forwarded 3 commits to `86d5391` (other-laptop Graphify session). Graphify v0.9.4 installed on this machine (`uv tool install graphifyy`); post-commit/post-checkout hooks installed.
+2. **Grading Lab founded** (`grading-lab/PROTOCOL.md`): empirical calibration of the peer-grading loop before Rate ships it. Conductor = Claude Code (Fable); workers/graders = local model CLIs dispatched headless from one window (the "local Maestro v0" pattern — no new Maestro code needed to run council experiments).
+3. **task-001 (review c-06 commit `22a04a1`) complete end-to-end**: 5 workers (codex/gpt-5.5, copilot/auto→**claude-fable-5**, copilot/gpt-5.4, grok, kimi/K2.7) + conductor review + 5 blind peer graders (per-grader shuffles, isolated views) + human anchor grade (blind, fresh shuffle). Results in `grading-lab/tasks/task-001-c06-review/` (grades/, meta.json).
+4. **Headline findings**: (a) verdict unanimous 6/6 — **c-06 needs rework** (starved ranking inputs in `collectManifest`; `codePointAt(0)` tie-break ≠ documented lexicographic — bug inherited from maestroclaw `reconcile.ts`; mirror divergences incl. failed/skipped-unblock, unknown-dep stall, empty-lane-wins, non-ASCII priority inversion). (b) Grading stability high: 4/5 identical peer rankings across different shuffles; no position bias; no self-preference (inverted if anything); human anchor Spearman 0.90 vs peer consensus. (c) **Wrapper lesson**: copilot "auto" resolved to claude-fable-5 — roster/reputation must key on *resolved model + harness*, not CLI; harness-Fable (conductor) missed 3 findings wrapper-Fable caught.
+5. **Prompt-steering caveat (honest)**: TASK.md deliverable q3 leaked a conductor prior toward finding #1 (see meta.json `prompt_steering_note`); all other findings unhinted. Protocol fixed for task-002: spec authored before conductor forms opinions.
+6. **Adapter quirks learned** (recorded in meta.json): codex needs stdin closed + `--skip-git-repo-check`; kimi needs `PYTHONIOENCODING=utf-8` when piped on Windows; gemini standalone CLI dead for individuals (use Antigravity `agy` CLI — headless `-p` — or `GEMINI_API_KEY`); copilot `--model` selects hosted models.
+
+**Files touched:** `grading-lab/**` (new), `docs/MAESTRO_PHILOSOPHY.md` (committed; Sakana-not-Sakura fix), `docs/ENTERPRISE_FABLE_AUDIT.md` (new), `MAESTRO_STATE.md`.
+
+**Decisions made:**
+- **c-06 rework deliberately deferred** until enterprise-Fable's independent audit (same commit, different harness — the comparison requires an unmodified branch). Rework list is the merged 6-review fix-list; then merge to main.
+- task-002 = subjective direction-memo brainstorm (no right answer) to test grader stability on non-legible tasks — code review has "legible right-and-wrong-ness"; grading may destabilize without it.
+- Grading data lives in-repo (`grading-lab/`) → syncs across machines, feeds future pattern-library RAG.
+
+**Six-week direction decided (task-002 outcome, end of session):**
+- **Adopted: the copilot/fable-5 memo's Rate-v1 plan, with the grok memo's trust-spine prerequisite pulled forward.** Weeks 1–2: trust spine (c-06 rework per the 7-review fix-list, local build E2E smoke, `approved-shell` injection fix). Weeks 3–6: Rate v1 thin (grades schema keyed on resolved model + harness, post-round blind grading, builder-lane scoring as first consumer).
+- **Precision note (per claude.ai review):** this is NOT a synthesis that satisfies both memos on their own terms — grok's actual bet was "defer Rate entirely this cycle" and that was **not adopted**. Logged as: picked D's plan, absorbed B's prerequisite. Future re-reads should not assume grok's recommendation won; its memo won the *grading*, not the roadmap.
+- Rubric change for task-003+: split "argument soundness" and "writing quality" into separate axes (surfaced by the human anchor ranking grok #1 on writing while doubting its argument).
+
+**What didn't work / notes:**
+- Two stale kimi processes (June 4/23) hold `~/.kimi/logs/kimi.log` → noisy non-fatal rotation errors on every kimi run.
+- Auto-mode classifier blocked agent-run `graphify hook install` twice (persistence); user in-conversation authorization unblocked it.
 
 ---
 

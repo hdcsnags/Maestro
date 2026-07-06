@@ -1,0 +1,77 @@
+{
+  "grader": "copilot-gpt54",
+  "letter_to_model": {
+    "A": "codex",
+    "B": "kimi",
+    "C": "copilot-gpt54",
+    "D": "copilot",
+    "E": "grok"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "correctness": 7,
+      "coverage": 7,
+      "precision": 7,
+      "judgment": 7,
+      "overall": 7,
+      "justification": "Catches the two most important real problems: the caller never supplies `priority`/`conductor_approved`, and the lane tie-break is only first-code-point. It also notices real mirror divergences such as failed/skipped deps and invalid-dependency handling. The main weakness is judgment/precision: it overstates the P1-4 result as not deterministic, when the new path is at least more deterministic than before for a fixed task order, and it treats some mirror differences more like shipping defects than behavior-preserving divergences.",
+      "model": "codex"
+    },
+    {
+      "candidate": "B",
+      "correctness": 8,
+      "coverage": 7,
+      "precision": 8,
+      "judgment": 8,
+      "overall": 8,
+      "justification": "Strong, high-signal review. It verifies the central end-to-end bug correctly, explains why the claimed ranking policy is dead code in practice, and accurately calls out the first-character tie-break and the client-only nature of the P1-4 mitigation. It still leans a bit hard on the failed/skipped dependency divergence as a major issue even though that behavior matches the removed inline filter, and it misses some secondary concerns, but overall it is precise and well judged.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "C",
+      "correctness": 6,
+      "coverage": 6,
+      "precision": 5,
+      "judgment": 5,
+      "overall": 5,
+      "justification": "Finds the most important issue around dropped ranking metadata and correctly notes the first-character tie-break, but it is internally inconsistent about mirror faithfulness: it flags the failed/skipped dependency divergence as a finding, then later says `selectReadyTasks` is semantically faithful to `getReadyEntries`, which is not true. That contradiction hurts both precision and judgment, and the coverage is only moderate beyond the main P1-4 path.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "D",
+      "correctness": 8,
+      "coverage": 9,
+      "precision": 7,
+      "judgment": 9,
+      "overall": 9,
+      "justification": "Best review of the set. It identifies the key end-to-end defect, explains the practical effect of the first-code-point ranking bug, distinguishes real regressions from behavior-preserving divergences, and gives the clearest mirror-faithfulness analysis. It also has the strongest verdict/judgment around this being a mitigation rather than the authoritative P1-4 fix. A few lower-priority findings are somewhat speculative or edge-casey, so it is not perfect on precision, but it is still the strongest overall.",
+      "model": "copilot"
+    },
+    {
+      "candidate": "E",
+      "correctness": 6,
+      "coverage": 8,
+      "precision": 5,
+      "judgment": 6,
+      "overall": 6,
+      "justification": "Good coverage of the major themes: missing ranking inputs, first-character tie-break, mirror divergence, and the client-side-only nature of the P1-4 change. It also gives a balanced verdict. However, it adds weaker findings like lack of tests and a MAESTRO_STATE note that are not concrete code defects in this commit, which lowers precision, and some of its mirror commentary blurs adaptation with true semantic equivalence.",
+      "model": "grok"
+    }
+  ],
+  "ranking_letters": [
+    "D",
+    "B",
+    "A",
+    "E",
+    "C"
+  ],
+  "ranking_models": [
+    "copilot",
+    "kimi",
+    "codex",
+    "grok",
+    "copilot-gpt54"
+  ],
+  "self_rank": 5
+}

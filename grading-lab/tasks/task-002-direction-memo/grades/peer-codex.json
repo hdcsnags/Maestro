@@ -1,0 +1,77 @@
+{
+  "grader": "codex",
+  "letter_to_model": {
+    "A": "copilot-gpt54",
+    "B": "kimi",
+    "C": "grok",
+    "D": "codex",
+    "E": "copilot"
+  },
+  "grades": [
+    {
+      "candidate": "A",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 7,
+      "actionability": 7,
+      "overall": 7,
+      "justification": "Strong memo that correctly identifies the gap between Maestro's philosophy and the evidence: no reputation/scoring community, Conductor not wired, and grading still emerging. It commits clearly to a closed learning loop and handles deferrals honestly. The main weakness is concreteness: the proposed lane, data model, and execution mechanics stay relatively high-level compared with stronger candidates, so a team could start but would still need to design much of the implementation.",
+      "model": "copilot-gpt54"
+    },
+    {
+      "candidate": "B",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 7,
+      "actionability": 8,
+      "overall": 8,
+      "justification": "Well-grounded in the central contradiction: Rate is described as the engine but does not exist operationally. The memo makes a clear Rate-layer bet and gives useful first steps around persistence, roster selection, and Conductor feedback. It is slightly less sharp on current operational constraints than the best memos and leans into an A/B framing that may be optimistic for the project's likely usage volume, but the decision is coherent and executable.",
+      "model": "kimi"
+    },
+    {
+      "candidate": "C",
+      "grounding": 10,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 10,
+      "overall": 10,
+      "justification": "The strongest memo. It reads the evidence closely, catches contradictions such as PRO-02 listed as working while pending, distinguishes smoke-tested/code-verified claims from repeatable product behavior, and makes a defensible counter-bet: close the local build loop before Rate. Its tradeoffs are explicit, especially the cost of deferring the grading thesis, and its first steps are operationally precise down to known C-06 defects, test cases, artifact-to-GitHub wiring, and a smoke harness. Even if one prefers the Rate bet, this is the best-argued judgment.",
+      "model": "grok"
+    },
+    {
+      "candidate": "D",
+      "grounding": 8,
+      "decision_quality": 8,
+      "insight": 8,
+      "actionability": 8,
+      "overall": 8,
+      "justification": "A balanced and thoughtful memo that combines the Rate thesis with a narrow golden-path build workflow. It correctly emphasizes resolved model plus harness identity, outcome memory, and the risk that grading becomes a vanity scoreboard. Its main limitation is that the bet is a little less forceful than C or E: it wants Rate, local build instrumentation, routing, and security signals in the same six-week frame, which is plausible but less ruthlessly sequenced.",
+      "model": "codex"
+    },
+    {
+      "candidate": "E",
+      "grounding": 9,
+      "decision_quality": 9,
+      "insight": 9,
+      "actionability": 9,
+      "overall": 9,
+      "justification": "Very strong, specific, and opinionated. It uses concrete evidence from the state file and graph report, calls out the false v2 grading-loop claim, the manual nature of grading-lab, Conductor isolation, untested Claw-to-GitHub, and open security blockers. The Rate-first bet is crisp, and the schema/write-path/consumer steps are actionable. It slightly overstates that task-001 means the risky science is done, and it may underweight the need to stabilize the local build substrate first, but it is still a high-quality strategic memo.",
+      "model": "copilot"
+    }
+  ],
+  "ranking_letters": [
+    "C",
+    "E",
+    "D",
+    "B",
+    "A"
+  ],
+  "ranking_models": [
+    "grok",
+    "copilot",
+    "codex",
+    "kimi",
+    "copilot-gpt54"
+  ],
+  "self_rank": 3
+}
