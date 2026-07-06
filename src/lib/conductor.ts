@@ -93,11 +93,29 @@ export interface ReconcileResult<T extends ManifestCandidate> {
 
 const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 0, P1: 1, P2: 2 };
 
+// Deterministic, environment-independent string order (UTF-16 code unit).
+// NOT String.localeCompare — its default locale/collation varies across
+// runtimes, so the browser (this module) and Node (maestroclaw) could order the
+// same lane names differently, defeating the whole point of a deterministic
+// reconcile. Code-unit order is identical everywhere. KEEP THIS IDENTICAL to
+// maestroclaw reconcile.ts `compareStrings`.
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 // Total ordering over collision candidates; lower sorts first (wins the path).
 // Tiers in order: conductor_approved, then priority, then lane_name (full
-// lexicographic), then tie_break (stable final key). Every tier is a real
-// comparison — no arithmetic band-packing that could overflow on non-ASCII
+// code-unit comparison), then tie_break (stable final key). Every tier is a
+// real comparison — no arithmetic band-packing that could overflow on non-ASCII
 // lane names.
+//
+// SYNC CONTRACT with maestroclaw reconcile.ts: the first three tiers
+// (approved → priority → lane_name) are identical and MUST stay so. The final
+// tie-break KEY differs by design: this web module uses `tie_break` (task_id)
+// because its input order comes from DB rows (`created_at`, no secondary sort =
+// unstable), whereas maestroclaw uses input index because its caller controls a
+// stable array order. Both are deterministic; they only differ for a collision
+// that ties on approval AND priority AND lane_name (same-lane retries).
 function compareCandidates(a: ManifestCandidate, b: ManifestCandidate): number {
   const approved = (a.conductor_approved ? 0 : 1) - (b.conductor_approved ? 0 : 1);
   if (approved !== 0) return approved;
@@ -105,10 +123,10 @@ function compareCandidates(a: ManifestCandidate, b: ManifestCandidate): number {
   const priority = (PRIORITY_RANK[a.priority ?? 'P1'] ?? 1) - (PRIORITY_RANK[b.priority ?? 'P1'] ?? 1);
   if (priority !== 0) return priority;
 
-  const lane = (a.lane_name ?? '').localeCompare(b.lane_name ?? '');
+  const lane = compareStrings(a.lane_name ?? '', b.lane_name ?? '');
   if (lane !== 0) return lane;
 
-  return (a.tie_break ?? '').localeCompare(b.tie_break ?? '');
+  return compareStrings(a.tie_break ?? '', b.tie_break ?? '');
 }
 
 // Resolve duplicate-path entries to a single deterministic winner per path,

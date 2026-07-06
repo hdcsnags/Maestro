@@ -85,6 +85,20 @@ test("identical rank falls back to stable input order, not unspecified", () => {
   assert.strictEqual(reconcileManifests([b, a]).resolved[0].content, "second");
 });
 
+// ── lane comparison is code-unit, not locale-dependent ──
+
+test("lane tie-break uses code-unit order, not locale collation", () => {
+  // Under code-unit order 'Z' (0x5A) sorts before 'a' (0x61), so "Zeta" wins.
+  // localeCompare in most locales would order "alpha" first — this test fails
+  // if the comparator regresses to locale-dependent collation (non-deterministic
+  // across the Node/browser split).
+  const r = reconcileManifests([
+    entry({ path: "a.ts", lane_name: "alpha" }),
+    entry({ path: "a.ts", lane_name: "Zeta" }),
+  ]);
+  assert.strictEqual(r.resolved[0].lane_name, "Zeta");
+});
+
 // ── empty lane_name does not throw (was a non-null assertion) ──
 
 test("empty lane_name is handled without throwing", () => {

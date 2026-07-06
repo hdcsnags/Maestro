@@ -26,14 +26,27 @@ export interface ReconcileResult {
 
 const PRIORITY_RANK: Record<'P0' | 'P1' | 'P2', number> = { P0: 0, P1: 1, P2: 2 };
 
+// Deterministic, environment-independent string order (UTF-16 code unit).
+// NOT String.localeCompare — its default locale/collation varies across
+// runtimes, so Node (this module) and the browser (src/lib/conductor.ts) could
+// order the same lane names differently. Code-unit order is identical
+// everywhere. KEEP THIS IDENTICAL to conductor.ts `compareStrings`.
+function compareStrings(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 // Total ordering over collision candidates; lower sorts first (wins the path).
 // Tiers in order: conductor_approved, then priority, then lane_name (full
-// lexicographic — NOT first-code-point, which tied on any shared leading char
-// and could overflow a numeric band on non-ASCII names), then the entry's
+// code-unit comparison — NOT first-code-point, which tied on any shared leading
+// char and could overflow a numeric band on non-ASCII names), then the entry's
 // original input index as a stable final tie-break so same-lane retries resolve
 // deterministically instead of by unspecified sort order.
 //
-// KEEP THIS RANKING IN SYNC with src/lib/conductor.ts (compareCandidates).
+// SYNC CONTRACT with src/lib/conductor.ts compareCandidates: the first three
+// tiers (approved → priority → lane_name) are identical and MUST stay so. The
+// final tie-break KEY differs by design — this module uses input index (its
+// caller controls a stable array order) while the web module uses task_id (its
+// DB row order is unstable). Both are deterministic.
 function compareEntries(
   a: ManifestEntry,
   b: ManifestEntry,
@@ -45,7 +58,7 @@ function compareEntries(
   const priority = (PRIORITY_RANK[a.priority ?? 'P1'] ?? 1) - (PRIORITY_RANK[b.priority ?? 'P1'] ?? 1);
   if (priority !== 0) return priority;
 
-  const lane = (a.lane_name ?? '').localeCompare(b.lane_name ?? '');
+  const lane = compareStrings(a.lane_name ?? '', b.lane_name ?? '');
   if (lane !== 0) return lane;
 
   return (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0);
