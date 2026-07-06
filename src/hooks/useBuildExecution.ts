@@ -1125,9 +1125,12 @@ export function useBuildExecution() {
       );
     }
 
-    const sourceManifest = sessionRuns.length > 0
-      ? mergeSessionManifest(flat)
-      : sessionProgress.manifest;
+    // Always dedup through mergeSessionManifest — including the no-runs branch,
+    // where `flat` IS sessionProgress.manifest. The old code returned that
+    // manifest raw, so the collision report claimed "last kept" while no dedup
+    // had actually been applied (task-004 review R3). Identity when paths are
+    // already unique.
+    const sourceManifest = mergeSessionManifest(flat);
 
     return sourceManifest.map(f => ({
       path: f.path,
