@@ -5,8 +5,8 @@
     "semantic_hash": "82e6f69e87f755f471c08d8479e50cd5"
   },
   "package.json": {
-    "mtime": 1783359660.441828,
-    "ast_hash": "ffc686be5341d7b2cc1c9d95240ee9c2",
+    "mtime": 1783361245.1391134,
+    "ast_hash": "6a91f9e3c507f6b3db0502f991bae14d",
     "semantic_hash": ""
   },
   "packages/maestroclaw/package.json": {
@@ -1082,6 +1082,106 @@
   "vitest.config.ts": {
     "mtime": 1783359647.1209366,
     "ast_hash": "1035f118d4e6c4fc828a3ff03740f005",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/human-michael.json": {
+    "mtime": 1783360197.900522,
+    "ast_hash": "fc7e6cf91e63502973726a8864168573",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/peer-codex.json": {
+    "mtime": 1783360197.9015224,
+    "ast_hash": "a9374a4919f88128766778d1ccf1bc5c",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/peer-copilot-gpt54.json": {
+    "mtime": 1783360197.9015224,
+    "ast_hash": "b369a0533d2115c3cee6e6044596bd48",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/peer-copilot.json": {
+    "mtime": 1783360197.902524,
+    "ast_hash": "59c84cc355a64b35a505c4708d4e7a80",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/peer-grok.json": {
+    "mtime": 1783360197.902524,
+    "ast_hash": "88fd586fd5f1f28d1ad172d8c448f248",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/grades/peer-kimi.json": {
+    "mtime": 1783360197.902524,
+    "ast_hash": "ae15e798a6427db2ade241360b85e8d0",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-001-c06-review/meta.json": {
+    "mtime": 1783360197.903524,
+    "ast_hash": "cd3c20ae3dd623ec0202945d9d4c33a5",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/human-michael.json": {
+    "mtime": 1783360197.9165235,
+    "ast_hash": "a28b4ab5215fd3cded1d3c254561655c",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/peer-codex.json": {
+    "mtime": 1783360197.9175234,
+    "ast_hash": "26493e6bc336e614257b61d7105e3122",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/peer-copilot-gpt54.json": {
+    "mtime": 1783360197.9175234,
+    "ast_hash": "a0291a6f93eceac328566713b0c6b1bb",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/peer-copilot.json": {
+    "mtime": 1783360197.9185228,
+    "ast_hash": "3f3679d113da7b51a9ccd76d18d19b6b",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/peer-grok.json": {
+    "mtime": 1783360197.9185228,
+    "ast_hash": "edfefad00e0b9a40715c0d7bd0f0958a",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/grades/peer-kimi.json": {
+    "mtime": 1783360197.9195225,
+    "ast_hash": "18e766785c983ecf0bbfbdc2e1a34663",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-002-direction-memo/meta.json": {
+    "mtime": 1783360197.9195225,
+    "ast_hash": "5020007efa83bcaa211e54a02024d5f9",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/grades/peer-codex.json": {
+    "mtime": 1783360197.943523,
+    "ast_hash": "b82a2c7b78c53ac7425644dd10562ccb",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/grades/peer-copilot-gpt54.json": {
+    "mtime": 1783360197.9445236,
+    "ast_hash": "e8e9eb58b97ffb38049631f9b29f5011",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/grades/peer-copilot.json": {
+    "mtime": 1783360197.9445236,
+    "ast_hash": "c7911fa63c1fd70bbb4d88031281202e",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/grades/peer-grok.json": {
+    "mtime": 1783360197.9455235,
+    "ast_hash": "58b517ef1d269c0f1f213a88aee1cb14",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/grades/peer-kimi.json": {
+    "mtime": 1783360197.9455235,
+    "ast_hash": "27f38238bc26803d5c1d6e5e60f82253",
+    "semantic_hash": ""
+  },
+  "grading-lab/tasks/task-003-launch-readiness/meta.json": {
+    "mtime": 1783360197.946524,
+    "ast_hash": "4b2f8f784d11bfc002e87a6063dc51d2",
     "semantic_hash": ""
   }
 }
