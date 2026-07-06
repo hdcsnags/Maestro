@@ -1,0 +1,554 @@
+diff --git a/packages/maestroclaw/src/conductor/reconcile.ts b/packages/maestroclaw/src/conductor/reconcile.ts
+index b0ddc56..5fbbd93 100644
+--- a/packages/maestroclaw/src/conductor/reconcile.ts
++++ b/packages/maestroclaw/src/conductor/reconcile.ts
+@@ -24,12 +24,31 @@ export interface ReconcileResult {
+   collisions: CollisionReport[];
+ }
+ 
+-// Lower number = higher priority (wins collision).
+-function rankEntry(entry: ManifestEntry): number {
+-  if (entry.conductor_approved) return 0;
+-  const pRank = { P0: 1, P1: 2, P2: 3 }[entry.priority ?? 'P1'] ?? 2;
+-  // Tie-break deterministically by lane_name lexicographic order.
+-  return pRank * 1000 + entry.lane_name.codePointAt(0)!;
++const PRIORITY_RANK: Record<'P0' | 'P1' | 'P2', number> = { P0: 0, P1: 1, P2: 2 };
++
++// Total ordering over collision candidates; lower sorts first (wins the path).
++// Tiers in order: conductor_approved, then priority, then lane_name (full
++// lexicographic — NOT first-code-point, which tied on any shared leading char
++// and could overflow a numeric band on non-ASCII names), then the entry's
++// original input index as a stable final tie-break so same-lane retries resolve
++// deterministically instead of by unspecified sort order.
++//
++// KEEP THIS RANKING IN SYNC with src/lib/conductor.ts (compareCandidates).
++function compareEntries(
++  a: ManifestEntry,
++  b: ManifestEntry,
++  indexOf: Map<ManifestEntry, number>,
++): number {
++  const approved = (a.conductor_approved ? 0 : 1) - (b.conductor_approved ? 0 : 1);
++  if (approved !== 0) return approved;
++
++  const priority = (PRIORITY_RANK[a.priority ?? 'P1'] ?? 1) - (PRIORITY_RANK[b.priority ?? 'P1'] ?? 1);
++  if (priority !== 0) return priority;
++
++  const lane = (a.lane_name ?? '').localeCompare(b.lane_name ?? '');
++  if (lane !== 0) return lane;
++
++  return (indexOf.get(a) ?? 0) - (indexOf.get(b) ?? 0);
+ }
+ 
+ export function detectManifestConflicts(
+@@ -54,6 +73,10 @@ export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
+     return { resolved: [...entries], collisions: [] };
+   }
+ 
++  // Original input position of each entry — the stable final tie-break.
++  const indexOf = new Map<ManifestEntry, number>();
++  entries.forEach((entry, i) => indexOf.set(entry, i));
++
+   const collisionReports: CollisionReport[] = [];
+   const resolvedPaths = new Set<string>();
+   const resolved: ManifestEntry[] = [];
+@@ -63,7 +86,7 @@ export function reconcileManifests(entries: ManifestEntry[]): ReconcileResult {
+     if (!group) {
+       resolved.push(entry);
+     } else if (!resolvedPaths.has(entry.path)) {
+-      const sorted = [...group].sort((a, b) => rankEntry(a) - rankEntry(b));
++      const sorted = [...group].sort((a, b) => compareEntries(a, b, indexOf));
+       const winner = sorted[0];
+       const overridden = sorted.slice(1);
+       collisionReports.push({ path: entry.path, candidates: group, winner, overridden });
+diff --git a/packages/maestroclaw/test/reconcile.test.ts b/packages/maestroclaw/test/reconcile.test.ts
+new file mode 100644
+index 0000000..57603be
+--- /dev/null
++++ b/packages/maestroclaw/test/reconcile.test.ts
+@@ -0,0 +1,99 @@
++/**
++ * Tests for reconcile.ts — C-06 rework verification.
++ * Locks the tie-break fixes from the task-001 7-review fix-list and the
++ * KEEP-IN-SYNC ranking contract with src/lib/conductor.ts.
++ * Run: npm --prefix packages/maestroclaw test
++ */
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { reconcileManifests, type ManifestEntry } from "../src/conductor/reconcile.js";
++
++function entry(partial: Partial<ManifestEntry> & { path: string; lane_name: string }): ManifestEntry {
++  return { operation: "create", ...partial };
++}
++
++// ── No collisions passes through unchanged ──
++
++test("no collisions: manifest returned as-is, no reports", () => {
++  const r = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "x" }),
++    entry({ path: "b.ts", lane_name: "y" }),
++  ]);
++  assert.strictEqual(r.collisions.length, 0);
++  assert.strictEqual(r.resolved.length, 2);
++});
++
++// ── conductor_approved wins over everything ──
++
++test("conductor_approved beats higher priority", () => {
++  const r = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "z", priority: "P0" }),
++    entry({ path: "a.ts", lane_name: "a", priority: "P2", conductor_approved: true }),
++  ]);
++  assert.strictEqual(r.resolved.length, 1);
++  assert.strictEqual(r.resolved[0].lane_name, "a");
++  assert.strictEqual(r.collisions.length, 1);
++  assert.strictEqual(r.collisions[0].overridden.length, 1);
++});
++
++// ── priority beats lane name ──
++
++test("lower priority number wins before lane tie-break", () => {
++  const r = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "a", priority: "P2" }),
++    entry({ path: "a.ts", lane_name: "z", priority: "P0" }),
++  ]);
++  assert.strictEqual(r.resolved[0].lane_name, "z");
++});
++
++// ── FULL lexicographic lane tie-break (the core F5 fix) ──
++
++test("lane tie-break compares the FULL name, not the first code point", () => {
++  // Both lanes share the first character 'c'; the old first-code-point rank
++  // tied here and fell through to input order. Full lexicographic must pick
++  // "claude-haiku" over "claude-opus" deterministically regardless of order.
++  const forward = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "claude-opus" }),
++    entry({ path: "a.ts", lane_name: "claude-haiku" }),
++  ]);
++  const reversed = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "claude-haiku" }),
++    entry({ path: "a.ts", lane_name: "claude-opus" }),
++  ]);
++  assert.strictEqual(forward.resolved[0].lane_name, "claude-haiku");
++  assert.strictEqual(reversed.resolved[0].lane_name, "claude-haiku");
++});
++
++// ── non-ASCII lane names do not cause priority inversion ──
++
++test("non-ASCII lane name does not leak across the priority band", () => {
++  // Old code did `pRank * 1000 + codePointAt(0)`; a CJK lead char (> 1000)
++  // could make a P1 entry outrank a P0. Tiered comparison must keep P0 first.
++  const r = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "语言", priority: "P0" }),
++    entry({ path: "a.ts", lane_name: "a", priority: "P1" }),
++  ]);
++  assert.strictEqual(r.resolved[0].priority, "P0");
++});
++
++// ── same-lane collision resolves deterministically by input index ──
++
++test("identical rank falls back to stable input order, not unspecified", () => {
++  const a = entry({ path: "a.ts", lane_name: "same", content: "first" });
++  const b = entry({ path: "a.ts", lane_name: "same", content: "second" });
++  assert.strictEqual(reconcileManifests([a, b]).resolved[0].content, "first");
++  assert.strictEqual(reconcileManifests([b, a]).resolved[0].content, "second");
++});
++
++// ── empty lane_name does not throw (was a non-null assertion) ──
++
++test("empty lane_name is handled without throwing", () => {
++  const r = reconcileManifests([
++    entry({ path: "a.ts", lane_name: "" }),
++    entry({ path: "a.ts", lane_name: "named" }),
++  ]);
++  // "" sorts before "named" lexicographically → empty-lane entry wins, but
++  // deterministically and without a crash.
++  assert.strictEqual(r.resolved.length, 1);
++  assert.strictEqual(r.collisions.length, 1);
++});
+diff --git a/src/hooks/useBuildExecution.ts b/src/hooks/useBuildExecution.ts
+index 45c11c4..d15301b 100644
+--- a/src/hooks/useBuildExecution.ts
++++ b/src/hooks/useBuildExecution.ts
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
+ import { invokeEdgeFunction } from '../lib/functions';
+ import { supabase } from '../lib/supabase';
+ import { sumBuildCost } from '../lib/cost';
++import { selectReadyTasks, reconcileManifest, type TaskPriority } from '../lib/conductor';
+ import {
+   applyArtifactPayloadToBuffer,
+   cancelBuildSessionJob,
+@@ -102,6 +103,17 @@ interface JobOutputState {
+   stderr: string;
+ }
+ 
++// A path collision resolved before a GitHub push. Surfaced (not just logged) so
++// the UI / approval layer can show that completed work was overridden — dropping
++// it silently on a `console.warn` was C-06 review finding F2.
++export interface SurfacedManifestCollision {
++  source: 'task-queue' | 'session';
++  path: string;
++  winner_lane: string;
++  dropped_count: number;
++  dropped_detail: string;
++}
++
+ interface GitHubReadFileResult {
+   path: string;
+   content: string;
+@@ -148,6 +160,17 @@ function appendJobOutput(existing: string, incoming: string): string {
+   return next.slice(next.length - 6000);
+ }
+ 
++// Map the concierge's granular numeric decompose priority (lower = build first)
++// onto the Conductor's coarse P0/P1/P2 reconcile tier. Null (pre-migration rows)
++// yields undefined, so the reconciler falls back to its lane_name → task_id
++// tie-break for those entries.
++function mapTaskPriority(priority?: number | null): TaskPriority | undefined {
++  if (priority == null) return undefined;
++  if (priority <= 1) return 'P0';
++  if (priority <= 3) return 'P1';
++  return 'P2';
++}
++
+ function normalizeScopedPath(path: string): string {
+   return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '').trim();
+ }
+@@ -231,6 +254,9 @@ export function useBuildExecution() {
+   const isSessionRunning = state.sessionBuildState.isRunning;
+   const sessionRuns = state.sessionBuildState.runs;
+   const [jobOutputs, setJobOutputs] = useState<Record<string, JobOutputState>>({});
++  // Last path collisions resolved during a manifest collect (task-queue or
++  // session). Read by the push/approval UI so overridden work is visible.
++  const lastManifestCollisionsRef = useRef<SurfacedManifestCollision[]>([]);
+   const sessionRunsRef = useRef(sessionRuns);
+   const sessionProgressRef = useRef(sessionProgress);
+   const jobOutputsRef = useRef<Record<string, JobOutputState>>({});
+@@ -1047,8 +1073,39 @@ export function useBuildExecution() {
+ 
+   /** Returns the manifest from the last succeeded session build (for GitHub push). */
+   const collectSessionManifest = useCallback(() => {
++    // C-06 F3: the session-build path flat-maps multiple executor runs and dedups
++    // with `mergeSessionManifest` (last-write-wins by path). Session manifest
++    // entries carry no lane/priority/task metadata, so priority-based reconcile
++    // is not possible here — but a silent last-write-wins drop was the same class
++    // of bug as the task-queue path. Detect cross-run path collisions and surface
++    // them (last run still wins, by design, but the drop is no longer invisible).
++    const flat = sessionRuns.length > 0
++      ? sessionRuns.flatMap(run => run.manifest)
++      : sessionProgress.manifest;
++
++    const seenPaths = new Map<string, number>();
++    for (const entry of flat) {
++      seenPaths.set(entry.path, (seenPaths.get(entry.path) ?? 0) + 1);
++    }
++    lastManifestCollisionsRef.current = Array.from(seenPaths.entries())
++      .filter(([, n]) => n > 1)
++      .map(([path, n]) => ({
++        source: 'session' as const,
++        path,
++        winner_lane: 'last-write-wins (session builds carry no lane metadata)',
++        dropped_count: n - 1,
++        dropped_detail: `${n} runs wrote ${path}; last kept`,
++      }));
++    if (lastManifestCollisionsRef.current.length > 0) {
++      console.warn(
++        `[Conductor] session build: ${lastManifestCollisionsRef.current.length} path(s) written by ` +
++        `multiple runs; last-write-wins applied: ` +
++        lastManifestCollisionsRef.current.map(c => c.path).join(', '),
++      );
++    }
++
+     const sourceManifest = sessionRuns.length > 0
+-      ? mergeSessionManifest(sessionRuns.flatMap(run => run.manifest))
++      ? mergeSessionManifest(flat)
+       : sessionProgress.manifest;
+ 
+     return sourceManifest.map(f => ({
+@@ -1426,25 +1483,9 @@ export function useBuildExecution() {
+       // Allow up to 3 consecutive no-progress waves before aborting.
+       let noProgressWaves = 0;
+       while (noProgressWaves < 3) {
+-        // Find tasks ready to dispatch
+-        const ready = currentTasks.filter(t => {
+-          if (t.status !== 'queued' && t.status !== 'rerouted') return false;
+-          // Check dependencies
+-          if (t.dependencies && t.dependencies.length > 0) {
+-            const depsComplete = t.dependencies.every(depId =>
+-              currentTasks.find(d => d.task_id === depId)?.status === 'completed'
+-            );
+-            if (!depsComplete) {
+-              // Check if deps are failed/skipped — unblock if so
+-              const depsResolved = t.dependencies.every(depId => {
+-                const dep = currentTasks.find(d => d.task_id === depId);
+-                return dep && (dep.status === 'completed' || dep.status === 'failed' || dep.status === 'skipped');
+-              });
+-              if (!depsResolved) return false;
+-            }
+-          }
+-          return true;
+-        });
++        // Find tasks ready to dispatch — dependency-ordered selection now lives
++        // in the Conductor (src/lib/conductor.ts), one shared deterministic rule.
++        const ready = selectReadyTasks(currentTasks);
+ 
+         if (ready.length === 0) break;
+         if (abortRef.current) break;
+@@ -1567,14 +1608,48 @@ export function useBuildExecution() {
+   // ── Collect completed tasks into file_manifest format ────────────────
+ 
+   const collectManifest = useCallback(() => {
+-    return tasksRef.current
++    const completed = tasksRef.current
+       .filter(t => t.status === 'completed' && t.result_content)
+       .map(t => ({
+         path: t.file_path,
+         content: t.result_content!,
+         operation: (t.result_operation ?? 'create') as 'upsert' | 'create' | 'delete',
+-        content_hash: null,
++        content_hash: null as string | null,
++        // Ranking tiers for collision reconcile: priority (from decompose) →
++        // lane_name → task_id (stable final key). task_id guarantees same-lane
++        // retry/reroute collisions resolve deterministically.
++        priority: mapTaskPriority(t.priority),
++        lane_name: t.lane_owner ?? '',
++        tie_break: t.task_id,
++        // per-entry `conductor_approved` is intentionally omitted: approval is
++        // uniform at the patch level on this path, so it is not a differentiator.
+       }));
++
++    // P1-4: resolve duplicate-path entries to a single deterministic winner
++    // instead of letting github-execute fall back to last-write-wins on collisions.
++    const { resolved, collisions } = reconcileManifest(completed);
++    lastManifestCollisionsRef.current = collisions.map(c => ({
++      source: 'task-queue' as const,
++      path: c.path,
++      winner_lane: c.winner.lane_name ?? '',
++      dropped_count: c.overridden.length,
++      dropped_detail: c.overridden.map(o => `${o.tie_break} (lane "${o.lane_name}")`).join(', '),
++    }));
++    if (collisions.length > 0) {
++      console.warn(
++        `[Conductor] reconciled ${collisions.length} path collision(s) before push; ` +
++        `overridden completed work: ` +
++        lastManifestCollisionsRef.current
++          .map(c => `${c.path} kept lane "${c.winner_lane}", dropped ${c.dropped_count} [${c.dropped_detail}]`)
++          .join('; '),
++      );
++    }
++    return resolved.map(e => ({
++      path: e.path,
++      content: e.content,
++      operation: e.operation,
++      content_hash: e.content_hash,
++    }));
+   }, []);
+ 
+   const pushTaskBuildToGithub = useCallback(async () => {
+@@ -1679,5 +1754,8 @@ export function useBuildExecution() {
+     retryTask,
+     swapAdapter,
+     collectManifest,
++    // Path collisions from the most recent collect (task-queue or session).
++    // The approval/push UI should show these so overridden work is visible.
++    getLastManifestCollisions: () => lastManifestCollisionsRef.current,
+   };
+ }
+diff --git a/src/lib/conductor.ts b/src/lib/conductor.ts
+new file mode 100644
+index 0000000..8c18416
+--- /dev/null
++++ b/src/lib/conductor.ts
+@@ -0,0 +1,145 @@
++// Conductor logic for the web build-dispatch layer.
++//
++// Two independent pieces live here; read their contracts before "syncing" this
++// file with the maestroclaw conductor — they are NOT both mirrors.
++//
++//   1. selectReadyTasks — dependency-ordered dispatch selection. This is an
++//      EXTRACTION of the web hook's original inline ready-filter, NOT a mirror
++//      of maestroclaw's plan.getReadyEntries. It deliberately diverges in two
++//      ways the web layer needs:
++//        - a dependency that is `failed` or `skipped` UNBLOCKS its dependents
++//          (maestroclaw blocks forever on any non-`done` dep), so one dead task
++//          cannot freeze the frontier; and
++//        - an UNKNOWN dependency id (no matching task) is treated as resolved
++//          rather than blocking forever (maestroclaw's buildPlan strips unknown
++//          deps up front, reaching the same end state by a different route).
++//      Keep these divergences deliberate and documented; do not remove them to
++//      "match" maestroclaw.
++//
++//   2. reconcileManifest — deterministic pre-flight collision resolution. This
++//      DOES mirror the RANKING of maestroclaw/src/conductor/reconcile.ts
++//      (tiers: conductor_approved > priority > lane_name), and the two must stay
++//      in sync on that ordering. Like maestroclaw's, it is ADVISORY only — the
++//      authoritative enforcement is server-side in github-execute.
++//
++// C-06 rework (2026-07-03, task-001 7-review fix-list): the tie-break is now
++// full lexicographic with a stable final key (`tie_break`) — was first code
++// point only, which tied on any shared leading character and fell through to
++// unstable input order. Unknown deps no longer deadlock. Duplicate task_ids
++// keep first-occurrence (was last). Collisions are returned to the caller
++// instead of only console.warn.
++
++export type TaskPriority = 'P0' | 'P1' | 'P2';
++
++// ── Dependency-ordered ready selection ───────────────────────────────────────
++
++export type ReadyTaskStatus =
++  | 'queued' | 'dispatched' | 'waiting' | 'completed'
++  | 'failed' | 'rerouted' | 'skipped';
++
++export interface ReadyTask {
++  task_id: string;
++  status: ReadyTaskStatus | string;
++  dependencies?: string[] | null;
++}
++
++const TERMINAL_DEP_STATES = new Set<string>(['completed', 'failed', 'skipped']);
++
++export function selectReadyTasks<T extends ReadyTask>(tasks: T[]): T[] {
++  // First-occurrence wins on duplicate task_ids — matches the original inline
++  // `find` semantics. A plain `new Map(tasks.map(...))` would keep the LAST row,
++  // silently changing which row a dependency is judged against.
++  const byId = new Map<string, T>();
++  for (const t of tasks) {
++    if (!byId.has(t.task_id)) byId.set(t.task_id, t);
++  }
++  return tasks.filter((t) => {
++    if (t.status !== 'queued' && t.status !== 'rerouted') return false;
++    const deps = t.dependencies ?? [];
++    if (deps.length === 0) return true;
++    return deps.every((depId) => {
++      const dep = byId.get(depId);
++      // Unknown dep id => treat as resolved (cannot block forever). A known dep
++      // must have reached a terminal state.
++      return !dep || TERMINAL_DEP_STATES.has(dep.status);
++    });
++  });
++}
++
++// ── Deterministic manifest reconcile (mirrors reconcile.ts ranking) ──────────
++
++export interface ManifestCandidate {
++  path: string;
++  lane_name?: string;
++  priority?: TaskPriority;
++  conductor_approved?: boolean;
++  // Stable final tie-break key (e.g. task_id). Guarantees a deterministic
++  // winner even when approval, priority, AND lane_name are all equal — the
++  // common same-lane retry/reroute collision. Without it the winner falls back
++  // to input order, which rests on unstable DB row ordering.
++  tie_break?: string;
++}
++
++export interface ManifestCollision<T extends ManifestCandidate> {
++  path: string;
++  winner: T;
++  overridden: T[];
++}
++
++export interface ReconcileResult<T extends ManifestCandidate> {
++  resolved: T[];
++  collisions: ManifestCollision<T>[];
++}
++
++const PRIORITY_RANK: Record<TaskPriority, number> = { P0: 0, P1: 1, P2: 2 };
++
++// Total ordering over collision candidates; lower sorts first (wins the path).
++// Tiers in order: conductor_approved, then priority, then lane_name (full
++// lexicographic), then tie_break (stable final key). Every tier is a real
++// comparison — no arithmetic band-packing that could overflow on non-ASCII
++// lane names.
++function compareCandidates(a: ManifestCandidate, b: ManifestCandidate): number {
++  const approved = (a.conductor_approved ? 0 : 1) - (b.conductor_approved ? 0 : 1);
++  if (approved !== 0) return approved;
++
++  const priority = (PRIORITY_RANK[a.priority ?? 'P1'] ?? 1) - (PRIORITY_RANK[b.priority ?? 'P1'] ?? 1);
++  if (priority !== 0) return priority;
++
++  const lane = (a.lane_name ?? '').localeCompare(b.lane_name ?? '');
++  if (lane !== 0) return lane;
++
++  return (a.tie_break ?? '').localeCompare(b.tie_break ?? '');
++}
++
++// Resolve duplicate-path entries to a single deterministic winner per path,
++// preserving input order for non-colliding entries. Returns the resolved
++// manifest plus a report of every collision (winner + overridden) so the caller
++// can surface dropped work rather than discarding it silently.
++export function reconcileManifest<T extends ManifestCandidate>(entries: T[]): ReconcileResult<T> {
++  const byPath = new Map<string, T[]>();
++  for (const entry of entries) {
++    const group = byPath.get(entry.path) ?? [];
++    group.push(entry);
++    byPath.set(entry.path, group);
++  }
++
++  const resolved: T[] = [];
++  const collisions: ManifestCollision<T>[] = [];
++  const seen = new Set<string>();
++
++  for (const entry of entries) {
++    const group = byPath.get(entry.path);
++    if (!group || group.length === 1) {
++      resolved.push(entry);
++      continue;
++    }
++    if (seen.has(entry.path)) continue;
++    seen.add(entry.path);
++    const sorted = [...group].sort(compareCandidates);
++    const [winner, ...overridden] = sorted;
++    resolved.push(winner);
++    collisions.push({ path: entry.path, winner, overridden });
++  }
++
++  return { resolved, collisions };
++}
+diff --git a/src/types/index.ts b/src/types/index.ts
+index c541341..a10192a 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -271,6 +271,9 @@ export interface BuildTask {
+   lane_owner: string | null;
+   fallback_owner: string | null;
+   dependencies: string[];
++  // Decompose priority (lower = build first). Nullable for pre-migration rows.
++  // Mapped to the Conductor's P0/P1/P2 reconcile tier at manifest-collect time.
++  priority?: number | null;
+   status: BuildTaskStatus;
+   retry_count: number;
+   max_retries: number;
+diff --git a/supabase/functions/concierge/index.ts b/supabase/functions/concierge/index.ts
+index 1028a87..7eacc58 100644
+--- a/supabase/functions/concierge/index.ts
++++ b/supabase/functions/concierge/index.ts
+@@ -893,6 +893,9 @@ RULES:
+         status: "queued" as const,
+         retry_count: 0,
+         max_retries: 2,
++        // C-06 F1: persist decompose priority (lower = build first) so the
++        // Conductor manifest-reconcile priority tier has real data to rank on.
++        priority: t.priority,
+         // Structured prompts are already fully rendered; legacy tasks get the prefix wrapper.
+         prompt_slice: t.is_structured_prompt
+           ? t.prompt_slice
+diff --git a/supabase/migrations/20260703000000_build_tasks_priority.sql b/supabase/migrations/20260703000000_build_tasks_priority.sql
+new file mode 100644
+index 0000000..269c133
+--- /dev/null
++++ b/supabase/migrations/20260703000000_build_tasks_priority.sql
+@@ -0,0 +1,14 @@
++-- C-06 rework (task-001 finding F1): persist per-task build priority.
++--
++-- The concierge decompose already computes a numeric priority per task
++-- (lower = build first) but dropped it at build_tasks insert time, so it never
++-- reached the frontend and the Conductor's manifest-reconcile priority tier was
++-- dead code. This column carries it through so the priority tier can rank real
++-- collisions. Nullable: rows created before this migration have no priority and
++-- the reconciler falls back to its lane_name -> task_id tie-break.
++
++alter table build_tasks
++  add column if not exists priority int;
++
++comment on column build_tasks.priority is
++  'Build priority from concierge decompose (lower = build first / higher precedence). Consumed by the Conductor manifest reconcile priority tier. Nullable for pre-migration rows.';
