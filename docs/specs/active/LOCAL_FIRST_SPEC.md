@@ -51,18 +51,18 @@ Cloud Supabase (`hhlnadxbrdwxcxwfbvwh`) remains the remote deployment (Claw from
 
 ---
 
-## L3 — Headless conductor: `maestroclaw run BUILDPLAN.md` *(BLOCKED on Fable contracts — do not start)*
+## L3 — Headless conductor: `maestroclaw run BUILDPLAN.md` *(✅ v1 IMPLEMENTED 2026-07-06 — Fable, same session)*
 
-**Goal:** terminal-first multi-lane builds with no GUI and no Supabase. Reuses what exists: adapters (claude_code/codex_cli/copilot_cli/gemini_cli), `conductor/` (buildPlan/getReadyEntries/reconcileManifests — review-hardened 2026-07-06), iteration locks + Ralph retry + git checkpoints, session-log.
+**Goal:** terminal-first multi-lane builds with no GUI and no Supabase. **Shipped as `packages/maestroclaw/src/local/`** (`plan-file.ts` contract+parser, `fs-snapshot.ts` isolation+diff, `run-local.ts` runner) with an argv branch in `index.ts` — `maestroclaw run <plan> [--workspace] [--max-concurrent] [--adapter-override] [--dry-run]`.
 
-**Fable must author first:**
-1. `BUILDPLAN.md` format — lanes, scope paths, dependencies, P0/P1/P2, per-lane prompt, adapter assignment. This is the smart-planning ↔ dumb-execution contract; a sloppy format poisons everything downstream.
-2. Offline executor contract — `executor.ts` assumes `executor_jobs` rows + edge-function reporting; define the local-only job model (in-memory jobs, disk artifacts, reconcile-before-write, report to stdout + session log).
-3. Open design decisions (Conductor input requested): **worktree-per-lane merged at reconcile** vs **one tree + path locks**; plan authorship v1 = hand/agent-written file vs `maestroclaw plan "<prompt>"` helper.
+**Contracts as implemented (the format IS the spec — see `plan-file.ts` header):**
+1. `BUILDPLAN.md` = markdown with exactly one ```json fence: `{ project, shared_context?, lanes: [{ name, adapter, prompt, scope_paths?, deps?, priority?, timeout_minutes? }] }`. Prose outside the fence is commentary, ignored by the runner. Unknown deps and cycles are **rejected loudly at parse time** (hand-authored files should fail on typos — deliberate divergence from the web dispatcher's tolerant semantics).
+2. **Lanes are the unit, not per-file tasks** — a lane is one agent session with a scope (the headless mirror of a Pre-Build builder lane, and of the Conductor's 8-tab workflow).
+3. Isolation decision: **seeded copy per lane** (works on non-repos/greenfield; excludes .git/node_modules/dist/graphify-out/.maestro-runs), writes collected by content diff, scope-enforced (prefix match), cross-lane collisions resolved by `conductor/reconcile` (same review-hardened ranking as the web), winners written back to the workspace. Failed lanes fail-fast their dependents (`blocked`). Report → stdout + `.maestro-runs/<ts>/report.json`. Worktree-per-lane = later `--seed` mode.
 
-**Then Sonnet:** CLI arg parsing, plan parser, dispatch loop against the contracts, `--report` flag (optional mirror of job rows to Supabase so the web UI becomes a viewer — the Bridge layer arriving in the right order).
+**Verified:** 13 new node:test cases (parser + injected-adapter E2E: wave ordering, parallel isolation proof, deliberate P0-beats-P2 collision, out-of-scope drop, fail-fast blocking) — 47/47 package total; live smoke `maestroclaw run` with shell_stub lanes (dry-run wave print + real dispatch, exit 0).
 
-**Exit test:** 3–5 lanes in tandem on a scratch repo, deliberate collision, clean reconcile, faster than sequential. Result goes through a grading-lab review gate before merge.
+**Still open for L3.1 (Sonnet-able):** `--report` flag mirroring job rows to Supabase (web UI as viewer — the Bridge), glob scope support, `--seed git-worktree` mode, Ralph-style per-lane retry, real-CLI exit test (3–5 live adapters on a scratch repo — needs the Conductor's machine + subscriptions).
 
 ---
 

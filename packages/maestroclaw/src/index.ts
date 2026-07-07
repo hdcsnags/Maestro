@@ -13,6 +13,14 @@ import { createConductorRun } from "./conductor/index.js";
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
 async function main() {
+  // Headless conductor mode: `maestroclaw run BUILDPLAN.md [...]` runs a
+  // multi-lane build entirely locally — no Supabase config, no executor
+  // registration, no poll loop. See src/local/run-local.ts (LOCAL_FIRST L3).
+  if (process.argv[2] === "run") {
+    const { runLocalCli } = await import("./local/run-local.js");
+    process.exit(await runLocalCli(process.argv.slice(3)));
+  }
+
   console.log("🐾 MaestroClaw v0.1.0 — Local Execution Node");
   console.log("─".repeat(50));
 
