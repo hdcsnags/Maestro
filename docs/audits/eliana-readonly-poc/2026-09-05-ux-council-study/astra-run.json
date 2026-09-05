@@ -6,16 +6,14 @@
   "cli_version": "codex-cli 0.153.2",
   "read_only_mechanism": "codex --sandbox read-only (OS-enforced) + git verification",
   "requested_model": "gpt-6-astra",
-  "success": false,
-  "elapsed_seconds": 114,
+  "success": true,
+  "elapsed_seconds": 215,
   "read_only_verification": "clean",
-  "new_status_lines_beyond_baseline": [
-    "?? session.log"
-  ],
+  "new_status_lines_beyond_baseline": [],
   "output_file": "astra.md",
-  "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "output_sha256": "95b0b9d37cbce1807bc1447500bd07c7ae27814358ffc1c4aa1ee168e0a3f278",
+  "scratch_clone": "C:\\New folder\\claw-scratch\\ux-council-astra-kzsXyK\\repo",
   "known_gaps": [
-    "findings JSON block missing or unparseable"
-  ],
-  "scratch_clone": "C:\\New folder\\claw-scratch\\ux-council-astra-65Z8bt\\repo"
+    "NOT FULLY BLIND: attempt 3 ran after the conductor had committed a STATE.md entry (app repo 8443db7) summarising the other seats' headline findings; the prompt permitted STATE.md and the model read it before the code, and disclosed this unprompted. Overlapping findings count as confirmation, not discovery. Attempts 1 (sandbox %TEMP% access) and 2 (usage limit) archived alongside."
+  ]
 }

@@ -1,0 +1,122 @@
+[
+ {
+  "id": "F1",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 108,
+  "claim": "Verse navigation converts verse numbers into list indices that do not represent the rendered verses in either reading layout.",
+  "fix": "Map passage references to keyed study items or measured flowing-text positions and derive progress from actual content position."
+ },
+ {
+  "id": "F2",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/WordStudySheet.kt",
+  "line": 173,
+  "claim": "The word-study sheet renders full essays and occurrence links in a non-scrollable Column.",
+  "fix": "Use a bounded scrollable body or LazyColumn so all essay content and occurrence actions remain reachable."
+ },
+ {
+  "id": "F3",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 207,
+  "claim": "Selection rendering uses verse number alone in Study mode and omits selected-state rendering in flowing mode.",
+  "fix": "Use complete passage identities, define selection lifetime across navigation, and expose consistent selection and study actions in both modes."
+ },
+ {
+  "id": "F4",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/firebase/FirebaseFirestoreManager.kt",
+  "line": 65,
+  "claim": "Study retrieval collapses failures and missing content into null, causing misleading or silent UI states.",
+  "fix": "Return explicit retrieval states and render loading, missing, failure, cached content, and retry distinctly."
+ },
+ {
+  "id": "F5",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/WordStudySheet.kt",
+  "line": 84,
+  "claim": "Original-language text and explicitly sized scripture bypass different application-level text-size controls.",
+  "fix": "Pass coordinated reader typography through scripture, originals, transliteration, and commentary while preserving system font scaling."
+ },
+ {
+  "id": "F6",
+  "severity": "high",
+  "area": "theme",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/theme/FourThemeSystem.kt",
+  "line": 452,
+  "claim": "Crisp Paper uses a decorative gold token for informative Home labels with approximately 2.95:1 contrast on white.",
+  "fix": "Separate decorative gold from darker text gold and verify the foreground-background pairs used by actual components."
+ },
+ {
+  "id": "F7",
+  "severity": "medium",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt",
+  "line": 233,
+  "claim": "Study mode is exposed through an icon-only control, resets with a new view model, and expands every available verse tier.",
+  "fix": "Provide a labeled persistent Read/Study control and focus initial depth on one verse with optional chapter-wide expansion."
+ },
+ {
+  "id": "F8",
+  "severity": "medium",
+  "area": "home",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+  "line": 49,
+  "claim": "Home retains an initial day index while previous-day navigation leaves the content labeled as today's Sacred Word.",
+  "fix": "Track explicit current and browsed dates, refresh on foreground entry, and provide accurate labels plus return-to-today navigation."
+ },
+ {
+  "id": "F9",
+  "severity": "medium",
+  "area": "nav",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+  "line": 40,
+  "claim": "The Journey selection predicate does not recognize the Journey destination itself.",
+  "fix": "Centralize explicit tab ownership for roots and descendants and apply a consistent restoration policy."
+ },
+ {
+  "id": "F10",
+  "severity": "medium",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/MainScreen.kt",
+  "line": 202,
+  "claim": "Library and Bible entrances open shared study content through different navigation shells.",
+  "fix": "Agree on one destination-ownership rule and preserve the originating passage as explicit return context."
+ },
+ {
+  "id": "F11",
+  "severity": "medium",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+  "line": 212,
+  "claim": "Home and Journey duplicate discovery while Home prioritizes teaching-completion heuristics over recent study activity and immediate daily practices.",
+  "fix": "Organize Home around today's passage, nearby prayer and journal actions, and recent activity across Bible and study content."
+ },
+ {
+  "id": "F12",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/BackgroundWrapper.kt",
+  "line": 43,
+  "claim": "Theme families change surface and elevation behavior while the chooser does not faithfully preview those differences.",
+  "fix": "Standardize semantic component roles across themes and preview each candidate using its own tokens in a flexible miniature scripture card."
+ }
+]

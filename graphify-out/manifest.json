@@ -1320,8 +1320,8 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/scripts/eliana-ux-council-study.ts": {
-    "mtime": 1788581036.6446567,
-    "ast_hash": "bf23ede94659453dce6430fa500335de",
+    "mtime": 1788581310.9560537,
+    "ast_hash": "d0c9c40302109640e416cbcb35110dd2",
     "semantic_hash": ""
   },
   "packages/maestroclaw/scripts/eliana-votd-pastor-scholar-review.ts": {
@@ -1422,6 +1422,46 @@
   "supabase/migrations/20260817000000_approval_token_replay_guard.sql": {
     "mtime": 1787001306.3224337,
     "ast_hash": "84e8ee8bbeeee645e0a4fb6c0aeaa5fe",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/astra-run.json": {
+    "mtime": 1788581447.531768,
+    "ast_hash": "71910c8933f45ddad241bf1d391e6328",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/fable-findings.json": {
+    "mtime": 1788581451.593301,
+    "ast_hash": "c4b2031ab5eee03d02c5d70d9f2afe07",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/fable-run.json": {
+    "mtime": 1788581743.0578282,
+    "ast_hash": "fb2a8a26397079127fc78034e6c357c9",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/gemini-findings.json": {
+    "mtime": 1788581319.498125,
+    "ast_hash": "24cbf3ec774c7f810cab59449b74815c",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/gemini-run.json": {
+    "mtime": 1788581742.997725,
+    "ast_hash": "81b55b902d6d6daeae0bf5b05510950b",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/kimi-findings.json": {
+    "mtime": 1788581722.503206,
+    "ast_hash": "039d80ce7709a2647e2f312771ca309f",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/kimi-run.json": {
+    "mtime": 1788581916.1470108,
+    "ast_hash": "c5235044bb5f17bb97d429eed3821e56",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/manifest.json": {
+    "mtime": 1788581917.3862824,
+    "ast_hash": "42c34d890f8b4299c98b2bf6d339a1eb",
     "semantic_hash": ""
   }
 }

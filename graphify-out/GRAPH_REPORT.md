@@ -1,16 +1,16 @@
 # Graph Report - Maestro  (2026-09-05)
 
 ## Corpus Check
-- 285 files · ~227,594 words
+- 293 files · ~230,653 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1627 nodes · 3272 edges · 86 communities (83 shown, 3 thin omitted)
+- 1649 nodes · 3273 edges · 87 communities (81 shown, 6 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 8 edges (avg confidence: 0.57)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `52e31743`
+- Built from commit: `2a8ea1f0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -96,18 +96,19 @@
 - [[_COMMUNITY_eliana-adjudicate-kimi.ts|eliana-adjudicate-kimi.ts]]
 - [[_COMMUNITY_index.ts|index.ts]]
 - [[_COMMUNITY_LineSplitter|LineSplitter]]
+- [[_COMMUNITY_providerFallbacks.ts|providerFallbacks.ts]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `useMaestro()` - 99 edges
 2. `useAuth()` - 34 edges
 3. `MaestroState` - 31 edges
 4. `supabase` - 29 edges
-5. `CodexCliAdapter` - 26 edges
-6. `sha256()` - 25 edges
-7. `ThreadMessage` - 24 edges
-8. `writeManifest()` - 23 edges
-9. `requireAuthenticatedRequest()` - 22 edges
-10. `ClaudeCodeAdapter` - 21 edges
+5. `CodexCliAdapter` - 25 edges
+6. `ThreadMessage` - 24 edges
+7. `sha256()` - 22 edges
+8. `requireAuthenticatedRequest()` - 22 edges
+9. `writeManifest()` - 21 edges
+10. `useThreads()` - 21 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `main()` --calls--> `extractDeliberationSignature()`  [INFERRED]
@@ -118,51 +119,51 @@
   src/components/reveal/BoardroomStage.tsx → src/context/MaestroContext.tsx
 - `BuildReport` --calls--> `useMaestro()`  [EXTRACTED]
   src/components/reveal/BuildReport.tsx → src/context/MaestroContext.tsx
-- `Props` --references--> `Response`  [EXTRACTED]
-  src/components/reveal/FolioCard.tsx → src/types/index.ts
+- `HealthPanel()` --calls--> `useMaestro()`  [EXTRACTED]
+  src/components/reveal/HealthPanel.tsx → src/context/MaestroContext.tsx
 
 ## Import Cycles
 - 1-file cycle: `packages/maestroclaw/src/config.ts -> packages/maestroclaw/src/config.ts`
 - 3-file cycle: `packages/maestroclaw/src/adapters/index.ts -> packages/maestroclaw/src/adapters/pty-shell.ts -> packages/maestroclaw/src/executor.ts -> packages/maestroclaw/src/adapters/index.ts`
 - 3-file cycle: `packages/maestroclaw/src/adapters/approved-shell.ts -> packages/maestroclaw/src/executor.ts -> packages/maestroclaw/src/adapters/index.ts -> packages/maestroclaw/src/adapters/approved-shell.ts`
 
-## Communities (86 total, 3 thin omitted)
+## Communities (87 total, 6 thin omitted)
 
 ### Community 0 - "Shell Command Execution"
 Cohesion: 0.13
-Nodes (12): ApprovedShellAdapter, runAndCollect(), PtyShellAdapter, getIncidentService(), analyzeShellCommand(), DISALLOWED_TOKENS, isShellCommentStart(), ShellCommandAnalysis (+4 more)
+Nodes (13): ApprovedShellAdapter, runAndCollect(), registry, PtyShellAdapter, getIncidentService(), analyzeShellCommand(), DISALLOWED_TOKENS, isShellCommentStart() (+5 more)
 
 ### Community 1 - "Build Session Logging"
 Cohesion: 0.05
 Nodes (54): AgentDispatchResult, buildPushbacks(), callAnthropic(), callOpenAI(), DeliberateRequest, DeliberationPushback, dispatchDeliberation(), makeError() (+46 more)
 
 ### Community 2 - "Agent & Lane Types"
-Cohesion: 0.29
-Nodes (6): ComposerVariant, INTENT_CONFIG, IntentConfig, Props, routingKeys, SessionMode
+Cohesion: 0.12
+Nodes (16): AdvisorStrip(), Props, FolioCard(), getFolioDisplayContent(), Props, tryExtractFromJson(), unescape(), FolioCarousel() (+8 more)
 
 ### Community 3 - "Iteration Lock Management"
-Cohesion: 0.14
-Nodes (27): ArtifactManifestEntry, assessOutputQuality(), buildFixPassPrompt(), buildRetryPrompt(), buildSessionPrompt(), collectDeletedFiles(), collectWrittenFiles(), createCheckpoint() (+19 more)
+Cohesion: 0.06
+Nodes (69): checkAdapters(), getAdapter(), ArtifactManifestEntry, assessOutputQuality(), buildFixPassPrompt(), buildRetryPrompt(), buildSessionPrompt(), cleanForRetry() (+61 more)
 
 ### Community 4 - "Build Plan Generation"
-Cohesion: 0.05
-Nodes (42): AgentDefault, AgentRole, AgentSkill, ApprovalStatus, ArchitectLane, ArchitectLaneSlice, ArchitectPlan, BouncerFinding (+34 more)
+Cohesion: 0.04
+Nodes (44): TONE_CLASSES, SystemEventCard(), AgentDefault, AgentRole, AgentSkill, ApprovalStatus, ArchitectLane, ArchitectLaneSlice (+36 more)
 
 ### Community 5 - "Completeness & Framework Detection"
-Cohesion: 0.05
-Nodes (36): Props, FolioCard(), getFolioDisplayContent(), Props, tryExtractFromJson(), unescape(), AgentInvokeResult, BACKEND_DIRS (+28 more)
+Cohesion: 0.08
+Nodes (27): BACKEND_DIRS, compareResponseSummary(), ConciergeRuntimeChoice, createResponseExcerpt(), describeLocalCommand(), extractJsonObject(), extractTreeDirs(), FRONTEND_DIRS (+19 more)
 
 ### Community 6 - "Supabase Backend Integration"
 Cohesion: 0.09
-Nodes (30): AtelierSidebar(), BuildLogDrawer(), STATUS_ICON, BuildWorkspace(), ClawMode(), CommandItem, CommandPalette(), CommandResultCard() (+22 more)
+Nodes (27): AtelierSidebar(), Props, BuildLogDrawer(), STATUS_ICON, ClawMode(), CommandResultCard(), KICKABLE_STATUSES, RUNNING_STATUSES (+19 more)
 
 ### Community 7 - "Agent Skills & Artifacts"
-Cohesion: 0.07
-Nodes (46): AdvisorStrip(), Props, FolioItem, Contradiction, PATTERNS, VerificationState, Action, DrawerTarget (+38 more)
+Cohesion: 0.12
+Nodes (31): Action, DrawerTarget, initial, MaestroContext, MaestroProvider(), MaestroState, reducer(), ViewMode (+23 more)
 
 ### Community 8 - "Orchestration & Deliberation"
-Cohesion: 0.17
-Nodes (22): getAdapter(), matchesAnyScope(), buildQueryPrompt(), callAgent(), completeLoopWithRecord(), getCurrentSha(), ITERATION_ADAPTER_FALLBACK_CHAIN, KNOWN_ADAPTERS (+14 more)
+Cohesion: 0.11
+Nodes (18): content, description, files, known_gaps, notes, prompt, file, sha256 (+10 more)
 
 ### Community 9 - "Package Dependencies"
 Cohesion: 0.06
@@ -177,8 +178,8 @@ Cohesion: 0.06
 Nodes (28): buildDeterministicBuildPlan(), BuildLaneSummary, BuildPlanPayload, classifyIntent(), ConciergeRequest, ConciergeResult, DesignMode, FileEntry (+20 more)
 
 ### Community 12 - "LLM Dispatch & Deliberation"
-Cohesion: 0.12
-Nodes (16): ArchitectCard(), BackendCard(), BuilderRosterCard(), HEALTH_DOT, LaneCard(), ROLE_OPTIONS, PlanCardRenderer(), ProjectTypeCard() (+8 more)
+Cohesion: 0.13
+Nodes (17): ArchitectCard(), BackendCard(), BuilderRosterCard(), HEALTH_DOT, LaneCard(), ROLE_OPTIONS, PlanCardRenderer(), ProjectTypeCard() (+9 more)
 
 ### Community 13 - "Thread & Directory Utilities"
 Cohesion: 0.05
@@ -189,44 +190,44 @@ Cohesion: 0.12
 Nodes (22): AgentPatch, applyManifest(), createBackupBranch(), createBranch(), createPR(), deleteFile(), ensureDefaultBranchSha(), ExecuteRequest (+14 more)
 
 ### Community 15 - "Token & Executor Management"
-Cohesion: 0.08
-Nodes (23): BuildProgress, DecomposeResult, deriveSessionProgress(), ExecutorJobEventRow, ExecutorJobSnapshot, GitHubReadFileResult, isLiteralScopedFile(), JobOutputState (+15 more)
+Cohesion: 0.09
+Nodes (20): BuildProgress, DecomposeResult, deriveSessionProgress(), ExecutorJobEventRow, ExecutorJobSnapshot, GitHubReadFileResult, isLiteralScopedFile(), JobOutputState (+12 more)
 
 ### Community 16 - "Git & File Operations"
 Cohesion: 0.09
-Nodes (16): BroadcastProgressState, BUILD_BROADCAST_MESSAGES, BuildStage, getBroadcastProgressState(), hasExecutableManifest(), hasWriteManifest(), laneMatchesResponse(), LaneRow (+8 more)
+Nodes (18): BroadcastProgressState, BUILD_BROADCAST_MESSAGES, BuildStage, BuildWorkspace(), getBroadcastProgressState(), hasExecutableManifest(), hasWriteManifest(), laneMatchesResponse() (+10 more)
 
 ### Community 17 - "API Auth & Rate Limiting"
-Cohesion: 0.18
-Nodes (16): ReadRequest, DEFAULT_RATE_LIMIT_POLICY, enforceRateLimit(), getAuthToken(), isRateLimitCheckResult(), jsonResponse(), RATE_LIMIT_POLICIES, RateLimitCheckResult (+8 more)
+Cohesion: 0.15
+Nodes (17): ReadRequest, SENSITIVE_PATH_PATTERNS, DEFAULT_RATE_LIMIT_POLICY, enforceRateLimit(), getAuthToken(), isRateLimitCheckResult(), jsonResponse(), RATE_LIMIT_POLICIES (+9 more)
 
 ### Community 18 - "Cost Estimation & Display"
 Cohesion: 0.16
 Nodes (14): bytesToHex(), candidateTokenHashes(), errorResponse(), EXECUTOR_API_BODY_LIMITS, ExecutorRecord, getExecutorTokenSecrets(), hashLegacyToken(), hashToken() (+6 more)
 
 ### Community 19 - "Build Execution Tracking"
-Cohesion: 0.24
-Nodes (9): ConciergeEventCard(), DecisionMetadata, DESIGN_MODE_LABELS, isDecisionMetadata(), isTriageMetadata(), NEXT_PHASE_LABELS, TriageMetadata, DesignMode (+1 more)
+Cohesion: 0.09
+Nodes (20): Props, ConciergeEventCard(), DecisionMetadata, DESIGN_MODE_LABELS, isDecisionMetadata(), isTriageMetadata(), NEXT_PHASE_LABELS, TriageMetadata (+12 more)
 
 ### Community 20 - "Security Finding Triage"
 Cohesion: 0.08
 Nodes (23): bin, maestroclaw, dependencies, cross-spawn, dotenv, @lydell/node-pty, @supabase/supabase-js, description (+15 more)
 
 ### Community 21 - "CLI Package Configuration"
-Cohesion: 0.12
-Nodes (14): SEVERITY_META, BuildRunwayCard(), createEmptyPushState(), formatAdapterLabel(), formatBackendLabel(), NormalizedBuilderAgent, NormalizedBuildPlan, PushResultState (+6 more)
+Cohesion: 0.10
+Nodes (17): SEVERITY_META, BuildRunwayCard(), createEmptyPushState(), formatAdapterLabel(), formatBackendLabel(), NormalizedBuilderAgent, NormalizedBuildPlan, PushResultState (+9 more)
 
 ### Community 22 - "Build Submission & Execution"
-Cohesion: 0.17
-Nodes (7): Props, KICKABLE_STATUSES, RUNNING_STATUSES, TONE_CLASSES, SystemEventCard(), Thread, ThreadMessage
+Cohesion: 0.36
+Nodes (7): byteCount(), formatBytes(), formatDate(), MemoryPanel(), SummarizeOptions, SUPABASE_URL, useRepoMemory()
 
 ### Community 23 - "Iteration Loop UI"
 Cohesion: 0.15
 Nodes (15): BoardroomStage(), EmptyStage(), EmptyStageProps, ORB_CONFIG, ORBIT_AGENTS, QUICK_CHIPS, QuickChip, Orb() (+7 more)
 
 ### Community 24 - "Security Incident Panel"
-Cohesion: 0.10
-Nodes (18): OrchestraDrawer(), PERSONA_COLORS, PROVIDER_GROUPS, resolveSlotAgents(), STABILITY_DOT, TIER_ACCENT, TIER_DEFINITIONS, TIER_ORDER (+10 more)
+Cohesion: 0.11
+Nodes (17): OrchestraDrawer(), PERSONA_COLORS, PROVIDER_GROUPS, resolveSlotAgents(), STABILITY_DOT, TIER_ACCENT, TIER_DEFINITIONS, TIER_ORDER (+9 more)
 
 ### Community 25 - "Design Mode & Artifacts"
 Cohesion: 0.17
@@ -261,8 +262,8 @@ Cohesion: 0.06
 Nodes (42): ConductorRun, ConductorRunOptions, createConductorRun(), buildPlan(), ConductorPlan, getReadyEntries(), markEntryDone(), markEntryFailed() (+34 more)
 
 ### Community 33 - "Synthesis & Response Rendering"
-Cohesion: 0.07
-Nodes (26): gitDiff(), log(), main(), OUT_DIR, log(), main(), OUT_DIR, log() (+18 more)
+Cohesion: 0.17
+Nodes (6): log(), main(), log(), main(), OUT_DIR, CodexCliAdapter
 
 ### Community 34 - "Node TypeScript Config"
 Cohesion: 0.12
@@ -273,16 +274,16 @@ Cohesion: 0.10
 Nodes (14): OUT_DIR, OUT_DIR, PRIOR_OUTPUT_PATH, log(), main(), OUT, OUT_RAW, PAYLOAD (+6 more)
 
 ### Community 36 - "Workspace UI Components"
-Cohesion: 0.17
-Nodes (12): cleanForRetry(), ApplyDiffFailure, ApplyDiffInput, ApplyDiffResult, ApplyDiffSuccess, applyDiffWithCheckpoint(), commitStep(), execGit() (+4 more)
+Cohesion: 0.40
+Nodes (5): log(), main(), OUT_RAW, OUT_VERDICTS, PAYLOAD
 
 ### Community 37 - "Advisor Strip UI"
-Cohesion: 0.11
-Nodes (25): App(), AppInner(), ExecutorSection(), byteCount(), formatBytes(), formatDate(), MemoryPanel(), RepoSection() (+17 more)
+Cohesion: 0.09
+Nodes (25): App(), AppInner(), ExecutorSection(), JOB_STATUS_COLORS, STATUS_COLORS, GHRepo, GitHubAuthStatus, GitHubAuthUrlResponse (+17 more)
 
 ### Community 38 - "Status & Report Cards"
-Cohesion: 0.23
-Nodes (11): IterationApprovalPanel(), Props, Props, STATUS_COLORS, IterationStepRow(), Props, STATE_ICONS, CreateLoopParams (+3 more)
+Cohesion: 0.11
+Nodes (22): CommandItem, CommandPalette(), IterationApprovalPanel(), Props, IterationCard(), Props, STATUS_COLORS, IterationStepRow() (+14 more)
 
 ### Community 39 - "Orb Status Visualization"
 Cohesion: 0.18
@@ -293,19 +294,19 @@ Cohesion: 0.20
 Nodes (10): AgentRow, ArchitectRequest, assignAgentToLane(), FreshLane, isBuilderEligible(), norm(), scoreAgentForLane(), SuggestedLane (+2 more)
 
 ### Community 41 - "providerHealth.ts"
-Cohesion: 0.22
-Nodes (11): classifyFailure(), modelToProviderKey(), ProviderHealthMap, registerRerouteHandler(), RerouteDecision, RerouteHandlerFn, selectModel(), updateHealth() (+3 more)
+Cohesion: 0.21
+Nodes (11): useProviderHealth(), classifyFailure(), modelToProviderKey(), ProviderHealthMap, registerRerouteHandler(), RerouteDecision, RerouteHandlerFn, selectModel() (+3 more)
 
 ### Community 42 - "Diff Application & Git"
-Cohesion: 0.19
-Nodes (19): main(), OUT_DIR, main(), AUDIENCE_CONTEXT, buildPrompt(), diffStatusLines(), FLAGGED_CARDS, gitDiffStat() (+11 more)
+Cohesion: 0.23
+Nodes (13): AUDIENCE_CONTEXT, buildPrompt(), diffStatusLines(), FLAGGED_CARDS, gitDiffStat(), gitStatusPorcelain(), KNOWN_INSTRUMENTATION_FILES, log() (+5 more)
 
 ### Community 43 - "Health & Audit Panel"
 Cohesion: 0.27
 Nodes (7): callHaiku(), SummarizeOutputLocal, buildStrictSummarizePrompt(), buildSummarizePrompt(), parseSummarizeOutput(), SummarizeInput, SummarizeOutput
 
 ### Community 44 - "Pre-Build Intake Panel"
-Cohesion: 0.12
+Cohesion: 0.13
 Nodes (15): CATEGORY_LABEL, FilterSeverity, SecurityPanel(), SEVERITY_COLOR, SEVERITY_DOT, CHIP_TONE, getExecutionModeLabel(), MODE_OPTIONS (+7 more)
 
 ### Community 45 - "Repository Summarization"
@@ -333,12 +334,12 @@ Cohesion: 0.24
 Nodes (5): Props, ExecutionModal(), unionScopePaths(), ApprovalFileEntry, ApprovalRequest
 
 ### Community 51 - "Boardroom Stage UI"
-Cohesion: 0.14
-Nodes (14): JOB_STATUS_COLORS, STATUS_COLORS, GHRepo, GitHubAuthStatus, GitHubAuthUrlResponse, GitHubCreateRepoResponse, GitHubExchangeResponse, GitHubReposResponse (+6 more)
+Cohesion: 0.40
+Nodes (5): log(), main(), OUT_RAW, OUT_VERDICTS, PAYLOAD
 
 ### Community 52 - "cost.ts"
-Cohesion: 0.18
-Nodes (11): buildCliArguments(), CliInvocation, resolveCliInvocation(), resolveNodeEntryFromCmdShim(), resolvePowerShellScript(), CopilotCliAdapter, KIMI_ENV_OVERRIDES, buildChildEnv() (+3 more)
+Cohesion: 0.16
+Nodes (17): AgyJsonResult, meetsMinVersion(), MIN_VERSION, parseVersion(), CodexCliAdapterOptions, CodexSandboxMode, buildCliArguments(), CliInvocation (+9 more)
 
 ### Community 54 - "MemoryPanel.tsx"
 Cohesion: 0.11
@@ -349,8 +350,8 @@ Cohesion: 0.11
 Nodes (18): content, description, files, known_gaps, notes, prompt, file, sha256 (+10 more)
 
 ### Community 56 - "BuildReport.tsx"
-Cohesion: 0.33
-Nodes (3): BouncerFinding, BuildReport, SEV_STYLE
+Cohesion: 0.22
+Nodes (5): BouncerFinding, BuildReport, SEV_STYLE, Database, Json
 
 ### Community 57 - "manifest.json"
 Cohesion: 0.11
@@ -374,11 +375,11 @@ Nodes (13): AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent(), BuildSession
 
 ### Community 68 - "eliana-ux-council-study.ts"
 Cohesion: 0.18
-Nodes (15): BLIND_REMOVE, buildPrompt(), extractFindings(), git(), HASHED_FILES, INSTRUMENTATION, log(), makeClone() (+7 more)
+Nodes (18): BLIND_REMOVE, buildPrompt(), extractFindings(), git(), HASHED_FILES, INSTRUMENTATION, loadRunRecords(), log() (+10 more)
 
 ### Community 69 - "agy-cli.ts"
-Cohesion: 0.19
-Nodes (9): log(), main(), OUT_DIR, REPO, AgyCliAdapter, AgyJsonResult, meetsMinVersion(), MIN_VERSION (+1 more)
+Cohesion: 0.31
+Nodes (5): log(), main(), OUT_DIR, REPO, AgyCliAdapter
 
 ### Community 70 - "eliana-forsaken-cry-swarm-check.ts"
 Cohesion: 0.24
@@ -389,20 +390,20 @@ Cohesion: 0.31
 Nodes (11): diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_MAESTROCLAW_INSTRUMENTATION_FILES, log(), main(), RUN_DIR, buildTaskModePrompt() (+3 more)
 
 ### Community 72 - "eliana-forsaken-cry-review.ts"
-Cohesion: 0.27
-Nodes (12): AdapterRunResult, buildIndependentReviewPrompt(), buildPersonaPrompt(), diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_MAESTROCLAW_INSTRUMENTATION_FILES, log() (+4 more)
+Cohesion: 0.25
+Nodes (13): AdapterRunResult, buildIndependentReviewPrompt(), buildPersonaPrompt(), diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_MAESTROCLAW_INSTRUMENTATION_FILES, log() (+5 more)
 
 ### Community 73 - "eliana-votd-pastor-scholar-review.ts"
 Cohesion: 0.27
-Nodes (12): buildPrompt(), diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_INSTRUMENTATION_FILES, log(), main(), OUT_DIR (+4 more)
+Nodes (13): buildPrompt(), diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_INSTRUMENTATION_FILES, log(), main(), OUT_DIR (+5 more)
 
 ### Community 74 - "writeManifest"
-Cohesion: 0.27
-Nodes (8): manifest, manifest, manifestPath, manifest, EnvelopeManifest, renderManifestMarkdown(), SourceRepoInfo, writeManifest()
+Cohesion: 0.21
+Nodes (12): manifest, manifest, manifestPath, main(), OUT_DIR, manifest, captureSourceRepoInfo(), EnvelopeManifest (+4 more)
 
 ### Community 75 - "KimiCliAdapter"
-Cohesion: 0.20
-Nodes (4): OUT, STAGED, PROMPT, KimiCliAdapter
+Cohesion: 0.13
+Nodes (9): log(), main(), OUT, OUT_RAW, PAYLOAD, OUT, STAGED, PROMPT (+1 more)
 
 ### Community 76 - "eliana-aliyah-brainstorm.ts"
 Cohesion: 0.31
@@ -417,48 +418,40 @@ Cohesion: 0.38
 Nodes (9): buildReviewPrompt(), diffStatusLines(), gitDiffStat(), gitStatusPorcelain(), KNOWN_MAESTROCLAW_INSTRUMENTATION_FILES, log(), main(), runAdapterReview() (+1 more)
 
 ### Community 79 - "path-guard.ts"
-Cohesion: 0.42
-Nodes (5): isPathEscaping(), PathEscapeError, resolveContained(), resolveContainedRealpath(), tryResolveContainedRealpath()
-
-### Community 80 - "gemini-cli.ts"
-Cohesion: 0.39
-Nodes (3): GeminiCliAdapter, isRateLimited(), RATE_LIMIT_SIGNALS
-
-### Community 81 - "index.ts"
-Cohesion: 0.29
-Nodes (3): SENSITIVE_PATH_PATTERNS, hasUnsafeSyntax(), TRUSTED_SHELL_COMMANDS
+Cohesion: 0.60
+Nodes (4): gitDiff(), log(), main(), OUT_DIR
 
 ### Community 82 - "eliana-sol-editorial-decision.ts"
 Cohesion: 0.38
 Nodes (6): extractReviewOutput(), log(), main(), OUT_DECISION_LOG, REVISED_OUT_PATH, TARGET_PATH
 
 ### Community 83 - "eliana-adjudicate-kimi.ts"
-Cohesion: 0.40
-Nodes (5): log(), main(), OUT, OUT_RAW, PAYLOAD
+Cohesion: 0.50
+Nodes (4): log(), main(), OUT_DIR, REF_PREMIUM_SRC
 
-### Community 84 - "index.ts"
-Cohesion: 0.53
-Nodes (4): checkAdapters(), registry, setIncidentService(), main()
+### Community 86 - "providerFallbacks.ts"
+Cohesion: 0.50
+Nodes (3): buildFallbackChain(), CANONICAL_FALLBACKS, FallbackChain
 
 ## Knowledge Gaps
-- **573 isolated node(s):** `run_id`, `timestamp_utc`, `task_description`, `read_only`, `path` (+568 more)
+- **588 isolated node(s):** `run_id`, `timestamp_utc`, `task_description`, `read_only`, `path` (+583 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **3 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `useMaestro()` connect `Supabase Backend Integration` to `Agent & Lane Types`, `Completeness & Framework Detection`, `Agent Skills & Artifacts`, `LLM Dispatch & Deliberation`, `Token & Executor Management`, `Git & File Operations`, `Build Execution Tracking`, `CLI Package Configuration`, `Build Submission & Execution`, `Iteration Loop UI`, `Security Incident Panel`, `Plan Preview Cards`, `Advisor Strip UI`, `Status & Report Cards`, `Orb Status Visualization`, `providerHealth.ts`, `Pre-Build Intake Panel`, `Repository Memory Panel`, `Decision Record Tracking`, `Boardroom Stage UI`, `BuildReport.tsx`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
-- **Why does `CodexCliAdapter` connect `Synthesis & Response Rendering` to `eliana-ux-council-study.ts`, `agy-cli.ts`, `eliana-forsaken-cry-swarm-check.ts`, `eliana-forsaken-cry-canonical-calibration.ts`, `eliana-forsaken-cry-review.ts`, `eliana-votd-pastor-scholar-review.ts`, `Diff Application & Git`, `KimiCliAdapter`, `eliana-readonly-review.ts`, `eliana-sol-editorial-decision.ts`, `cost.ts`, `index.ts`, `eliana-forsaken-cry-canonical-reader-model.ts`?**
-  _High betweenness centrality (0.011) - this node is a cross-community bridge._
-- **Why does `ClaudeCodeAdapter` connect `Builder Lane Selection` to `eliana-ux-council-study.ts`, `eliana-forsaken-cry-swarm-check.ts`, `eliana-forsaken-cry-canonical-calibration.ts`, `eliana-forsaken-cry-review.ts`, `eliana-votd-pastor-scholar-review.ts`, `Diff Application & Git`, `eliana-aliyah-brainstorm.ts`, `eliana-readonly-review.ts`, `index.ts`, `eliana-forsaken-cry-canonical-reader-model.ts`?**
-  _High betweenness centrality (0.006) - this node is a cross-community bridge._
+- **Why does `useMaestro()` connect `Supabase Backend Integration` to `Agent & Lane Types`, `Completeness & Framework Detection`, `Agent Skills & Artifacts`, `LLM Dispatch & Deliberation`, `Token & Executor Management`, `Git & File Operations`, `Build Execution Tracking`, `CLI Package Configuration`, `Build Submission & Execution`, `Iteration Loop UI`, `Security Incident Panel`, `Plan Preview Cards`, `Advisor Strip UI`, `Status & Report Cards`, `Orb Status Visualization`, `providerHealth.ts`, `Pre-Build Intake Panel`, `Repository Memory Panel`, `Decision Record Tracking`, `BuildReport.tsx`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
+- **Why does `ClaudeCodeAdapter` connect `Builder Lane Selection` to `Shell Command Execution`, `eliana-forsaken-cry-swarm-check.ts`, `eliana-forsaken-cry-canonical-calibration.ts`, `eliana-forsaken-cry-review.ts`, `eliana-votd-pastor-scholar-review.ts`, `Diff Application & Git`, `eliana-aliyah-brainstorm.ts`, `eliana-readonly-review.ts`, `eliana-forsaken-cry-canonical-reader-model.ts`?**
+  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+- **Why does `CodexCliAdapter` connect `Synthesis & Response Rendering` to `Shell Command Execution`, `Workspace UI Components`, `agy-cli.ts`, `eliana-forsaken-cry-swarm-check.ts`, `eliana-forsaken-cry-canonical-calibration.ts`, `eliana-forsaken-cry-review.ts`, `eliana-votd-pastor-scholar-review.ts`, `Diff Application & Git`, `KimiCliAdapter`, `eliana-readonly-review.ts`, `path-guard.ts`, `eliana-sol-editorial-decision.ts`, `eliana-adjudicate-kimi.ts`, `Boardroom Stage UI`, `cost.ts`, `eliana-forsaken-cry-canonical-reader-model.ts`?**
+  _High betweenness centrality (0.009) - this node is a cross-community bridge._
 - **What connects `run_id`, `timestamp_utc`, `task_description` to the rest of the system?**
-  _573 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _588 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Shell Command Execution` be split into smaller, more focused modules?**
-  _Cohesion score 0.13 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.12535612535612536 - nodes in this community are weakly interconnected._
 - **Should `Build Session Logging` be split into smaller, more focused modules?**
   _Cohesion score 0.05314685314685315 - nodes in this community are weakly interconnected._
-- **Should `Iteration Lock Management` be split into smaller, more focused modules?**
-  _Cohesion score 0.13793103448275862 - nodes in this community are weakly interconnected._
+- **Should `Agent & Lane Types` be split into smaller, more focused modules?**
+  _Cohesion score 0.12 - nodes in this community are weakly interconnected._

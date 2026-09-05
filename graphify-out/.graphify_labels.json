@@ -84,5 +84,6 @@
   "82": "eliana-sol-editorial-decision.ts",
   "83": "eliana-adjudicate-kimi.ts",
   "84": "index.ts",
-  "85": "LineSplitter"
+  "85": "LineSplitter",
+  "86": "providerFallbacks.ts"
 }

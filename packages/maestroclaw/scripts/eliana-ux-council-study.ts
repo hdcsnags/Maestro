@@ -15,6 +15,11 @@
  * (`ui-ux-assessment-report.md`, 2026-09-03) is DELETED from every clone before dispatch so all
  * four reviews are blind to it; the conductor (Fable, this session) compares against it afterward.
  *
+ * BLINDNESS RULE (learned 2026-09-05): the conductor's own STATE.md session-log entries about a run IN
+ * PROGRESS leak findings into later seats if the prompt permits STATE.md. Astra's third attempt read the
+ * conductor's entry before the code and disclosed it. Before re-seating a model mid-study, either scrub the
+ * study's STATE.md entries from the clone or forbid STATE.md in the prompt.
+ *
  * Outputs + a reproducibility envelope (scripts/lib/eliana-manifest.ts schema) land under
  * docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/. Nothing is written into the app repo.
  *
@@ -294,6 +299,7 @@ function writeAssembledManifest(promptSha: string): void {
       "Greeting line differs per model (Hi Astra / Hi Swarm / Hi Gemini / Hi Fable); prompt.md records the canonical body with 'Hi'. Everything after the greeting is byte-identical.",
       "kimi_cli and agy_cli have no sandbox; read-only rests on instruction plus post-run git verification inside a disposable clone.",
       "Screenshots were available in the clone but no adapter's image ingestion was verified.",
+      "astra attempt 3 (the seated run) was NOT fully blind: the clone's STATE.md carried the conductor's entry summarising the other seats' findings (app repo commit 8443db7). Astra disclosed this unprompted; its overlapping findings count as confirmation only.",
       "astra's first attempt (clone under %TEMP%) was blocked by the Codex sandbox's path access (`CreateProcessWithLogonW failed: 267`); the model correctly returned an empty findings array rather than inventing evidence. Re-run from C:\\New folder\\claw-scratch is the recorded run.",
     ],
     notes: [

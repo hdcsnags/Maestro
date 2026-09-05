@@ -1,12 +1,12 @@
 # Reproducibility envelope — 2026-09-05-ux-council-study
 
-- **Timestamp (UTC):** 2026-09-05T04:18:37.319Z
+- **Timestamp (UTC):** 2026-09-05T04:47:46.061Z
 - **Task:** Blind, parallel UX/UI study of Home, Bible reader, theme system and navigation by the new-generation council (gpt-6-astra, Kimi K3 swarm, Gemini 3.8 Flash, Claude Fable 5.1), one shared prompt, per-model disposable clones. Conductor: Fable 5.1 (interactive session).
 - **Read-only:** true
 
 ## Source repo
 - Path: `C:\New folder\Elianas RhythmMigrate\Elianas Rhythm`
-- Git commit: `11a2c01139af6af9ad2540dc4e13f5ae7f4530cd` (branch: `main`)
+- Git commit: `8443db728275096df57888fdfef66b323c240964` (branch: `main`)
 - Note: each model ran in its own --depth 1 --no-hardlinks clone under C:\New folder\claw-scratch; ui-ux-assessment-report.md and the tracked session.log removed from every clone before dispatch
 
 ## Content reviewed
@@ -32,11 +32,11 @@ Source files in scope (hashes of the load-bearing ones; the prompt names the ful
 - CLI version: codex-cli 0.153.2
 - Read-only mechanism: codex --sandbox read-only (OS-enforced) + git verification
 - Requested model: gpt-6-astra
-- Success: false
-- Elapsed: 114s
-- Read-only verification: **clean** (new status lines: ?? session.log)
-- Output file: `astra.md` (sha256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`)
-- Known gaps for this run: findings JSON block missing or unparseable
+- Success: true
+- Elapsed: 215s
+- Read-only verification: **clean**
+- Output file: `astra.md` (sha256 `95b0b9d37cbce1807bc1447500bd07c7ae27814358ffc1c4aa1ee168e0a3f278`)
+- Known gaps for this run: NOT FULLY BLIND: attempt 3 ran after the conductor had committed a STATE.md entry (app repo 8443db7) summarising the other seats' headline findings; the prompt permitted STATE.md and the model read it before the code, and disclosed this unprompted. Overlapping findings count as confirmation, not discovery. Attempts 1 (sandbox %TEMP% access) and 2 (usage limit) archived alongside.
 
 ### kimi
 - Adapter: `kimi_cli` (task mode)
@@ -78,6 +78,7 @@ Source files in scope (hashes of the load-bearing ones; the prompt names the ful
 - Greeting line differs per model (Hi Astra / Hi Swarm / Hi Gemini / Hi Fable); prompt.md records the canonical body with 'Hi'. Everything after the greeting is byte-identical.
 - kimi_cli and agy_cli have no sandbox; read-only rests on instruction plus post-run git verification inside a disposable clone.
 - Screenshots were available in the clone but no adapter's image ingestion was verified.
+- astra attempt 3 (the seated run) was NOT fully blind: the clone's STATE.md carried the conductor's entry summarising the other seats' findings (app repo commit 8443db7). Astra disclosed this unprompted; its overlapping findings count as confirmation only.
 - astra's first attempt (clone under %TEMP%) was blocked by the Codex sandbox's path access (`CreateProcessWithLogonW failed: 267`); the model correctly returned an empty findings array rather than inventing evidence. Re-run from C:\New folder\claw-scratch is the recorded run.
 
 ## Notes

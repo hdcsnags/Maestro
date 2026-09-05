@@ -204,6 +204,32 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-05 (Astra seated) — Claude Code (claude-fable-5-1) — fourth seat filled; 33-row matrix; blindness leak found and ruled
+
+**What was done:** Michael asked for one more Astra try; the OpenAI window had reset early. Attempt 3 from
+`C:\New folder\claw-scratch`: success, 3m35s, 12 findings, read-only clean, **12/12 verified with zero
+overclaims**. Seven findings no other seat had: verse jumps address the wrong lazy-list layout
+(`ReadingDisplayComponents.kt:108` — the highest-consequence reader bug found), word-study sheet body is
+an unscrollable `Column`, Firestore failure and absence both collapse to `null`, original-language text
+ignores reader size, Crisp Paper `accentGold` on white = **2.95:1** (conductor recomputed; exact), selection
+survives chapter changes, Aliyah opens in different nav shells by door. `SYNTHESIS.md` rewritten: 33-row
+matrix, 20 verified defects beyond the 09-03 baseline, four composable "big moves" with Astra's
+reference→layout fix as the prerequisite, roster table now answers the Fable+Astra question from data.
+
+**Blindness leak — conductor's fault, model's disclosure:** attempt 3 ran after the conductor committed a
+STATE.md entry to the app repo summarising the other seats' findings; the prompt permitted STATE.md; Astra
+read it first and said so at the top of its report. Ruled: Astra's overlapping rows count as confirmation
+only; its seven unique rows (not in STATE.md) are independent. Rule added to the script header and the
+manifest `known_gaps`: scrub or forbid STATE.md before re-seating a model mid-study.
+
+**Files touched:** `docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/{SYNTHESIS.md,astra.md,astra-run.json,astra-findings.json,astra-attempt2-*.md/json,manifest.*}`,
+`docs/audits/eliana-readonly-poc/README.md`, `packages/maestroclaw/scripts/eliana-ux-council-study.ts` (header rule + known_gaps), `MAESTRO_STATE.md`.
+
+**Open:** Michael's IA ruling (Journey's meaning; root-vs-tab ownership — Astra explicitly flagged this as
+needing sign-off, not a polish-pass rewrite).
+
+---
+
 ### 2026-09-05 (later) — Claude Code (claude-fable-5-1) — UX council study harvested: 3 of 4 seats, 26-row verified convergence matrix
 
 **What was done:** `scripts/eliana-ux-council-study.ts` ran all four seats in parallel. Gemini 3.8 Flash
