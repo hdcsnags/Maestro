@@ -1,0 +1,149 @@
+{
+  "run_id": "2026-09-05-ux-council-study",
+  "timestamp_utc": "2026-09-05T04:18:37.319Z",
+  "task_description": "Blind, parallel UX/UI study of Home, Bible reader, theme system and navigation by the new-generation council (gpt-6-astra, Kimi K3 swarm, Gemini 3.8 Flash, Claude Fable 5.1), one shared prompt, per-model disposable clones. Conductor: Fable 5.1 (interactive session).",
+  "read_only": true,
+  "source_repo": {
+    "path": "C:\\New folder\\Elianas RhythmMigrate\\Elianas Rhythm",
+    "git_commit": "11a2c01139af6af9ad2540dc4e13f5ae7f4530cd",
+    "git_branch": "main",
+    "note": "each model ran in its own --depth 1 --no-hardlinks clone under C:\\New folder\\claw-scratch; ui-ux-assessment-report.md and the tracked session.log removed from every clone before dispatch"
+  },
+  "content": {
+    "description": "Source files in scope (hashes of the load-bearing ones; the prompt names the full scope).",
+    "files": [
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+        "sha256": "29fa1f50a2fba1a17b75bd477d826099531efd6595b81a6239f1c78c75a5d4e2"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+        "sha256": "df9776b05e6f860fb7d574a45089ae3825ad7025009245f62f2ac040af4b2c9a"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt",
+        "sha256": "fc9830c0af78865ab074b8adf6bc23e752b77cea91d3f7dd64d6f25c4581e23f"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+        "sha256": "6c8a13046af6bfd417e4fc65b589a744fc650949c641f02f38937a45e1dca34c"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/ui/theme/FourThemeSystem.kt",
+        "sha256": "0d2f41908739184f3a8a1a6862680cc5410e0ac5881de5eae3c8eeb84dea814f"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/ui/screens/SettingsScreen.kt",
+        "sha256": "ad4c3450e9ccd10c8b3887610df48eba0de3ec259d9c7fb6c7172ef8153187c7"
+      },
+      {
+        "path": "app/src/main/java/com/eliana/rhythm/ui/components/BackgroundWrapper.kt",
+        "sha256": "1dccef792817d22a567e1991cef6e1ef9d2e70185e5b1fe228003eab123a3b19"
+      }
+    ]
+  },
+  "prompt": {
+    "file": "prompt.md",
+    "sha256": "6e18210aedd090022a331b952eb759d91b40802533c8852b999a8a7eab0daf5b"
+  },
+  "runs": [
+    {
+      "label": "astra",
+      "adapter": "codex_cli",
+      "mode": "task",
+      "persona": null,
+      "cli_version": "codex-cli 0.153.2",
+      "read_only_mechanism": "codex --sandbox read-only (OS-enforced) + git verification",
+      "requested_model": "gpt-6-astra",
+      "success": false,
+      "elapsed_seconds": 114,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [
+        "?? session.log"
+      ],
+      "output_file": "astra.md",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "known_gaps": [
+        "findings JSON block missing or unparseable"
+      ],
+      "scratch_clone": "C:\\New folder\\claw-scratch\\ux-council-astra-65Z8bt\\repo"
+    },
+    {
+      "label": "kimi",
+      "adapter": "kimi_cli",
+      "mode": "task",
+      "persona": null,
+      "cli_version": "kimi, version 1.41.0",
+      "read_only_mechanism": "instruction only (kimi has no sandbox) + git verification in a disposable clone",
+      "requested_model": "kimi-code/k3",
+      "success": true,
+      "elapsed_seconds": 640,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [
+        "M session.log"
+      ],
+      "output_file": "kimi.md",
+      "output_sha256": "2da9fd9b9110463515b8901704a20fe02979c9cf301992a1bb3ea21377deea94",
+      "known_gaps": [
+        "resolved model not observable from adapter output; requested model recorded only",
+        "Script flagged UNEXPECTED_WRITE_DETECTED because the app repo tracks session.log (MaestroClaw's own instrumentation). Conductor re-verified the clone by hand: only session.log changed; tracked diff excluding it is empty. Corrected to clean.",
+        "Model self-identified in its report as 'K2-class' although kimi-code/k3 was requested via -m; kimi_cli output carries no resolved-model field, so this cannot be settled from the run."
+      ],
+      "scratch_clone": "C:\\Users\\Owner\\AppData\\Local\\Temp\\ux-council-kimi-Ir5Nte\\repo"
+    },
+    {
+      "label": "gemini",
+      "adapter": "agy_cli",
+      "mode": "task",
+      "persona": null,
+      "cli_version": "1.1.26",
+      "read_only_mechanism": "instruction only (agy runs --dangerously-skip-permissions scoped by --add-dir) + git verification",
+      "requested_model": "gemini-3.8-flash-high",
+      "success": true,
+      "elapsed_seconds": 233,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [
+        "M session.log"
+      ],
+      "output_file": "gemini.md",
+      "output_sha256": "056f15b07a87297c10cefb32d5743b6d575bf64ae1203b2b693a5cc2307a953c",
+      "known_gaps": [
+        "resolved model not observable from adapter output; requested model recorded only",
+        "Script flagged UNEXPECTED_WRITE_DETECTED because the app repo tracks session.log (MaestroClaw's own instrumentation). Conductor re-verified the clone by hand: only session.log changed; tracked diff excluding it is empty. Corrected to clean."
+      ],
+      "scratch_clone": "C:\\Users\\Owner\\AppData\\Local\\Temp\\ux-council-gemini-BFaWzE\\repo"
+    },
+    {
+      "label": "fable",
+      "adapter": "claude_code",
+      "mode": "task",
+      "persona": null,
+      "cli_version": "2.1.261 (Claude Code)",
+      "read_only_mechanism": "claude --print task mode without --dangerously-skip-permissions (writes denied) + git verification",
+      "requested_model": "claude-fable-5-1",
+      "success": true,
+      "elapsed_seconds": 361,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [
+        "M session.log"
+      ],
+      "output_file": "fable.md",
+      "output_sha256": "ad504f4bc0b8731515964ca27f2e10185f7223356677ce5e4b1d7c60e83b4332",
+      "known_gaps": [
+        "resolved model not observable from adapter output; requested model recorded only",
+        "Script flagged UNEXPECTED_WRITE_DETECTED because the app repo tracks session.log (MaestroClaw's own instrumentation). Conductor re-verified the clone by hand: only session.log changed; tracked diff excluding it is empty. Corrected to clean."
+      ],
+      "scratch_clone": "C:\\Users\\Owner\\AppData\\Local\\Temp\\ux-council-fable-qbrpi0\\repo"
+    }
+  ],
+  "known_gaps": [
+    "Greeting line differs per model (Hi Astra / Hi Swarm / Hi Gemini / Hi Fable); prompt.md records the canonical body with 'Hi'. Everything after the greeting is byte-identical.",
+    "kimi_cli and agy_cli have no sandbox; read-only rests on instruction plus post-run git verification inside a disposable clone.",
+    "Screenshots were available in the clone but no adapter's image ingestion was verified.",
+    "astra's first attempt (clone under %TEMP%) was blocked by the Codex sandbox's path access (`CreateProcessWithLogonW failed: 267`); the model correctly returned an empty findings array rather than inventing evidence. Re-run from C:\\New folder\\claw-scratch is the recorded run."
+  ],
+  "notes": [
+    "First MaestroClaw run of the new-generation council (Astra / K3 / 3.8 Flash / Fable 5.1) and the first four-adapter parallel run.",
+    "Per-seat run records live in <label>-run.json (each carries its scratch_clone path); manifest assembled from them."
+  ]
+}

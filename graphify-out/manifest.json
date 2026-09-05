@@ -10,49 +10,49 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/package.json": {
-    "mtime": 1783396811.7172804,
-    "ast_hash": "97335bfdff8e3467450d75eb641b9063",
+    "mtime": 1787011219.014742,
+    "ast_hash": "8faeb7ef3568587cb993e40d7706af89",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/approved-shell.ts": {
-    "mtime": 1777862327.8081012,
-    "ast_hash": "62733c3dfb1ea4c2607ed2bc7ef24526",
+    "mtime": 1787002386.1652792,
+    "ast_hash": "361cbade0a6d855a331666be73190990",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/claude-code.ts": {
-    "mtime": 1778563254.9025323,
-    "ast_hash": "f64d57f8be5c0d760b6a5b3fb806931c",
+    "mtime": 1787001448.287661,
+    "ast_hash": "4da98f6ca57fd54d58aa2f3d57cc2a51",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/codex-cli.ts": {
-    "mtime": 1778563295.9971523,
-    "ast_hash": "62ee28b82ba179292858580ba52c4c25",
+    "mtime": 1787011160.975055,
+    "ast_hash": "1de11a8b384c70cf03231e63331090da",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/command.ts": {
-    "mtime": 1776746558.9602046,
-    "ast_hash": "baebd927ed4be0a99646a1858a9294ac",
+    "mtime": 1787000842.8756158,
+    "ast_hash": "6ab76a4026f02997cde3c140fec49c53",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/copilot-cli.ts": {
-    "mtime": 1778563280.8030906,
-    "ast_hash": "13465adf6bdee1e05ccac8d17d5db4aa",
+    "mtime": 1787000819.1694746,
+    "ast_hash": "dff1f7c9e46a6d1b57400027b01074f8",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/gemini-cli.ts": {
-    "mtime": 1778563319.2363324,
-    "ast_hash": "103af2692921e3ee685401c367999b4f",
+    "mtime": 1787001466.7138631,
+    "ast_hash": "f96c73a15a701975f99d2725bbcec8c4",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/index.ts": {
-    "mtime": 1777859919.555623,
-    "ast_hash": "7d197c3f5ca91b23043b632677a058bc",
+    "mtime": 1787001738.4732425,
+    "ast_hash": "8f16be20582a28ac502d13e495f7351a",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/pty-shell.ts": {
-    "mtime": 1781049379.7442038,
-    "ast_hash": "dd0a8df972455db1c0834686276ab9cd",
-    "semantic_hash": "dd0a8df972455db1c0834686276ab9cd"
+    "mtime": 1787000753.7390316,
+    "ast_hash": "2abf897b96e83e98184d036f208f25ec",
+    "semantic_hash": ""
   },
   "packages/maestroclaw/src/adapters/shell-stub.ts": {
     "mtime": 1776460145.0698936,
@@ -95,23 +95,23 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/config.ts": {
-    "mtime": 1778134061.6176124,
-    "ast_hash": "8165adbe0f015434af71c953f06156be",
+    "mtime": 1787002006.1060162,
+    "ast_hash": "c71c2b29fddd13a1ffb6c915397058df",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/executor.ts": {
-    "mtime": 1781049422.049338,
-    "ast_hash": "f0e22a1f762c12e35b00cd06ab18ef31",
+    "mtime": 1787001947.4592166,
+    "ast_hash": "20a051cbcad34dcfc901c0a00d6cfdc8",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/index.ts": {
-    "mtime": 1783396811.7172804,
-    "ast_hash": "9f2969de35d27e5376041679b53bad8d",
+    "mtime": 1787002029.5160742,
+    "ast_hash": "c1fa6a70971aa88a7d5e0db930fa5923",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/iteration/apply-diff.ts": {
-    "mtime": 1781049379.6472,
-    "ast_hash": "da0c909d5ffe47aa512ae23f72ecfa15",
+    "mtime": 1787000612.875791,
+    "ast_hash": "46af545564448ef0241599dde47082f4",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/iteration/locks.ts": {
@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/iteration/runner.ts": {
-    "mtime": 1781049379.6472,
-    "ast_hash": "0e20b6ef2a75a1f32f404609117bdd7d",
+    "mtime": 1787001845.526498,
+    "ast_hash": "f80847593daa65eb58c6076e0b6ee84c",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/lib/decision-record.ts": {
@@ -140,8 +140,8 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/lib/kernel/shell-analyzer.ts": {
-    "mtime": 1777859919.5588045,
-    "ast_hash": "1846e9043384b830bc41eedb26864a15",
+    "mtime": 1787002622.3896697,
+    "ast_hash": "e89ba0e48f749a26f8eaea48965fcc85",
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/lib/line-splitter.ts": {
@@ -160,8 +160,8 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/test/shell-analyzer.test.ts": {
-    "mtime": 1777859919.5596225,
-    "ast_hash": "a4775e22d71e0888ce4221cc8ad9901e",
+    "mtime": 1787002658.8912656,
+    "ast_hash": "4bb6cec44d73fb4ad1f76d99e84773c4",
     "semantic_hash": ""
   },
   "packages/maestroclaw/tsconfig.json": {
@@ -720,8 +720,8 @@
     "semantic_hash": ""
   },
   "supabase/functions/executor-api/index.ts": {
-    "mtime": 1778732691.6915557,
-    "ast_hash": "ebefacc3e1933065778934324c04e8f4",
+    "mtime": 1787001318.375792,
+    "ast_hash": "c379d34ebfb2c60a1f751f1da1f4a4c2",
     "semantic_hash": ""
   },
   "supabase/functions/github-auth/index.ts": {
@@ -1182,6 +1182,246 @@
   "grading-lab/tasks/task-003-launch-readiness/meta.json": {
     "mtime": 1783360197.946524,
     "ast_hash": "4b2f8f784d11bfc002e87a6063dc51d2",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-08-17-forsaken-cry/manifest.json": {
+    "mtime": 1787053247.7477975,
+    "ast_hash": "83a962f44cae7c42234a7f161cf8a36a",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-08-17-votd-first10/manifest.json": {
+    "mtime": 1787016953.3940344,
+    "ast_hash": "de7a1cbc0c5be719ebba38d4e5681c6c",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-08-21-swarm-check/manifest.json": {
+    "mtime": 1787292970.548313,
+    "ast_hash": "1234b0c7db0d2af367332f9a1f86d96e",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-08-21-votd-pastor-scholar/manifest.json": {
+    "mtime": 1787341348.2633855,
+    "ast_hash": "b8391583110c95c8e918e53955da4988",
+    "semantic_hash": ""
+  },
+  "docs/audits/eliana-readonly-poc/2026-08-21-votd-risk-weighting/manifest.json": {
+    "mtime": 1787342128.820849,
+    "ast_hash": "0b5a6a2d162698ebb578011ea94770ea",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-add-calibration-note.ts": {
+    "mtime": 1787053235.094637,
+    "ast_hash": "3355783673221acc9a92aca2ffb03be1",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-adjudicate-kimi.ts": {
+    "mtime": 1788037158.8241203,
+    "ast_hash": "a603b468c9e2fe6c9656030a9e632994",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-aliyah-brainstorm-agy.ts": {
+    "mtime": 1787157042.4335296,
+    "ast_hash": "7119175b0b0ca4d368c68697417a93ea",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-aliyah-brainstorm.ts": {
+    "mtime": 1787098595.9576519,
+    "ast_hash": "62aed0d9c4e94a7a9080cca47f85c8c5",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-append-manifest-note.ts": {
+    "mtime": 1787023946.5607393,
+    "ast_hash": "90288df8e0e90c2b9982a69eb6efd116",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-build-votd-manifest.ts": {
+    "mtime": 1787016935.561983,
+    "ast_hash": "d12797dd5d05b4f6c323ad487ec4dc6c",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-contested-notes-verify-kimi.ts": {
+    "mtime": 1787801199.535,
+    "ast_hash": "046e59e2edef80bd2c705067a484b637",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-fix-fable-manifest-note.ts": {
+    "mtime": 1787024363.5662642,
+    "ast_hash": "8319f36c2ea1dca7ff06dc6c60739ccf",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-apply-sol-edits.ts": {
+    "mtime": 1787293657.5674229,
+    "ast_hash": "8f7e6151f007fa1da9bc5134f37c1480",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-canonical-calibration.ts": {
+    "mtime": 1787052979.7668328,
+    "ast_hash": "ecee5f44921bfaa97a1d59ddf27d031f",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-canonical-reader-model.ts": {
+    "mtime": 1787024181.249954,
+    "ast_hash": "813b342e5904419cff7f05f7c38ce2e1",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-canonical-reader.ts": {
+    "mtime": 1787023040.5405827,
+    "ast_hash": "55c185db6e71d1acea5b18ff4870a28a",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-review.ts": {
+    "mtime": 1787017237.4090357,
+    "ast_hash": "82f8e3141bcdad5ecb52fb454bb04f8b",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-forsaken-cry-swarm-check.ts": {
+    "mtime": 1787292639.208263,
+    "ast_hash": "630921c611eb3cc2bd86d593073df864",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-honest-brackets-counsel.ts": {
+    "mtime": 1787799010.1582377,
+    "ast_hash": "3881838c02c092a8d27274a2b63128ff",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-icon-refine-sol-r2.ts": {
+    "mtime": 1787706540.535703,
+    "ast_hash": "fce6530a9c1027a306c08d2803f6336e",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-icon-refine-sol.ts": {
+    "mtime": 1787706123.6267283,
+    "ast_hash": "cfa8db5f91717eba64c2b7b30dd80560",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-readonly-review.ts": {
+    "mtime": 1787011294.1295092,
+    "ast_hash": "6184d5428286f77e39dc00a0a1d1189f",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-room-audit-sol.ts": {
+    "mtime": 1787536032.188189,
+    "ast_hash": "9f69ea21f8d60e71a831291b932efc95",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-sol-editorial-decision.ts": {
+    "mtime": 1787098207.8636353,
+    "ast_hash": "d2a2b1580f6b7de609c799faa725873b",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-store-listing-fable-v2.ts": {
+    "mtime": 1787365948.2226045,
+    "ast_hash": "9a5b25734f9e2ef34026816010d75ecc",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-store-listing-fable.ts": {
+    "mtime": 1787365392.6003973,
+    "ast_hash": "ca0a4d92a44a5f8844366ef0f3d15c24",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-ux-council-study.ts": {
+    "mtime": 1788581036.6446567,
+    "ast_hash": "bf23ede94659453dce6430fa500335de",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-votd-pastor-scholar-review.ts": {
+    "mtime": 1787340387.4338205,
+    "ast_hash": "e4ef7a64159b6f4f21eb6efb99112fa3",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-votd-risk-weighting-pass.ts": {
+    "mtime": 1787341814.0522547,
+    "ast_hash": "b591d5e5f8489af5a4ffb4fca851d98d",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-who-raised-him-blind-drafts.ts": {
+    "mtime": 1787595669.1202142,
+    "ast_hash": "7686ec2f3b91af467c2f64cc9d132ca2",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-wordstudy-batch-sol.ts": {
+    "mtime": 1787719103.4179728,
+    "ast_hash": "2ae5da2ab6909377e51f7dbd7fb59474",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-wordstudy-draft-mthomas.ts": {
+    "mtime": 1787786790.0176206,
+    "ast_hash": "1932f92b9fd00ae651fe40e6358d04c5",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-wordstudy-pilot-sol.ts": {
+    "mtime": 1787718886.7896738,
+    "ast_hash": "fad757cbe2adcaa6f97a2f67f09b06cc",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/eliana-wordstudy-verify-mthomas.ts": {
+    "mtime": 1787722211.4704647,
+    "ast_hash": "415415a4718dbe71ea5898a299df7e97",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/lib/aliyah-brainstorm-brief.ts": {
+    "mtime": 1787098531.0712764,
+    "ast_hash": "aafbf571d1993a64a2184eb4fc46bc9c",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/lib/eliana-manifest.ts": {
+    "mtime": 1787016864.6683667,
+    "ast_hash": "dfb067310bf25f4dbd96cb19b17f7982",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/scripts/lib/eliana-personas.ts": {
+    "mtime": 1787052898.1100953,
+    "ast_hash": "9207b629d8e2c5abb5a8b5aafcd5ef95",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/src/adapters/agy-cli.ts": {
+    "mtime": 1787001698.2326398,
+    "ast_hash": "83db3d3016cb3ebd9fb89982af7a8c0e",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/src/adapters/kimi-cli.ts": {
+    "mtime": 1787001441.2293687,
+    "ast_hash": "2592e1911628260770546c825219aaa7",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/src/lib/child-env.ts": {
+    "mtime": 1787000504.899539,
+    "ast_hash": "233d65c84a3d738e96c0b7d076097025",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/src/lib/kernel/trusted-commands.ts": {
+    "mtime": 1787000652.4761803,
+    "ast_hash": "8acffb68a06f9f20ba78140a43e62f8d",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/src/lib/path-guard.ts": {
+    "mtime": 1787000490.39966,
+    "ast_hash": "15626931250500a32e3359c6575f1b93",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/test/approved-shell.test.ts": {
+    "mtime": 1787002677.365417,
+    "ast_hash": "313a877854756f7b6fba554a9ba718c4",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/test/codex-cli.test.ts": {
+    "mtime": 1787011209.6492028,
+    "ast_hash": "861c1c0efa21560c15f9aefabaf3430e",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/test/path-guard.test.ts": {
+    "mtime": 1787000950.4715538,
+    "ast_hash": "fe660e05459bc603c818160a3a96d368",
+    "semantic_hash": ""
+  },
+  "packages/maestroclaw/test/security-regressions.test.ts": {
+    "mtime": 1787001753.1757138,
+    "ast_hash": "01989437dc22ee178bc3a8d3319b27aa",
+    "semantic_hash": ""
+  },
+  "supabase/migrations/20260817000000_approval_token_replay_guard.sql": {
+    "mtime": 1787001306.3224337,
+    "ast_hash": "84e8ee8bbeeee645e0a4fb6c0aeaa5fe",
     "semantic_hash": ""
   }
 }

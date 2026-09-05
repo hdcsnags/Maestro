@@ -1,0 +1,21 @@
+{
+  "label": "astra",
+  "adapter": "codex_cli",
+  "mode": "task",
+  "persona": null,
+  "cli_version": "codex-cli 0.153.2",
+  "read_only_mechanism": "codex --sandbox read-only (OS-enforced) + git verification",
+  "requested_model": "gpt-6-astra",
+  "success": false,
+  "elapsed_seconds": 114,
+  "read_only_verification": "clean",
+  "new_status_lines_beyond_baseline": [
+    "?? session.log"
+  ],
+  "output_file": "astra.md",
+  "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "known_gaps": [
+    "findings JSON block missing or unparseable"
+  ],
+  "scratch_clone": "C:\\New folder\\claw-scratch\\ux-council-astra-65Z8bt\\repo"
+}

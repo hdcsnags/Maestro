@@ -1,0 +1,122 @@
+[
+ {
+  "id": "F1",
+  "severity": "high",
+  "area": "nav",
+  "kind": "design",
+  "file": "MainActivity.kt",
+  "line": 124,
+  "claim": "stillness/eliana/teachings/throne_room/journal/bible_reader are registered in both the root and tab NavHosts, so the same screen behaves differently depending on entry path.",
+  "fix": "Keep tab routes exclusively in MainScreen's tab NavHost and delete the duplicate registrations from MainActivity's root graph."
+ },
+ {
+  "id": "F2",
+  "severity": "high",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 492,
+  "claim": "In Reading mode, tap toggles tiers on ✦ verses but selects all other verses, and the selection bar offers no highlight/note/compare — the default mode cannot annotate scripture.",
+  "fix": "Make tap=select uniform, move tier expansion to the ✦ glyph range, and add Highlight/Note (existing dialog) to the selection action bar."
+ },
+ {
+  "id": "F3",
+  "severity": "high",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+  "line": 182,
+  "claim": "The Sacred Word card (verse + 3 essay fields) fills a full viewport, pushing Continue Reading, study path, and quick access below the fold or into visual subordination.",
+  "fix": "Collapse Sacred Word to verse + one field with the rest behind Ascend, and promote Continue Reading to a full-width hero above it."
+ },
+ {
+  "id": "F4",
+  "severity": "medium",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+  "line": 40,
+  "claim": "The bottom bar highlights 'Journey' for journal/teachings/throne_room routes and uniquely disables restoreState for Journey, so the wayfinding lies and Journey loses its stack.",
+  "fix": "Map routes to tabs the user actually navigated from and apply one restoreState rule to all tabs."
+ },
+ {
+  "id": "F5",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/SettingsScreen.kt",
+  "line": 241,
+  "claim": "Settings' Small/Normal/Large typography scale compounds with the reader's independent 12–28sp A−/A+ control, so font size behaves unpredictably.",
+  "fix": "Unify on one font-size store — the reader control should write through to the same setting."
+ },
+ {
+  "id": "F6",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt",
+  "line": 53,
+  "claim": "The signature tier card, invite card, dialogs, and all of JourneyScreen still use translucent fills and elevated colored containers that the 2026-08 opaque/flat doctrine banned on Home.",
+  "fix": "Apply the opaque-fill, zero-elevation doctrine to ElianaVerseTiers, StudyToolsComponents, and JourneyScreen."
+ },
+ {
+  "id": "F7",
+  "severity": "medium",
+  "area": "nav",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/WordLookupScreen.kt",
+  "line": 49,
+  "claim": "A 'Coming Soon' word-lookup stub with a TODO ships with a live registered route while the real Strong's/word-study feature exists in WordStudySheet.",
+  "fix": "Delete the stub screen and route, or rebuild it as a search UI over the existing WordLookupMap data."
+ },
+ {
+  "id": "F8",
+  "severity": "medium",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/VerseStudyScreen.kt",
+  "line": 72,
+  "claim": "Home's primary Ascend CTA can land on 'This study isn't available yet' when no cached Firestore insight exists for the verse.",
+  "fix": "Route Ascend into the reader's Study mode at that verse, where offline depth (originals, morphology, chains) always exists."
+ },
+ {
+  "id": "F9",
+  "severity": "low",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/JourneyScreen.kt",
+  "line": 389,
+  "claim": "Journey's progress card ships two placeholder stats ('Prayers --', 'Sessions --') next to live ones.",
+  "fix": "Wire prayers/sessions counts from their managers or remove the dead stats."
+ },
+ {
+  "id": "F10",
+  "severity": "low",
+  "area": "home",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/home/QuickAccessGrid.kt",
+  "line": 14,
+  "claim": "~800 LOC of unreferenced components (QuickAccessGrid, ElianaGreetingCard, DevotionalCard, BreathingElianaButton, VoiceCommandDialog, VersionSelectionComponents) remain from removed eras.",
+  "fix": "Delete the dead files; git history preserves them."
+ },
+ {
+  "id": "F11",
+  "severity": "low",
+  "area": "reader",
+  "kind": "taste",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 483,
+  "claim": "Justified body text produces visible word-spacing rivers on phone-width columns (visible in 01-home.png).",
+  "fix": "Use TextAlign.Start for verse and card body text."
+ },
+ {
+  "id": "F12",
+  "severity": "low",
+  "area": "nav",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/navigation/MainDestination.kt",
+  "line": 10,
+  "claim": "MainDestination, ARCHITECTURE.md, README.md, and STATE.md describe a retired 4-tab/4-theme app; even the name FourThemeSystem is false (six themes ship).",
+  "fix": "One documentation pass over the four files; rename the theme object when convenient."
+ }
+]

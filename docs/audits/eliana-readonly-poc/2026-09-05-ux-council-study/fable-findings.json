@@ -1,0 +1,122 @@
+[
+ {
+  "id": "F1",
+  "severity": "high",
+  "area": "nav",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+  "line": 40,
+  "claim": "The Journey tab's selection predicate never matches the route \"journey\", so no tab is highlighted while on the Journey screen.",
+  "fix": "Add currentRoute == \"journey\" to the match or replace prefix tests with a route-to-tab map."
+ },
+ {
+  "id": "F2",
+  "severity": "high",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 492,
+  "claim": "In Reading mode a tap on a tiered verse opens depth while a tap elsewhere selects, and annotation is unavailable, so the gesture grammar differs verse to verse.",
+  "fix": "Unify on tap-to-select with a verse action bar and give the ✦ glyph its own tap target for depth."
+ },
+ {
+  "id": "F3",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 382,
+  "claim": "Reading-mode selection is never rendered because the flowing text builder does not receive the selected-verse set.",
+  "fix": "Pass selectedVerses into FlowingVerseRun and apply a primaryContainer background span to selected ranges."
+ },
+ {
+  "id": "F4",
+  "severity": "high",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/home/BreathingVerseCard.kt",
+  "line": 202,
+  "claim": "The verse card offers only a back-a-day button with no return to today and no indication of which day is shown.",
+  "fix": "Add a forward button hidden at today, a relative-day label, and hold dayIndex in rememberSaveable."
+ },
+ {
+  "id": "F5",
+  "severity": "medium",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt",
+  "line": 71,
+  "claim": "Reading versus Study mode is in-memory only, so every cold start opens in Reading mode.",
+  "fix": "Persist the mode and the first visible verse in the bible_reader SharedPreferences alongside font size."
+ },
+ {
+  "id": "F6",
+  "severity": "medium",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 747,
+  "claim": "Scripture renders twice per verse when a tier is open, with the verse in secondary colour and its copy in primary text colour.",
+  "fix": "Suppress the duplicate line when the active version is ELIANA and render scripture in onSurface."
+ },
+ {
+  "id": "F7",
+  "severity": "medium",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/JourneyScreen.kt",
+  "line": 64,
+  "claim": "Journey duplicates the bottom bar and Home Quick Access, leaving Prayer and Journal with two parents and no home.",
+  "fix": "Make the third tab the practices tab with Journal, Prayer, history, and progress, and trim Home Quick Access."
+ },
+ {
+  "id": "F8",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/BackgroundWrapper.kt",
+  "line": 43,
+  "claim": "Premium and legacy rendering paths coexist, so three dark themes and several screens still use gradients, translucent fills, and shadows the flagship doctrine rejects.",
+  "fix": "Give every theme PremiumTokens, delete the gradient path, and remove premium-null branches."
+ },
+ {
+  "id": "F9",
+  "severity": "medium",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+  "line": 69,
+  "claim": "The Home study slot tracks only teaching books, and Aliyah or Foundations progress is never recorded, so the flagship studies never surface as continue.",
+  "fix": "Record last opened study entry in the study reader and prefer the most recent source in the slot."
+ },
+ {
+  "id": "F10",
+  "severity": "medium",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/VerseStudyScreen.kt",
+  "line": 69,
+  "claim": "Go Deeper depends on one Firestore read and fails to a dead end with no retry and no path to the reader.",
+  "fix": "Add an Open in Bible header action, a retry, and a reader fallback with the verse targeted."
+ },
+ {
+  "id": "F11",
+  "severity": "low",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/SettingsScreen.kt",
+  "line": 776,
+  "claim": "Theme cards preview accent swatches inside the current theme's surface and omit background, so themes look alike.",
+  "fix": "Paint each card in its own background with a sample verse line and move taglines into ElianaThemeConfig."
+ },
+ {
+  "id": "F12",
+  "severity": "low",
+  "area": "reader",
+  "kind": "taste",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt",
+  "line": 244,
+  "claim": "The brain icon means Eliana everywhere else but Study mode in the reader toolbar, and the font strip exposes sp units.",
+  "fix": "Use a Read | Study segmented control and show three letter sizes instead of sp values."
+ }
+]

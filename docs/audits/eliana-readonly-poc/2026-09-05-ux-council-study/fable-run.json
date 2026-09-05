@@ -1,0 +1,22 @@
+{
+  "label": "fable",
+  "adapter": "claude_code",
+  "mode": "task",
+  "persona": null,
+  "cli_version": "2.1.261 (Claude Code)",
+  "read_only_mechanism": "claude --print task mode without --dangerously-skip-permissions (writes denied) + git verification",
+  "requested_model": "claude-fable-5-1",
+  "success": true,
+  "elapsed_seconds": 361,
+  "read_only_verification": "clean",
+  "new_status_lines_beyond_baseline": [
+    "M session.log"
+  ],
+  "output_file": "fable.md",
+  "output_sha256": "ad504f4bc0b8731515964ca27f2e10185f7223356677ce5e4b1d7c60e83b4332",
+  "known_gaps": [
+    "resolved model not observable from adapter output; requested model recorded only",
+    "Script flagged UNEXPECTED_WRITE_DETECTED because the app repo tracks session.log (MaestroClaw's own instrumentation). Conductor re-verified the clone by hand: only session.log changed; tracked diff excluding it is empty. Corrected to clean."
+  ],
+  "scratch_clone": "C:\\Users\\Owner\\AppData\\Local\\Temp\\ux-council-fable-qbrpi0\\repo"
+}

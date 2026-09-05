@@ -1,0 +1,122 @@
+[
+ {
+  "id": "F1",
+  "severity": "high",
+  "area": "reader",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 492,
+  "claim": "Tapping an Eliana-translated verse in Flowing reading mode unconditionally toggles tier expansion, preventing verse selection, copying, annotating, or translation comparison.",
+  "fix": "Add a long-press gesture recognizer to FlowingVerseRun for verse selection, or isolate the tier expansion trigger to the ✦ glyph."
+ },
+ {
+  "id": "F2",
+  "severity": "high",
+  "area": "nav",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+  "line": 40,
+  "claim": "The Journey bottom-nav tab fails to highlight when navigating to the journey route and permits duplicate backstack pushes because isTabSelected omits the route check.",
+  "fix": "Include currentRoute == 'journey' in the isTabSelected check for the journey tab."
+ },
+ {
+  "id": "F3",
+  "severity": "high",
+  "area": "home",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/home/BreathingVerseCard.kt",
+  "line": 202,
+  "claim": "The yesterday button decrements the calendar day with no forward arrow or today reset button, trapping the user in past days.",
+  "fix": "Add a forward arrow and a return-to-today control that displays whenever dayIndex is not the current day of the year."
+ },
+ {
+  "id": "F4",
+  "severity": "high",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/BottomNavigationBar.kt",
+  "line": 23,
+  "claim": "Home and Journey heavily duplicate each other as directory dashboards, while daily spiritual practices like Prayer and Journaling lack primary bottom-nav destinations.",
+  "fix": "Retire Journey as an autonomous tab and promote Prayer and Journal directly to the bottom navigation bar."
+ },
+ {
+  "id": "F5",
+  "severity": "medium",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt",
+  "line": 483,
+  "claim": "Forced full text justification across English scripture and devotional cards creates unsightly whitespace rivers on mobile displays.",
+  "fix": "Replace TextAlign.Justify with TextAlign.Start on all English body and scripture text composables."
+ },
+ {
+  "id": "F6",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/BackgroundWrapper.kt",
+  "line": 43,
+  "claim": "BackgroundWrapper forks between flat opaque grounds for premium themes and gradient-scrim overdraw for legacy themes.",
+  "fix": "Remove the legacy gradient and scrim layers completely, rendering a unified solid background across all themes."
+ },
+ {
+  "id": "F7",
+  "severity": "medium",
+  "area": "theme",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/SettingsScreen.kt",
+  "line": 752,
+  "claim": "Settings theme preview cards use the active theme's surface color instead of their own palette, displaying dark surfaces for light theme previews.",
+  "fix": "Bind ThemeCard container and text colors to theme.colorScheme rather than MaterialTheme.colorScheme."
+ },
+ {
+  "id": "F8",
+  "severity": "medium",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/WordStudySheet.kt",
+  "line": 204,
+  "claim": "Strong's Concordance chips have empty click handlers and the standalone Word Lookup screen is an abandoned construction stub.",
+  "fix": "Wire the Strong's assist chip to filter lemma occurrences and connect WordLookupScreen to query the local WordLookupMap."
+ },
+ {
+  "id": "F9",
+  "severity": "low",
+  "area": "home",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/HomeScreen.kt",
+  "line": 53,
+  "claim": "UserProfileViewModel is observed into Compose state on Home but never rendered, leaving the opening screen impersonal.",
+  "fix": "Use the loaded profile state to render a quiet morning greeting or remove the unused ViewModel collection."
+ },
+ {
+  "id": "F10",
+  "severity": "low",
+  "area": "theme",
+  "kind": "bug",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/screens/SettingsScreen.kt",
+  "line": 748,
+  "claim": "ThemeCard has a hardcoded 100dp height that truncates text when accessibility font scaling is enabled.",
+  "fix": "Change height(100.dp) to heightIn(min = 100.dp) and allow dynamic content wrapping."
+ },
+ {
+  "id": "F11",
+  "severity": "low",
+  "area": "reader",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt",
+  "line": 53,
+  "claim": "In-card tier containers use translucent surfaceVariant fills that produce muddy color fringes on light themes.",
+  "fix": "Replace the translucent alpha copy with an opaque heroFillInner or surfaceContainerLow container color."
+ },
+ {
+  "id": "F12",
+  "severity": "low",
+  "area": "nav",
+  "kind": "design",
+  "file": "app/src/main/java/com/eliana/rhythm/navigation/MainDestination.kt",
+  "line": 47,
+  "claim": "MainDestination maintains an obsolete 4-tab list that conflicts with the actual 5-tab BottomNavigationBar implementation.",
+  "fix": "Update MainDestination to include the Bible destination or synchronize it directly with BottomNavItem."
+ }
+]

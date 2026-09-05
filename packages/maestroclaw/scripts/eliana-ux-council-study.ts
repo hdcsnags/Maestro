@@ -25,9 +25,8 @@
  *     npx tsx scripts/eliana-ux-council-study.ts [only=astra,kimi,gemini,fable]
  */
 
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexCliAdapter } from "../src/adapters/codex-cli.js";
 import { KimiCliAdapter } from "../src/adapters/kimi-cli.js";
@@ -43,7 +42,16 @@ const ELIANA_SOURCE = "C:\\New folder\\Elianas RhythmMigrate\\Elianas Rhythm";
 const RUN_ID = "2026-09-05-ux-council-study";
 const OUT_DIR = join("C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\audits\\eliana-readonly-poc", RUN_ID);
 const TIMEOUT_MS = 35 * 60 * 1000;
-const BLIND_REMOVE = ["ui-ux-assessment-report.md"];
+// NOT the user's %TEMP%: Codex's read-only Windows sandbox runs as a restricted identity that
+// gets "Access to the path is denied" under AppData\Local\Temp (first astra run, 2026-09-05:
+// `CreateProcessWithLogonW failed: 267`). Every August codex run that read files used a path
+// under C:\New folder, so scratch clones live there too.
+const SCRATCH_ROOT = "C:\\New folder\\claw-scratch";
+// ui-ux-assessment-report.md: the prior human-readable UX report — removed so reads are blind.
+// session.log: the app repo TRACKS MaestroClaw's own instrumentation log, so an adapter appending
+// to it shows up as a modified tracked file and false-positives the read-only check. Removing it
+// (in the clone only) makes the adapter's append create an untracked file, which is filtered.
+const BLIND_REMOVE = ["ui-ux-assessment-report.md", "session.log"];
 const INSTRUMENTATION = ["session.log", ".maestroclaw-session.log"];
 
 // The files the study is about. Named explicitly so every model reads the same surface.
@@ -143,7 +151,8 @@ function newStatusLines(baseline: string, after: string): string[] {
 }
 
 function makeClone(label: string): { root: string; clone: string } {
-  const root = mkdtempSync(join(tmpdir(), `ux-council-${label}-`));
+  mkdirSync(SCRATCH_ROOT, { recursive: true });
+  const root = mkdtempSync(join(SCRATCH_ROOT, `ux-council-${label}-`));
   const clone = join(root, "repo");
   execFileSync("git", ["clone", "--depth", "1", "--no-hardlinks", ELIANA_SOURCE, clone], { stdio: "pipe" });
   for (const f of BLIND_REMOVE) {
@@ -152,8 +161,16 @@ function makeClone(label: string): { root: string; clone: string } {
   }
   // Commit the removal inside the disposable clone so the baseline git status is clean and
   // any later write shows up unambiguously.
-  execFileSync("git", ["-c", "user.email=claw@local", "-c", "user.name=claw", "commit", "-qam", "blind: remove prior UX report"], { cwd: clone, stdio: "pipe" });
+  execFileSync("git", ["-c", "user.email=claw@local", "-c", "user.name=claw", "commit", "-qam", "blind: remove prior UX report + tracked instrumentation log"], { cwd: clone, stdio: "pipe" });
   return { root, clone };
+}
+
+// Each member persists its own run record so a single seat can be re-run (only=<label>) and
+// the manifest re-assembled from disk (manifest-only) without disturbing the other seats.
+function runRecordPath(label: string): string { return join(OUT_DIR, `${label}-run.json`); }
+function loadRunRecords(): RunRecord[] {
+  return MEMBERS.map((m) => runRecordPath(m.label)).filter(existsSync)
+    .map((p) => JSON.parse(readFileSync(p, "utf-8")) as RunRecord);
 }
 
 interface Member {
@@ -207,7 +224,7 @@ async function runMember(m: Member, promptSha: string): Promise<RunRecord> {
   const elapsed = Math.round((Date.now() - t0) / 1000);
 
   const after = git(clone, ["status", "--short"]);
-  const diffStat = git(clone, ["diff", "--stat"]);
+  const diffStat = git(clone, ["diff", "--stat", "--", ".", ...INSTRUMENTATION.map((f) => `:!${f}`)]);
   const fresh = newStatusLines(baseline, after);
   const unexpected = fresh.filter((l) => !INSTRUMENTATION.some((f) => l.endsWith(f)));
   const verification: RunRecord["read_only_verification"] =
@@ -242,7 +259,7 @@ async function runMember(m: Member, promptSha: string): Promise<RunRecord> {
   if (!findings) gaps.push("findings JSON block missing or unparseable");
   if (m.adapterName !== "codex_cli") gaps.push("resolved model not observable from adapter output; requested model recorded only");
 
-  return {
+  const record: RunRecord = {
     label: m.label, adapter: m.adapterName, mode: "task", persona: null,
     cli_version: cliVersion(m.adapterName === "codex_cli" ? "codex" : m.adapterName === "kimi_cli" ? "kimi" : m.adapterName === "agy_cli" ? "agy" : "claude"),
     read_only_mechanism: m.readOnlyMechanism,
@@ -253,9 +270,38 @@ async function runMember(m: Member, promptSha: string): Promise<RunRecord> {
     read_only_verification: verification, new_status_lines_beyond_baseline: fresh,
     output_file: `${m.label}.md`, output_sha256: sha256(res.output || ""),
     ...(gaps.length ? { known_gaps: gaps } : {}),
-    // scratch root kept for inspection; recorded in notes below
-    ...( { _scratch: root } as unknown as Record<string, never>),
   };
+  (record as unknown as { scratch_clone: string }).scratch_clone = clone;
+  writeFileSync(runRecordPath(m.label), JSON.stringify(record, null, 2), "utf-8");
+  return record;
+}
+
+function writeAssembledManifest(promptSha: string): void {
+  const runs = loadRunRecords();
+  const manifest: EnvelopeManifest = {
+    run_id: RUN_ID,
+    timestamp_utc: new Date().toISOString(),
+    task_description: "Blind, parallel UX/UI study of Home, Bible reader, theme system and navigation by the new-generation council (gpt-6-astra, Kimi K3 swarm, Gemini 3.8 Flash, Claude Fable 5.1), one shared prompt, per-model disposable clones. Conductor: Fable 5.1 (interactive session).",
+    read_only: true,
+    source_repo: captureSourceRepoInfo(ELIANA_SOURCE, "each model ran in its own --depth 1 --no-hardlinks clone under C:\\New folder\\claw-scratch; ui-ux-assessment-report.md and the tracked session.log removed from every clone before dispatch"),
+    content: {
+      description: "Source files in scope (hashes of the load-bearing ones; the prompt names the full scope).",
+      files: HASHED_FILES.map((f) => ({ path: f, sha256: sha256OfFile(join(ELIANA_SOURCE, f)) })),
+    },
+    prompt: { file: "prompt.md", sha256: promptSha },
+    runs,
+    known_gaps: [
+      "Greeting line differs per model (Hi Astra / Hi Swarm / Hi Gemini / Hi Fable); prompt.md records the canonical body with 'Hi'. Everything after the greeting is byte-identical.",
+      "kimi_cli and agy_cli have no sandbox; read-only rests on instruction plus post-run git verification inside a disposable clone.",
+      "Screenshots were available in the clone but no adapter's image ingestion was verified.",
+      "astra's first attempt (clone under %TEMP%) was blocked by the Codex sandbox's path access (`CreateProcessWithLogonW failed: 267`); the model correctly returned an empty findings array rather than inventing evidence. Re-run from C:\\New folder\\claw-scratch is the recorded run.",
+    ],
+    notes: [
+      "First MaestroClaw run of the new-generation council (Astra / K3 / 3.8 Flash / Fable 5.1) and the first four-adapter parallel run.",
+      "Per-seat run records live in <label>-run.json (each carries its scratch_clone path); manifest assembled from them.",
+    ],
+  };
+  writeManifest(OUT_DIR, manifest);
 }
 
 async function main() {
@@ -269,37 +315,18 @@ async function main() {
   writeFileSync(join(OUT_DIR, "prompt.md"), promptCanonical, "utf-8");
   const promptSha = sha256(promptCanonical);
 
+  if (process.argv.includes("manifest-only")) {
+    writeAssembledManifest(promptSha);
+    log(`manifest re-assembled from ${loadRunRecords().length} run record(s) → ${OUT_DIR}`);
+    return;
+  }
+
   log(`Run ${RUN_ID}: ${members.map((m) => `${m.label}=${m.requestedModel}`).join(", ")}`);
   const t0 = Date.now();
-  const runs = await Promise.all(members.map((m) => runMember(m, promptSha)));
+  await Promise.all(members.map((m) => runMember(m, promptSha)));
   log(`all done in ${Math.round((Date.now() - t0) / 1000)}s`);
 
-  const scratch = runs.map((r) => `${r.label}: ${(r as unknown as { _scratch: string })._scratch}`);
-  for (const r of runs) delete (r as unknown as { _scratch?: string })._scratch;
-
-  const manifest: EnvelopeManifest = {
-    run_id: RUN_ID,
-    timestamp_utc: new Date().toISOString(),
-    task_description: "Blind, parallel UX/UI study of Home, Bible reader, theme system and navigation by the new-generation council (gpt-6-astra, Kimi K3 swarm, Gemini 3.8 Flash, Claude Fable 5.1), one shared prompt, per-model disposable clones. Conductor: Fable 5.1 (interactive session).",
-    read_only: true,
-    source_repo: captureSourceRepoInfo(ELIANA_SOURCE, "each model ran in its own --depth 1 --no-hardlinks clone; ui-ux-assessment-report.md removed from every clone before dispatch"),
-    content: {
-      description: "Source files in scope (hashes of the load-bearing ones; the prompt names the full scope).",
-      files: HASHED_FILES.map((f) => ({ path: f, sha256: sha256OfFile(join(ELIANA_SOURCE, f)) })),
-    },
-    prompt: { file: "prompt.md", sha256: promptSha },
-    runs,
-    known_gaps: [
-      "Greeting line differs per model (Hi Astra / Hi Swarm / Hi Gemini / Hi Fable); prompt.md records the canonical body with 'Hi'. Everything after the greeting is byte-identical.",
-      "kimi_cli and agy_cli have no sandbox; read-only rests on instruction plus post-run git verification inside a disposable clone.",
-      "Screenshots were available in the clone but no adapter's image ingestion was verified.",
-    ],
-    notes: [
-      "First MaestroClaw run of the new-generation council (Astra / K3 / 3.8 Flash / Fable 5.1) and the first four-adapter parallel run.",
-      `Scratch clones left for inspection: ${scratch.join(" | ")}`,
-    ],
-  };
-  writeManifest(OUT_DIR, manifest);
+  writeAssembledManifest(promptSha);
   log(`manifest written → ${OUT_DIR}`);
 }
 

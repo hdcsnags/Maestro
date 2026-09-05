@@ -1,0 +1,23 @@
+{
+  "label": "kimi",
+  "adapter": "kimi_cli",
+  "mode": "task",
+  "persona": null,
+  "cli_version": "kimi, version 1.41.0",
+  "read_only_mechanism": "instruction only (kimi has no sandbox) + git verification in a disposable clone",
+  "requested_model": "kimi-code/k3",
+  "success": true,
+  "elapsed_seconds": 640,
+  "read_only_verification": "clean",
+  "new_status_lines_beyond_baseline": [
+    "M session.log"
+  ],
+  "output_file": "kimi.md",
+  "output_sha256": "2da9fd9b9110463515b8901704a20fe02979c9cf301992a1bb3ea21377deea94",
+  "known_gaps": [
+    "resolved model not observable from adapter output; requested model recorded only",
+    "Script flagged UNEXPECTED_WRITE_DETECTED because the app repo tracks session.log (MaestroClaw's own instrumentation). Conductor re-verified the clone by hand: only session.log changed; tracked diff excluding it is empty. Corrected to clean.",
+    "Model self-identified in its report as 'K2-class' although kimi-code/k3 was requested via -m; kimi_cli output carries no resolved-model field, so this cannot be settled from the run."
+  ],
+  "scratch_clone": "C:\\Users\\Owner\\AppData\\Local\\Temp\\ux-council-kimi-Ir5Nte\\repo"
+}
