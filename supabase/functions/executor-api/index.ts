@@ -196,15 +196,29 @@ async function reclaimStaleJobs(
 
 async function reclaimStaleBuildTasks(
   adminClient: ReturnType<typeof createClient>,
-  _userId: string,
+  userId: string,
 ) {
   // Reset build_tasks stuck in dispatched/running for >120 seconds back to pending.
-  // Service-role client bypasses RLS; tasks are scoped by session→workspace ownership implicitly.
+  // Service-role client bypasses RLS, so ownership must be enforced explicitly here.
+  // build_tasks has no direct user_id column — ownership flows through
+  // session_id -> sessions.user_id (see 20260331044524_create_maestro_schema.sql).
+  // Without this scoping, any polling user's stale-task sweep silently reset every
+  // tenant's stuck build_tasks, not just their own.
+  const { data: ownedSessions, error: sessionsErr } = await adminClient
+    .from("sessions")
+    .select("id")
+    .eq("user_id", userId);
+
+  if (sessionsErr) throw sessionsErr;
+  const sessionIds = (ownedSessions ?? []).map((s) => s.id as string);
+  if (sessionIds.length === 0) return;
+
   const cutoff = new Date(Date.now() - 120_000).toISOString();
   await adminClient
     .from("build_tasks")
     .update({ status: "pending", updated_at: new Date().toISOString() })
     .in("status", ["dispatched", "running"])
+    .in("session_id", sessionIds)
     .lt("updated_at", cutoff);
 }
 
@@ -1138,7 +1152,25 @@ Deno.serve(async (req: Request) => {
           return json({ error: "mismatch" }, 403);
         }
 
-        // Token valid — mark as approved and fall through to job creation.
+        // Signature/expiry/context are all valid — now atomically consume the jti so this
+        // exact token cannot be replayed for the rest of its TTL. A unique-constraint
+        // conflict on jti means the token was already used; that IS the replay, reject it.
+        const { error: consumeErr } = await adminClient
+          .from("consumed_approval_tokens")
+          .insert({ jti: validation.payload.jti, user_id: userId });
+
+        if (consumeErr) {
+          // Postgres unique_violation is 23505 — any other error is a real failure, not a replay.
+          if (consumeErr.code === "23505") {
+            console.warn(
+              `[executor-api] approval token replay rejected user=${userId} adapter=${adapterName}`,
+            );
+            return json({ error: "token_already_used" }, 403);
+          }
+          return err(consumeErr.message, 500);
+        }
+
+        // Token valid and consumed for the first time — mark as approved and fall through to job creation.
         approvalRequired = false;
         console.log(
           `[executor-api] token-approved command user=${userId} adapter=${adapterName}`,

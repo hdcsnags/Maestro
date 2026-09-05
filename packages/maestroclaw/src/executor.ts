@@ -1,5 +1,5 @@
 import { mkdirSync, rmSync, renameSync, existsSync, writeFileSync, unlinkSync, readdirSync, statSync, readFileSync } from "node:fs";
-import { join, dirname, resolve, extname, sep, relative } from "node:path";
+import { join, dirname, resolve, extname, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
@@ -7,6 +7,7 @@ import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
 import type { IncidentService } from "./lib/kernel/incident-service.js";
 import { StreamThrottle } from "./lib/stream-throttle.js";
+import { resolveContainedRealpath, tryResolveContainedRealpath, PathEscapeError } from "./lib/path-guard.js";
 import {
   appendBuildSessionLogSummary,
   appendSessionLogEvent,
@@ -29,15 +30,21 @@ export function getIncidentService(): IncidentService | undefined {
   return _incidentService;
 }
 
-function resolveSafeArtifactPath(rootDir: string, filePath: string): string {
-  const resolvedRoot = resolve(rootDir);
-  const resolvedPath = resolve(rootDir, filePath);
-
-  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(resolvedRoot + sep)) {
-    throw new Error(`Artifact path escapes workspace: ${filePath}`);
+// Realpath-hardened containment check (see lib/path-guard.ts) — closes the
+// symlink-parent gap a purely lexical resolve()+prefix check misses: a path
+// that is lexically under the workspace can still lead outside it through a
+// repo-controlled symlink.
+// Exported for direct regression testing (test/security-regressions.test.ts)
+// — otherwise module-private, not part of the adapter-facing API.
+export function resolveSafeArtifactPath(rootDir: string, filePath: string): string {
+  try {
+    return resolveContainedRealpath(rootDir, filePath);
+  } catch (err) {
+    if (err instanceof PathEscapeError) {
+      throw new Error(`Artifact path escapes workspace: ${filePath}`);
+    }
+    throw err;
   }
-
-  return resolvedPath;
 }
 
 interface ArtifactManifestEntry {
@@ -377,10 +384,32 @@ function createCheckpoint(dir: string, label: string): void {
  * Removes the target file from workDir before a retry attempt.
  * Prevents adapters (e.g. Copilot with --allow-all-tools) from seeing their
  * own stale output from the previous attempt.
+ *
+ * targetPath comes from job.allowed_paths[0] — a job-record field, not
+ * directly model-generated, but still remotely supplied. Previously this
+ * resolved it against workDir with NO containment check before unlinkSync —
+ * a value like "../../sensitive-file" deleted outside the workspace on
+ * retry. Now routed through the shared realpath-hardened containment guard;
+ * an escaping path is silently skipped (this is best-effort cleanup, not a
+ * correctness-critical path) and reported as an incident since a legitimate
+ * allowed_paths[0] should never point outside the job's own workspace.
  */
-function cleanForRetry(workDir: string, targetPath: string): void {
+// Exported for direct regression testing (test/security-regressions.test.ts)
+// — otherwise module-private, not part of the adapter-facing API.
+export function cleanForRetry(workDir: string, targetPath: string): void {
+  if (!targetPath) return;
   try {
-    const fullPath = resolve(workDir, targetPath);
+    const fullPath = tryResolveContainedRealpath(workDir, targetPath);
+    if (fullPath === null) {
+      getIncidentService()?.report({
+        severity: "high",
+        category: "scope_violation",
+        title: "cleanForRetry path escape blocked",
+        message: `allowed_paths[0] resolved outside the job workspace and was not deleted.`,
+        metadata: { workDir, targetPath },
+      });
+      return;
+    }
     if (existsSync(fullPath)) {
       unlinkSync(fullPath);
     }
@@ -738,6 +767,26 @@ function collectWrittenFiles(
   return result;
 }
 
+/**
+ * Compares two dir snapshots and returns paths present in `before` but absent
+ * from `after` — i.e. files the adapter deleted. collectWrittenFiles() only
+ * ever looks at what's present in `after`, so a deleted file was previously
+ * invisible to the diff entirely: the reported artifact manifest and the
+ * actual workspace state could silently diverge on deletions.
+ */
+function collectDeletedFiles(
+  workDir: string,
+  before: Map<string, number>,
+  after: Map<string, number>,
+): string[] {
+  const result: string[] = [];
+  for (const fullPath of before.keys()) {
+    if (after.has(fullPath)) continue;
+    result.push(relative(workDir, fullPath).replace(/\\/g, "/"));
+  }
+  return result;
+}
+
 /** Builds the initial session prompt including ARCHITECT.md, scope, and context files. */
 function buildSessionPrompt(job: ExecutorJob, bundle: SessionContextBundle): string {
   const parts: string[] = [
@@ -788,24 +837,39 @@ function buildSessionPrompt(job: ExecutorJob, bundle: SessionContextBundle): str
   return parts.join("\n");
 }
 
-/** Builds a targeted fix-pass prompt for missing expected files. */
+/**
+ * Builds a targeted fix-pass prompt for missing expected files, or — when
+ * `missing` is empty but the pass is being run anyway because pass 1's
+ * process didn't exit cleanly (see pass1FailureNote in executeSessionJob) —
+ * a prompt asking the adapter to verify and complete its own prior work
+ * rather than a confusing "MISSING: (nothing)" block.
+ */
 function buildFixPassPrompt(
   job: ExecutorJob,
   missing: string[],
   written: string[],
+  priorFailureNote?: string,
 ): string {
   const parts: string[] = [
-    "FIX PASS — some expected files are missing. Do NOT rewrite already-written files.",
+    missing.length > 0
+      ? "FIX PASS — some expected files are missing. Do NOT rewrite already-written files."
+      : "FIX PASS — the previous attempt did not complete cleanly and may have left incomplete or corrupt files. Review and complete your prior work.",
     "",
   ];
+  if (priorFailureNote) {
+    parts.push(`Reason this fix pass was triggered: ${priorFailureNote}`, "");
+  }
   if (written.length > 0) {
-    parts.push("Already written (skip these):");
+    parts.push(missing.length > 0 ? "Already written (skip these):" : "Files written before the failure (verify these are complete and correct):");
     for (const f of written) parts.push(`  ✅ ${f}`);
     parts.push("");
   }
-  parts.push("MISSING — you MUST create all of these now:");
-  for (const f of missing) parts.push(`  ❌ ${f}`);
-  parts.push("", "Original build request:", job.prompt);
+  if (missing.length > 0) {
+    parts.push("MISSING — you MUST create all of these now:");
+    for (const f of missing) parts.push(`  ❌ ${f}`);
+    parts.push("");
+  }
+  parts.push("Original build request:", job.prompt);
   return parts.join("\n");
 }
 
@@ -874,25 +938,57 @@ export async function executeSessionJob(
     if (pass1.output) await reportEvent(config, job.id, "stdout", { text: pass1.output.slice(0, 50_000), pass: 1 });
     if (pass1.error) await reportEvent(config, job.id, "stderr", { text: pass1.error.slice(0, 10_000), pass: 1 });
 
+    // pass1.success was previously computed and never checked — a crashed adapter
+    // process could still have files it wrote before crashing picked up by the
+    // before/after diff below and reported as an unremarkable success. Still run
+    // the diff (partial output before a crash may be legitimate, per the same
+    // logic buildFixPassPrompt already assumes for missing files), but make the
+    // failure visible downstream instead of silently swallowing it.
+    let pass1FailureNote = "";
+    if (!pass1.success) {
+      pass1FailureNote = `Pass 1 adapter run did not exit successfully${pass1.error ? `: ${pass1.error.slice(0, 300)}` : ""}.`;
+      console.warn(`  ⚠️ [session] ${pass1FailureNote}`);
+      await reportEvent(config, job.id, "stderr", {
+        text: pass1FailureNote,
+        pass: 1,
+        adapter_success: false,
+      });
+    }
+
     const after1 = walkDir(workDir);
     const written: Record<string, string> = collectWrittenFiles(workDir, before, after1);
     const writtenPaths = Object.keys(written);
+    const deletedPaths = new Set<string>(collectDeletedFiles(workDir, before, after1));
 
-    console.log(`  📝 [session] Pass 1: ${writtenPaths.length} file(s) written`);
+    console.log(`  📝 [session] Pass 1: ${writtenPaths.length} file(s) written${deletedPaths.size > 0 ? `, ${deletedPaths.size} deleted` : ""}`);
     writtenPaths.slice(0, 20).forEach((p) => console.log(`    • ${p}`));
     if (writtenPaths.length > 20) console.log(`    ... and ${writtenPaths.length - 20} more`);
 
-    // ── Pass 2: fix pass for missing expected files ──────────────────────────
+    // ── Pass 2: fix pass for missing expected files (or a failed pass 1) ─────
     const expectedFiles = bundle.expected_files ?? [];
     const missing = expectedFiles.filter((f) => !writtenPaths.includes(f));
 
-    if (missing.length > 0 && deadlineMs - Date.now() > 60_000) {
-      console.log(`  🔄 [session] Fix pass: ${missing.length} missing file(s)`);
-      await reportEvent(config, job.id, "retry", { reason: "missing_expected_files", missing, written: writtenPaths });
+    // Trigger the fix pass even when nothing is officially "missing" if pass 1
+    // itself didn't exit cleanly — files written before a crash can look
+    // complete by the expected_files check while still being truncated/corrupt.
+    const shouldFixPass = (missing.length > 0 || !pass1.success) && deadlineMs - Date.now() > 60_000;
+
+    if (shouldFixPass) {
+      console.log(`  🔄 [session] Fix pass: ${missing.length} missing file(s)${!pass1.success ? " (also: pass 1 did not exit cleanly)" : ""}`);
+      await reportEvent(config, job.id, "retry", {
+        reason: missing.length > 0 ? "missing_expected_files" : "pass1_unclean_exit",
+        missing,
+        written: writtenPaths,
+        pass1_success: pass1.success,
+      });
 
       const fixMs = Math.max(10_000, deadlineMs - Date.now() - REPORT_RESERVE_MS);
       const beforeFix = walkDir(workDir);
-      const pass2 = await runSession(buildFixPassPrompt(job, missing, writtenPaths), workDir, fixMs);
+      const pass2 = await runSession(
+        buildFixPassPrompt(job, missing, writtenPaths, pass1FailureNote || undefined),
+        workDir,
+        fixMs,
+      );
       pass2StructuredLog = extractBuildSessionLog(pass2.output);
       if (pass2StructuredLog) {
         await reportEvent(config, job.id, "session_log", { session_log: pass2StructuredLog, pass: 2 });
@@ -902,6 +998,7 @@ export async function executeSessionJob(
       const afterFix = walkDir(workDir);
       const fixWritten = collectWrittenFiles(workDir, beforeFix, afterFix);
       for (const [p, c] of Object.entries(fixWritten)) written[p] = c;
+      for (const p of collectDeletedFiles(workDir, beforeFix, afterFix)) deletedPaths.add(p);
 
       const totalPaths = Object.keys(written);
       console.log(`  📝 [session] After fix pass: ${totalPaths.length} file(s) total`);
@@ -911,6 +1008,26 @@ export async function executeSessionJob(
     const allowedScope = (job.allowed_paths?.length ? job.allowed_paths : ["**"])
       .map(p => (p === "." || p === "" || p === "./") ? "**" : p);
     const { kept: scopedWritten, rejected: rejectedPaths } = enforceArtifactScope(written, allowedScope);
+
+    // Deletions get the same scope check as writes — an agent shouldn't be able
+    // to delete a file outside its scope any more than it can write one there.
+    // Out-of-scope deletions are reverted the same way rejected writes are:
+    // revertOutOfScopeFile() tries `git restore` first, which brings a deleted
+    // tracked file back, then falls back to best-effort rmSync for the (rarer,
+    // and for a delete, inapplicable) untracked case.
+    const scopedDeletedPaths: string[] = [];
+    const rejectedDeletedPaths: string[] = [];
+    for (const filePath of deletedPaths) {
+      if (isPathWithinAllowedScope(filePath, allowedScope)) {
+        scopedDeletedPaths.push(filePath);
+      } else {
+        rejectedDeletedPaths.push(filePath);
+      }
+    }
+    if (rejectedDeletedPaths.length > 0) {
+      rejectedDeletedPaths.forEach((filePath) => revertOutOfScopeFile(workDir, filePath));
+      console.warn(`  ⚠️ [session] Reverted ${rejectedDeletedPaths.length} out-of-scope deletion(s).`);
+    }
 
     if (rejectedPaths.length > 0) {
       rejectedPaths.forEach((filePath) => revertOutOfScopeFile(workDir, filePath));
@@ -952,19 +1069,34 @@ export async function executeSessionJob(
     }
 
     // ── Complete ─────────────────────────────────────────────────────────────
-    const manifestArray: ArtifactManifestEntry[] = Object.entries(scopedWritten).map(([path, content]) => ({
-      path, content, operation: "create" as const,
-    }));
+    const manifestArray: ArtifactManifestEntry[] = [
+      ...Object.entries(scopedWritten).map(([path, content]) => ({
+        path, content, operation: "create" as const,
+      })),
+      // Deletions previously never appeared in the manifest at all — the diff
+      // logic only ever looked at what was present in the "after" snapshot.
+      // content is empty for delete entries; there's nothing to report but
+      // the fact of the deletion itself.
+      ...scopedDeletedPaths.map((path) => ({
+        path, content: "", operation: "delete" as const,
+      })),
+    ];
     jobSucceeded = manifestArray.length > 0;
     const structuredSessionLog = mergeBuildSessionLogs([pass1StructuredLog, pass2StructuredLog]);
     const localEventSummary = summarizeSessionLog(readSessionLog(workDir));
 
     if (jobSucceeded) {
       await reportArtifactManifest(config, job.id, manifestArray);
+      const summaryParts = [
+        `Session build: ${Object.keys(scopedWritten).length} file(s) written` +
+          (scopedDeletedPaths.length > 0 ? `, ${scopedDeletedPaths.length} deleted` : ""),
+        rejectedPaths.length > 0 ? `${rejectedPaths.length} out-of-scope write(s) removed` : "",
+        rejectedDeletedPaths.length > 0 ? `${rejectedDeletedPaths.length} out-of-scope deletion(s) reverted` : "",
+        pass1FailureNote,
+      ].filter(Boolean);
       await completeJob(config, job.id, true, {
-        result_summary: appendBuildSessionLogSummary(rejectedPaths.length > 0
-          ? `Session build: ${manifestArray.length} file(s) written (${rejectedPaths.length} out-of-scope file(s) removed)`
-          : `Session build: ${manifestArray.length} file(s) written`,
+        result_summary: appendBuildSessionLogSummary(
+          summaryParts.join(" — "),
           structuredSessionLog,
           localEventSummary,
         ),
@@ -973,7 +1105,7 @@ export async function executeSessionJob(
     } else {
       await completeJob(config, job.id, false, {
         result_summary: appendBuildSessionLogSummary(
-          pass1.output?.slice(0, 6_000) ?? "",
+          [pass1FailureNote, pass1.output?.slice(0, 6_000) ?? ""].filter(Boolean).join("\n"),
           structuredSessionLog,
           localEventSummary,
         ),

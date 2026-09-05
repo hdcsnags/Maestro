@@ -1,0 +1,72 @@
+{
+  "run_id": "2026-08-21-votd-risk-weighting",
+  "timestamp_utc": "2026-08-21T19:55:28.819Z",
+  "task_description": "Likelihood x impact x fix-cost weighting of the 8 candidate safety-risk flags from the prior Pastor/Scholar VOTD review, against the app's real, known, intended audience (closed test track, church-recruited initial users, general public at wider release) — per Michael's explicit instruction not to treat every theoretical misuse as equally weighted regardless of realistic likelihood. Also checks whether the calendar, or the proposed safety fixes, cost real theological depth/conviction for a diffuse or low-probability concern.",
+  "read_only": true,
+  "source_repo": {
+    "path": "C:\\New folder\\Elianas RhythmMigrate\\Elianas Rhythm",
+    "git_commit": "00d1eb34ce58b47e85f7a7bb6187a4768ad89594",
+    "git_branch": "main",
+    "note": "votd_calendar.json read live from source, unmodified."
+  },
+  "content": {
+    "description": "Full votd_calendar.json (72 entries) plus the 8 flagged references from the prior round.",
+    "files": [
+      {
+        "path": "app\\src\\main\\assets\\studies\\votd_calendar.json",
+        "sha256": "fb71d884b9a40954ca3be94626c101dfc335a43794631cd97614c3fba9090c78"
+      }
+    ]
+  },
+  "prompt": {
+    "file": "prompt-pastor-risk-weighting.md",
+    "sha256": "f8cb0d46569d5b41317a784bb033ad76da97f11e6207a08a1b27bf35dbaa2dbc"
+  },
+  "runs": [
+    {
+      "label": "risk-weighting-fable",
+      "adapter": "claude_code",
+      "mode": "task",
+      "persona": {
+        "slug": "pastor",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "2.1.238 (Claude Code)",
+      "read_only_mechanism": "Claude Code default permission model (no --dangerously-skip-permissions in task mode).",
+      "requested_model": "claude-fable-5",
+      "success": true,
+      "elapsed_seconds": 201.9,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "risk-weighting-fable.md",
+      "output_sha256": "f8b6d835720dc616724a2d0d0d12fae06dc1a38c60b1c9d7693d9fba457853bf"
+    },
+    {
+      "label": "risk-weighting-sol",
+      "adapter": "codex_cli",
+      "mode": "task",
+      "persona": {
+        "slug": "pastor",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "codex-cli 0.147.0",
+      "read_only_mechanism": "Codex native OS-level sandbox, --sandbox read-only.",
+      "requested_model": "gpt-5.6-sol",
+      "resolved_model": "gpt-5.6-sol",
+      "session_id": "01a025e2-fecf-7df2-8542-af3bc9370f61",
+      "success": true,
+      "elapsed_seconds": 100.2,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "risk-weighting-sol.md",
+      "output_sha256": "19ce2b67e0604dcfb2f6635448b6e6a6901fc9a3db9abf514db315b6527f49bc"
+    }
+  ],
+  "known_gaps": [
+    "Pastor persona only, not Scholar — this task is pastoral/audience judgment, not textual rigor.",
+    "The app's actual future audience composition (post-closed-test-track) is genuinely unknown; both runs were told to say so where it matters rather than assume."
+  ],
+  "notes": [
+    "Direct follow-up to Michael's 2026-08-21 instruction to weigh likelihood and impact against the actual user base rather than treat any theoretical misuse as sufficient grounds for a fix."
+  ]
+}

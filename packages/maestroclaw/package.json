@@ -12,14 +12,16 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "node --import tsx/esm --test test/shell-analyzer.test.ts test/reconcile.test.ts"
+    "test": "node --import tsx/esm --test test/shell-analyzer.test.ts test/reconcile.test.ts test/path-guard.test.ts test/security-regressions.test.ts test/approved-shell.test.ts test/codex-cli.test.ts"
   },
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.12",
     "@supabase/supabase-js": "^2.57.4",
+    "cross-spawn": "^7.0.6",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.15.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"

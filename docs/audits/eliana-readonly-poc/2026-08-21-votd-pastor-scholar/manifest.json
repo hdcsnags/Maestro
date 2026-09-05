@@ -1,0 +1,109 @@
+{
+  "run_id": "2026-08-21-votd-pastor-scholar",
+  "timestamp_utc": "2026-08-21T19:42:28.262Z",
+  "task_description": "First persona-based review of the full 72-entry VOTD calendar (previously only model-diversity reviews had run against it). Pastor + Scholar personas, each through Fable (claude_code) and Sol (codex_cli, read-only sandbox) — 4 runs. Prompt explicitly asks each run to distinguish a genuine, specific misuse-pattern risk from a generic hedge triggered by proximity to suffering language, per Michael's 2026-08-21 pushback on reflexive safety-flagging.",
+  "read_only": true,
+  "source_repo": {
+    "path": "C:\\New folder\\Elianas RhythmMigrate\\Elianas Rhythm",
+    "git_commit": "00d1eb34ce58b47e85f7a7bb6187a4768ad89594",
+    "git_branch": "main",
+    "note": "votd_calendar.json read live from source, unmodified — this is a read-only review round, no edits applied by this script."
+  },
+  "content": {
+    "description": "Full votd_calendar.json (72 entries).",
+    "files": [
+      {
+        "path": "app\\src\\main\\assets\\studies\\votd_calendar.json",
+        "sha256": "fb71d884b9a40954ca3be94626c101dfc335a43794631cd97614c3fba9090c78"
+      }
+    ]
+  },
+  "prompt": {
+    "file": "prompt-pastor.md; prompt-scholar.md",
+    "sha256": "a69ec098cc0bbb03336677602e19e608eafe0aca2b1c1519cf2d9b9c42192d00"
+  },
+  "runs": [
+    {
+      "label": "pastor-fable",
+      "adapter": "claude_code",
+      "mode": "task",
+      "persona": {
+        "slug": "pastor",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "2.1.238 (Claude Code)",
+      "read_only_mechanism": "Claude Code default permission model (no --dangerously-skip-permissions in task mode).",
+      "requested_model": "claude-fable-5",
+      "success": true,
+      "elapsed_seconds": 277.8,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "pastor-fable.md",
+      "output_sha256": "af23be4d3de9d4727890fe39153edf1cf3c5470803295a27a3cec1112a8c3dd3"
+    },
+    {
+      "label": "pastor-sol",
+      "adapter": "codex_cli",
+      "mode": "task",
+      "persona": {
+        "slug": "pastor",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "codex-cli 0.147.0",
+      "read_only_mechanism": "Codex native OS-level sandbox, --sandbox read-only.",
+      "requested_model": "gpt-5.6-sol",
+      "resolved_model": "gpt-5.6-sol",
+      "session_id": "01a025ce-6b74-7040-859e-2deff6690bff",
+      "success": true,
+      "elapsed_seconds": 179,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "pastor-sol.md",
+      "output_sha256": "846d3e2a2f1f1bf90765621d8f520537b5862b8827107ed4cbd420bc027acb19"
+    },
+    {
+      "label": "scholar-fable",
+      "adapter": "claude_code",
+      "mode": "task",
+      "persona": {
+        "slug": "scholar",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "2.1.238 (Claude Code)",
+      "read_only_mechanism": "Claude Code default permission model (no --dangerously-skip-permissions in task mode).",
+      "requested_model": "claude-fable-5",
+      "success": true,
+      "elapsed_seconds": 252.8,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "scholar-fable.md",
+      "output_sha256": "2b1a0e39324f941dd638592764f47ce1ab61ced3a883fa1bd86118305a3e7d80"
+    },
+    {
+      "label": "scholar-sol",
+      "adapter": "codex_cli",
+      "mode": "task",
+      "persona": {
+        "slug": "scholar",
+        "source": ".michael\\opus\\PERSONAS_THEOLOGY.md"
+      },
+      "cli_version": "codex-cli 0.147.0",
+      "read_only_mechanism": "Codex native OS-level sandbox, --sandbox read-only.",
+      "requested_model": "gpt-5.6-sol",
+      "resolved_model": "gpt-5.6-sol",
+      "session_id": "01a025d5-0485-73e1-929d-59dfcddc38a2",
+      "success": true,
+      "elapsed_seconds": 235.7,
+      "read_only_verification": "clean",
+      "new_status_lines_beyond_baseline": [],
+      "output_file": "scholar-sol.md",
+      "output_sha256": "29ba099ac6814c40617f0bf2ded585239088b31ecc92ab4ef95538bc32f380fd"
+    }
+  ],
+  "known_gaps": [
+    "This round did not apply any fixes — findings only, for Michael/Sonnet to weigh, matching the project's standing 'don't force consensus' discipline."
+  ],
+  "notes": [
+    "Closes the gap Michael identified: no persona had ever been run against the VOTD calendar, only model-diversity (Fable/Sol/Kimi as themselves)."
+  ]
+}

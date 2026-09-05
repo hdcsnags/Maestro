@@ -5,12 +5,12 @@
     "semantic_hash": "82e6f69e87f755f471c08d8479e50cd5"
   },
   "package.json": {
-    "mtime": 1783361245.1391134,
+    "mtime": 1783361471.2969446,
     "ast_hash": "6a91f9e3c507f6b3db0502f991bae14d",
     "semantic_hash": ""
   },
   "packages/maestroclaw/package.json": {
-    "mtime": 1783052234.5776944,
+    "mtime": 1783396811.7172804,
     "ast_hash": "97335bfdff8e3467450d75eb641b9063",
     "semantic_hash": ""
   },
@@ -90,7 +90,7 @@
     "semantic_hash": "1b1135d1450009166cb71e91140a2312"
   },
   "packages/maestroclaw/src/conductor/reconcile.ts": {
-    "mtime": 1783056572.6829247,
+    "mtime": 1783361471.298945,
     "ast_hash": "01bb7ebe70b456670363ce338cfaa0ad",
     "semantic_hash": ""
   },
@@ -105,7 +105,7 @@
     "semantic_hash": ""
   },
   "packages/maestroclaw/src/index.ts": {
-    "mtime": 1781049172.996959,
+    "mtime": 1783396811.7172804,
     "ast_hash": "9f2969de35d27e5376041679b53bad8d",
     "semantic_hash": ""
   },
@@ -220,12 +220,12 @@
     "semantic_hash": ""
   },
   "src/components/reveal/BuildRunwayCard.tsx": {
-    "mtime": 1783359520.237023,
+    "mtime": 1783361471.299945,
     "ast_hash": "b773adb3bf6233d62cfa527da6e0bbd6",
     "semantic_hash": ""
   },
   "src/components/reveal/BuildWorkspace.tsx": {
-    "mtime": 1783359502.7474241,
+    "mtime": 1783361471.300945,
     "ast_hash": "e185a59926d30540c841000b2beb742e",
     "semantic_hash": ""
   },
@@ -500,7 +500,7 @@
     "semantic_hash": ""
   },
   "src/hooks/useBuildExecution.ts": {
-    "mtime": 1783359863.0986948,
+    "mtime": 1783361471.3019435,
     "ast_hash": "e291df91647789c97f30950ae9d66427",
     "semantic_hash": ""
   },
@@ -620,7 +620,7 @@
     "semantic_hash": ""
   },
   "src/types/index.ts": {
-    "mtime": 1783056062.1614468,
+    "mtime": 1783361471.3049445,
     "ast_hash": "93a3af3f0f68b19ab1a4e84a69365e8e",
     "semantic_hash": ""
   },
@@ -680,7 +680,7 @@
     "semantic_hash": ""
   },
   "supabase/functions/audit-log/index.ts": {
-    "mtime": 1783359423.5297222,
+    "mtime": 1783361471.3059447,
     "ast_hash": "bf0a69059529d5df10f9a5d0d851bd59",
     "semantic_hash": ""
   },
@@ -695,7 +695,7 @@
     "semantic_hash": ""
   },
   "supabase/functions/concierge/index.ts": {
-    "mtime": 1783056059.6250744,
+    "mtime": 1783361471.3069441,
     "ast_hash": "4eab516f4c4a36fc7574babde2841aaa",
     "semantic_hash": ""
   },
@@ -1060,28 +1060,28 @@
     "semantic_hash": ""
   },
   "src/lib/conductor.ts": {
-    "mtime": 1783359636.4467072,
-    "ast_hash": "361410b9cf47fef2217a42347d5870ad",
+    "mtime": 1783361471.3039448,
+    "ast_hash": "2e8e83a02c90a1362d8ee0c9b1602569",
     "semantic_hash": ""
   },
   "packages/maestroclaw/test/reconcile.test.ts": {
-    "mtime": 1783056584.3425765,
-    "ast_hash": "dc1fdc8ab74e4da92f229902e0d665cb",
+    "mtime": 1783361471.298945,
+    "ast_hash": "d490eaeb0052981d5d2802b4272ae696",
     "semantic_hash": ""
   },
   "supabase/migrations/20260703000000_build_tasks_priority.sql": {
-    "mtime": 1783056052.0033772,
-    "ast_hash": "49e50f81f5fe819c8fe95e042abb12b5",
+    "mtime": 1783361471.3069441,
+    "ast_hash": "dd2bfaa05dd8c015fb8f219060c6c6da",
     "semantic_hash": ""
   },
   "src/lib/conductor.test.ts": {
-    "mtime": 1783359727.9834926,
-    "ast_hash": "75a0f23a94ffe72a1095251ac649385c",
+    "mtime": 1783361471.302944,
+    "ast_hash": "dd367aa585c8796659850f78a13671fc",
     "semantic_hash": ""
   },
   "vitest.config.ts": {
-    "mtime": 1783359647.1209366,
-    "ast_hash": "1035f118d4e6c4fc828a3ff03740f005",
+    "mtime": 1783361471.3079445,
+    "ast_hash": "f6379c218b6fe8e73419ab05edfb7d10",
     "semantic_hash": ""
   },
   "grading-lab/tasks/task-001-c06-review/grades/human-michael.json": {

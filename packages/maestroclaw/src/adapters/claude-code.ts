@@ -2,37 +2,34 @@ import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { LineSplitter } from "../lib/line-splitter.js";
 import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
+import { buildChildEnv } from "../lib/child-env.js";
 
 // Model to use for generation. Override via CLAW_CLAUDE_MODEL in .env.
-// Defaults to Sonnet to avoid burning Opus quota on bulk builds.
-const PRIMARY_MODEL = process.env.CLAW_CLAUDE_MODEL ?? "claude-sonnet-4-6";
+// Defaults to the "sonnet" alias rather than a pinned snapshot ID
+// (previously "claude-sonnet-4-6", which was both unverifiable and
+// self-contradicted the doc comment two lines below it claiming
+// "claude-sonnet-4-5") — an alias survives model refreshes without another
+// stale-adapter audit next quarter, at the cost of not pinning an exact
+// snapshot. Set CLAW_CLAUDE_MODEL to a specific snapshot ID if pinning
+// matters more than staying current for a given deployment.
+const PRIMARY_MODEL = process.env.CLAW_CLAUDE_MODEL ?? "sonnet";
 
-// Optional fallback model. When set, a rate-limited primary run automatically
-// retries with this model instead of failing the whole job.
+// Optional fallback model. Passed to Claude Code's own --fallback-model flag
+// (native automatic fallback on overload/rate-limit) rather than the manual
+// stdout-scraping retry this adapter used to do — the manual path only
+// checked stdout, so it missed rate limits Claude reports on stderr, and it
+// re-implemented a feature the CLI now provides natively. See
+// docs/audits/MAESTROCLAW-ATTACK-PLAN.md §4 Sprint 1.
 const FALLBACK_MODEL = process.env.CLAW_CLAUDE_FALLBACK_MODEL ?? "";
-
-// Substrings in stdout that indicate the CLI hit a usage/rate limit.
-const RATE_LIMIT_SIGNALS = [
-  "you've hit your limit",
-  "rate limit",
-  "quota exceeded",
-  "too many requests",
-  "usage limit",
-];
-
-function isRateLimited(output: string): boolean {
-  const lower = output.toLowerCase();
-  return RATE_LIMIT_SIGNALS.some((s) => lower.includes(s));
-}
 
 /**
  * Claude Code adapter — runs prompts through the `claude` CLI.
  * Requires Claude Code to be installed and authenticated locally.
  *
  * Model selection (in priority order):
- *   1. CLAW_CLAUDE_MODEL env var (e.g. "claude-sonnet-4-5")
- *   2. Falls back to CLAW_CLAUDE_FALLBACK_MODEL on rate-limit failures
- *   3. Hard default: claude-sonnet-4-5
+ *   1. CLAW_CLAUDE_MODEL env var (e.g. "claude-sonnet-4-5" or an alias like "sonnet")
+ *   2. Native --fallback-model (CLAW_CLAUDE_FALLBACK_MODEL) on overload/rate-limit
+ *   3. Hard default: "sonnet" alias
  */
 export class ClaudeCodeAdapter implements Adapter {
   name = "claude_code";
@@ -56,14 +53,10 @@ export class ClaudeCodeAdapter implements Adapter {
     timeoutMs: number,
     onLine?: OnLineFn,
   ): Promise<AdapterResult> {
-    const result = await this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL, onLine);
-
-    if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
-      console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} — retrying with fallback ${FALLBACK_MODEL}`);
-      return this.runWithModel(prompt, workDir, timeoutMs, FALLBACK_MODEL, onLine);
-    }
-
-    return result;
+    // Rate-limit/overload fallback is now handled natively by Claude Code's
+    // own --fallback-model flag (passed inside runWithModel), not by a
+    // second manual invocation here.
+    return this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL, onLine);
   }
 
   async runSession(
@@ -74,14 +67,7 @@ export class ClaudeCodeAdapter implements Adapter {
     const sessionPrompt = `${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`;
     // Session mode: --dangerously-skip-permissions lets Claude write files without prompts.
     // --output-format is omitted — we collect files via dir-diff, not by parsing stdout.
-    const result = await this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, PRIMARY_MODEL);
-
-    if (!result.success && isRateLimited(result.output ?? "") && FALLBACK_MODEL) {
-      console.log(`  ⚡ Rate limit on ${PRIMARY_MODEL} (session) — retrying with fallback ${FALLBACK_MODEL}`);
-      return this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, FALLBACK_MODEL);
-    }
-
-    return result;
+    return this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, PRIMARY_MODEL);
   }
 
   private runWithModel(
@@ -100,14 +86,17 @@ export class ClaudeCodeAdapter implements Adapter {
       metadata: { command: "claude --print", model },
     });
 
+    const args = ["--print", "--output-format", "text", "--model", model];
+    if (FALLBACK_MODEL) args.push("--fallback-model", FALLBACK_MODEL);
+
     return new Promise((resolve) => {
       const proc = spawn(
         "claude",
-        ["--print", "--output-format", "text", "--model", model],
+        args,
         {
           cwd: workDir,
           shell: true,
-          env: { ...process.env },
+          env: buildChildEnv(),
         }
       );
 
@@ -193,22 +182,35 @@ export class ClaudeCodeAdapter implements Adapter {
     model: string,
   ): Promise<AdapterResult> {
     console.log(`  🤖 claude_code [session]: running in ${workDir} (model: ${model})`);
+    // BUG FIX (both source audits flagged this independently): this used to
+    // spawn bare `claude --dangerously-skip-permissions --model <m>` with NO
+    // --print — that launches Claude Code's interactive TUI, which expects a
+    // TTY. Feeding it a closed stdin pipe instead is fragile-to-broken
+    // depending on CLI version. -p/--print forces non-interactive
+    // single-turn mode: it still reads the prompt from stdin, still executes
+    // tool calls (file writes, since --dangerously-skip-permissions is set)
+    // in workDir, and exits after the final response instead of waiting on
+    // a terminal. --output-format stays omitted — session mode collects
+    // files via dir-diff, not by parsing stdout.
     appendSessionLogEvent(workDir, {
       type: "tool_use",
       adapter: this.name,
       mode: "session",
       content: `Starting claude_code session run with model ${model}`,
-      metadata: { command: "claude --dangerously-skip-permissions", model },
+      metadata: { command: "claude --print --dangerously-skip-permissions", model },
     });
+
+    const args = ["--print", "--dangerously-skip-permissions", "--model", model];
+    if (FALLBACK_MODEL) args.push("--fallback-model", FALLBACK_MODEL);
 
     return new Promise((resolve) => {
       const proc = spawn(
         "claude",
-        ["--dangerously-skip-permissions", "--model", model],
+        args,
         {
           cwd: workDir,
           shell: true,
-          env: { ...process.env },
+          env: buildChildEnv(),
         }
       );
 

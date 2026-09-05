@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { isPathEscaping } from "../lib/path-guard.js";
 
 export interface ApplyDiffInput {
   workDir: string;
@@ -74,6 +75,21 @@ export function applyDiffWithCheckpoint(input: ApplyDiffInput): ApplyDiffResult 
 
   if (touchedPaths.length === 0) {
     return { ok: false, reason: "empty_diff", details: "no file paths found in diff" };
+  }
+
+  // A scope of "**" (the common default) matches ANY string lexically,
+  // including "../../etc/passwd" — glob matching alone never checks for
+  // traversal. "You may touch anything" must still mean "anything inside the
+  // workspace," never "anything the OS can resolve to." Reject escaping
+  // paths outright, independent of and before any scope-glob check.
+  const escaping = touchedPaths.filter((p) => isPathEscaping(p));
+  if (escaping.length > 0) {
+    return {
+      ok: false,
+      reason: "out_of_scope",
+      out_of_scope_paths: escaping,
+      details: `Diff touches path(s) that escape the workspace: ${escaping.join(", ")}`,
+    };
   }
 
   const outOfScope = touchedPaths.filter(p => !matchesAnyScope(p, input.scope_paths));

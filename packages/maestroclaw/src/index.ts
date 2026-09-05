@@ -21,6 +21,7 @@ async function main() {
   console.log(`📡 Supabase: ${config.supabaseUrl}`);
   console.log(`⏱  Poll interval: ${config.pollIntervalMs}ms`);
   console.log(`⚡ Max concurrent jobs: ${config.maxConcurrentJobs}`);
+  console.log(`🔁 Max concurrent loops: ${config.maxConcurrentLoops}`);
 
   // Wire up the IncidentService so adapters can report kernel/security events.
   const incidents = new IncidentService(config);
@@ -103,17 +104,25 @@ async function main() {
             });
         }
 
-        // Poll for iteration loops
-        const pendingLoop = await pollForLoop(config).catch(() => null);
-        if (pendingLoop && !runningLoopIds.has(pendingLoop.id)) {
-          const claimedLoop = await claimLoop(config, pendingLoop.id).catch(() => null);
-          if (claimedLoop) {
-            runningLoopIds.add(claimedLoop.id);
-            // Attach an ephemeral conductor run for coordination during this loop.
-            const conductor = createConductorRun([], { maxConcurrency: config.maxConcurrentJobs });
-            console.log(`  🎼 Conductor [${conductor.planId.slice(0, 8)}] ready for loop ${claimedLoop.id.slice(0, 8)}`);
-            void runIterationLoop(config, claimedLoop)
-              .finally(() => runningLoopIds.delete(claimedLoop.id));
+        // Poll for iteration loops — gated on its own capacity. Previously this
+        // ran unconditionally whenever there was job capacity, with no check
+        // against runningLoopIds.size at all, so loops could stack up
+        // unbounded alongside a full complement of ordinary jobs.
+        if (runningLoopIds.size < config.maxConcurrentLoops) {
+          const pendingLoop = await pollForLoop(config).catch(() => null);
+          if (pendingLoop && !runningLoopIds.has(pendingLoop.id)) {
+            const claimedLoop = await claimLoop(config, pendingLoop.id).catch(() => null);
+            if (claimedLoop) {
+              runningLoopIds.add(claimedLoop.id);
+              // Attach an ephemeral conductor run for coordination during this loop.
+              const conductor = createConductorRun([], { maxConcurrency: config.maxConcurrentJobs });
+              console.log(`  🎼 Conductor [${conductor.planId.slice(0, 8)}] ready for loop ${claimedLoop.id.slice(0, 8)} [${runningLoopIds.size}/${config.maxConcurrentLoops} active]`);
+              void runIterationLoop(config, claimedLoop)
+                .finally(() => {
+                  runningLoopIds.delete(claimedLoop.id);
+                  console.log(`  🏁 Loop ${claimedLoop.id.slice(0, 8)} done [${runningLoopIds.size}/${config.maxConcurrentLoops} active]`);
+                });
+            }
           }
         }
 

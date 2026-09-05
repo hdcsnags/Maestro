@@ -13,6 +13,16 @@ export interface ClawConfig {
   enableCheckpoints: boolean;
   /** How many jobs to run in parallel (default: 3). Set to 1 for sequential (legacy) behaviour. */
   maxConcurrentJobs: number;
+  /**
+   * How many iteration loops to run in parallel (default: 2). Previously
+   * iteration loops weren't capped at all — runningLoopIds tracked them but
+   * nothing ever checked its size, so maxConcurrentJobs only bounded ordinary
+   * jobs while loops (each of which drives its own repeated agent
+   * invocations, a heavier unit of work than one job) could stack up
+   * unbounded alongside them. Kept as its own knob rather than folded into
+   * maxConcurrentJobs since the two aren't equivalent units of resource use.
+   */
+  maxConcurrentLoops: number;
   /** Base directory for iteration loops; defaults to process.cwd() */
   workDir?: string;
 }
@@ -42,6 +52,7 @@ export function loadConfig(): ClawConfig {
     enableCheckpoints:
       (process.env.ENABLE_CHECKPOINTS ?? "true").toLowerCase() === "true",
     maxConcurrentJobs: parseInt(process.env.MAX_CONCURRENT_JOBS ?? "3", 10),
+    maxConcurrentLoops: parseInt(process.env.MAX_CONCURRENT_LOOPS ?? "2", 10),
     workDir: process.env.WORK_DIR,
   };
 }

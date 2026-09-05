@@ -1,7 +1,10 @@
 // HMAC approval tokens for Layer 2 server-authoritative trust (SEC-02).
 // Token lifecycle: server generates on first submit → client stores in memory
 // → client resubmits with token → server validates → creates approved job.
-// Tokens are NEVER persisted to the database.
+// The token itself (and the command/payload it authorizes) is NEVER persisted —
+// only the random `jti` nonce is recorded, in consumed_approval_tokens, purely to
+// reject replay of an already-used token within its TTL. See index.ts's submit
+// handler, which performs the atomic consume-or-reject insert after validation.
 
 const TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -10,6 +13,7 @@ export interface ApprovalTokenPayload {
   command_hash: string; // sha256(command.trim()) — exact bytes, no case folding
   adapter: string;
   expires_at: number; // unix ms
+  jti: string; // random nonce — the caller (index.ts) must reject reuse via consumed_approval_tokens
 }
 
 export type TokenValidationResult =
@@ -126,5 +130,6 @@ export function makeTokenPayload(
     command_hash,
     adapter,
     expires_at: Date.now() + TOKEN_TTL_MS,
+    jti: crypto.randomUUID(),
   };
 }

@@ -1,13 +1,27 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
+import { buildCliArguments, resolveCliInvocation } from "./command.js";
 import { LineSplitter } from "../lib/line-splitter.js";
 import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
+import { buildChildEnv } from "../lib/child-env.js";
 
 // Model to use for generation. Override via CLAW_GEMINI_MODEL in .env.
+// gemini-2.5-pro/flash predate the Gemini 3 family — kept as the conservative
+// default rather than silently switching everyone's model out from under
+// them; set CLAW_GEMINI_MODEL explicitly to move to a newer model family.
 const PRIMARY_MODEL = process.env.CLAW_GEMINI_MODEL ?? "gemini-2.5-pro";
 
 // Fallback model on rate-limit. Gemini Flash is significantly cheaper.
 const FALLBACK_MODEL = process.env.CLAW_GEMINI_FALLBACK_MODEL ?? "gemini-2.5-flash";
+
+// Opt-in native sandbox. Off by default to preserve existing behavior for
+// anyone already relying on unsandboxed --yolo; per the architectural
+// decision in docs/audits/MAESTROCLAW-ATTACK-PLAN.md §1, delegating FS/
+// network isolation to each CLI's own sandbox (rather than MaestroClaw
+// reimplementing one) is the intended direction, so set CLAW_GEMINI_SANDBOX=1
+// to opt in now.
+const USE_SANDBOX = (process.env.CLAW_GEMINI_SANDBOX ?? "").toLowerCase() === "1"
+  || (process.env.CLAW_GEMINI_SANDBOX ?? "").toLowerCase() === "true";
 
 // Gemini-specific rate limit / quota signals in stdout/stderr.
 const RATE_LIMIT_SIGNALS = [
@@ -39,10 +53,14 @@ export class GeminiCliAdapter implements Adapter {
 
   async check(): Promise<boolean> {
     try {
+      const invocation = await resolveCliInvocation("gemini");
+      if (!invocation) return false;
+
       return await new Promise<boolean>((resolve) => {
-        const proc = spawn("gemini", ["--version"], {
-          shell: true,
+        const proc = spawn(invocation.command, buildCliArguments(invocation, ["--version"]), {
+          shell: false,
           timeout: 5000,
+          env: buildChildEnv(),
         });
         proc.on("close", (code) => resolve(code === 0));
         proc.on("error", () => resolve(false));
@@ -68,7 +86,7 @@ export class GeminiCliAdapter implements Adapter {
     return result;
   }
 
-  // Session mode: Gemini --yolo already grants full file write access.
+  // Session mode: Gemini's yolo approval mode already grants full file write access.
   // runSession() delegates to run() — the session prompt drives the different behaviour.
   async runSession(
     prompt: string,
@@ -86,7 +104,7 @@ export class GeminiCliAdapter implements Adapter {
     return result;
   }
 
-  private runWithModel(
+  private async runWithModel(
     prompt: string,
     workDir: string,
     timeoutMs: number,
@@ -95,13 +113,33 @@ export class GeminiCliAdapter implements Adapter {
     mode: "task" | "session" = "task",
   ): Promise<AdapterResult> {
     console.log(`  🤖 gemini_cli: running in ${workDir} (model: ${model})`);
+
+    // --yolo is Gemini's deprecated spelling; current CLI is
+    // --approval-mode=yolo. See docs/audits/MAESTROCLAW-ATTACK-PLAN.md §1 —
+    // this is one of the corrections weighted from Sol's citation-backed
+    // research over the original (Fable) assumption that --yolo was current.
+    const geminiArgs = ["--model", model, "--approval-mode=yolo"];
+    if (USE_SANDBOX) geminiArgs.push("--sandbox");
+
     appendSessionLogEvent(workDir, {
       type: "tool_use",
       adapter: this.name,
       mode,
       content: `Starting gemini_cli ${mode} run with model ${model}`,
-      metadata: { command: "gemini --yolo", model },
+      metadata: { command: `gemini ${geminiArgs.join(" ")}`, model, sandbox: USE_SANDBOX },
     });
+
+    const invocation = await resolveCliInvocation("gemini");
+    if (!invocation) {
+      appendSessionLogEvent(workDir, {
+        type: "error",
+        adapter: this.name,
+        mode,
+        success: false,
+        content: "Gemini CLI is not available on this machine",
+      });
+      return { success: false, output: "", error: "Gemini CLI is not available on this machine" };
+    }
 
     return new Promise((resolve) => {
       let stdout = "";
@@ -111,14 +149,19 @@ export class GeminiCliAdapter implements Adapter {
 
       // Gemini CLI detects a non-TTY stdin and processes it as the prompt.
       // Pipe via stdin to avoid Windows command-line arg length limits.
+      // Resolved via resolveCliInvocation + shell:false — same pattern as
+      // codex-cli.ts/copilot-cli.ts. Previously this was the one AI adapter
+      // still using spawn("gemini", …, { shell: true }); Windows
+      // shell-resolution is the historically fragile path, and Gemini was
+      // the outlier still on it.
       const proc = spawn(
-        "gemini",
-        ["--model", model, "--yolo"],
+        invocation.command,
+        buildCliArguments(invocation, geminiArgs),
         {
           cwd: workDir,
           timeout: timeoutMs,
-          shell: true,
-          env: { ...process.env },
+          shell: false,
+          env: buildChildEnv(),
         },
       );
 

@@ -25,6 +25,9 @@ import {
 import { acquireIterationLocks, releaseIterationLocks } from "./locks.js";
 import { appendSessionLogEvent, readSessionLog, SESSION_LOG_FILE, summarizeSessionLog } from "../lib/session-log.js";
 import { buildDecisionRecord, saveDecisionRecord, type DecisionRecord } from "../lib/decision-record.js";
+import { tryResolveContainedRealpath } from "../lib/path-guard.js";
+import { buildChildEnv } from "../lib/child-env.js";
+import { getIncidentService } from "../executor.js";
 
 const CONTROL_POLL_INTERVAL_MS = 2_000;
 const MAX_STDOUT_BYTES = 8 * 1024;
@@ -545,6 +548,12 @@ async function runVerificationWithAbortWatch(
       cwd: workDir,
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
+      // Previously omitted entirely, which meant this spawn silently
+      // inherited the FULL worker environment (Supabase URL/keys, executor
+      // token, etc.) — the verification_command is a per-loop config value
+      // that can come from the same surface as other remotely-supplied job
+      // fields. Scrub secrets the same way every adapter now does.
+      env: buildChildEnv(),
     });
 
     child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
@@ -646,7 +655,9 @@ function walkTree(dir: string, baseDir: string): string[] {
   return results;
 }
 
-function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[] {
+// Exported for direct regression testing (test/security-regressions.test.ts)
+// — otherwise module-private, not part of the runner's public surface.
+export function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[] {
   const result: FileSnapshot[] = [];
   const seen = new Set<string>();
   const resolvedWorkDir = resolve(workDir);
@@ -670,7 +681,21 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
   for (const relPath of candidates) {
     if (seen.has(relPath)) continue;
     seen.add(relPath);
-    const fullPath = resolve(resolvedWorkDir, relPath);
+    // scope_paths come from the iteration_loops DB record — not directly
+    // model-generated, but still remotely supplied. A literal (non-glob)
+    // entry like "../../secrets.env" previously resolved with no
+    // containment check before being read into the agent's prompt context.
+    const fullPath = tryResolveContainedRealpath(resolvedWorkDir, relPath);
+    if (fullPath === null) {
+      getIncidentService()?.report({
+        severity: "medium",
+        category: "scope_violation",
+        title: "readFilesInScope path escape blocked",
+        message: `A literal scope_paths entry resolved outside the loop workspace and was not read.`,
+        metadata: { workDir: resolvedWorkDir, relPath },
+      });
+      continue;
+    }
     if (!existsSync(fullPath)) continue;
     try {
       const rawContent = readFileSync(fullPath);
@@ -692,11 +717,17 @@ function readFilesInScope(workDir: string, scopePaths: string[]): FileSnapshot[]
 
 // callAgent — runs the iteration adapter and returns its raw text output.
 // Uses claude_code by default; falls back through codex_cli → copilot_cli → gemini_cli
-// if the primary adapter fails (e.g. rate limit). Override primary via CLAW_ITERATION_ADAPTER env var.
+// → kimi_cli → agy_cli if the primary adapter fails (e.g. rate limit).
+// Override primary via CLAW_ITERATION_ADAPTER env var.
 // Polls loop controls concurrently so abort/pause are detected even while the
 // adapter is running. Mid-run kill isn't supported (adapter doesn't expose the
 // child process handle), so an abort takes effect after this call returns.
-const ITERATION_ADAPTER_FALLBACK_CHAIN = ["claude_code", "codex_cli", "copilot_cli", "gemini_cli"];
+// kimi_cli/agy_cli appended after the original four so existing deployments'
+// effective fallback order doesn't change — they're additional safety nets,
+// not a reordering of what was already tuned.
+const ITERATION_ADAPTER_FALLBACK_CHAIN = [
+  "claude_code", "codex_cli", "copilot_cli", "gemini_cli", "kimi_cli", "agy_cli",
+];
 
 async function callAgent(
   config: ClawConfig,
@@ -778,14 +809,31 @@ async function callAgent(
   return result.output ?? "";
 }
 
-// Maps persona slugs from SOM-04 to their default local adapter.
+// Maps persona slugs from SOM-04 to their default local adapter. Left
+// pointing at the original four coding adapters deliberately — these are
+// specific persona-to-capability judgment calls (e.g. "skeptic" gets the
+// adversarial/security-flavored adapter), not just "any known adapter,"
+// so kimi_cli/agy_cli aren't slotted in here without an actual decision
+// about which persona (if any) they best serve. See
+// docs/audits/MAESTROCLAW-ATTACK-PLAN.md §7 point 3 for the broader note
+// that this whole map is a coding-specific assumption worth revisiting if/
+// when personas generalize beyond coding.
 const PERSONA_TO_ADAPTER: Record<string, string> = {
   skeptic: "codex_cli",
   builder: "copilot_cli",
   archivist: "claude_code",
   critic: "codex_cli",
 };
-const KNOWN_ADAPTERS = new Set(["claude_code", "codex_cli", "copilot_cli", "gemini_cli"]);
+// Every adapter a model can directly target via agent_query.to (as opposed
+// to a persona slug, resolved above). Must be kept in sync with
+// adapters/index.ts's registry — kimi_cli/agy_cli were added there without a
+// corresponding update here, which meant agent_query: { to: "kimi_cli" }
+// would silently fall through to the "unknown target" warning path and
+// default to claude_code even though the adapter existed and worked fine
+// through the main job-dispatch path.
+const KNOWN_ADAPTERS = new Set([
+  "claude_code", "codex_cli", "copilot_cli", "gemini_cli", "kimi_cli", "agy_cli",
+]);
 
 function resolveTargetToAdapter(to: string): string {
   if (KNOWN_ADAPTERS.has(to)) return to;
@@ -796,11 +844,30 @@ function resolveTargetToAdapter(to: string): string {
   return mapped ?? "claude_code";
 }
 
-function buildQueryPrompt(aq: AgentQuerySignal, workDir: string): string {
+// Exported for direct regression testing (test/security-regressions.test.ts)
+// — otherwise module-private, not part of the runner's public surface.
+export function buildQueryPrompt(aq: AgentQuerySignal, workDir: string): string {
   const fileParts: string[] = [];
   if (aq.files?.length) {
     for (const relPath of aq.files) {
-      const fullPath = join(workDir, relPath);
+      // aq.files is MODEL-GENERATED (agent_query.files from the iteration
+      // agent's own output). Previously this joined it against workDir with
+      // NO containment check before readFileSync — a prompt-injected model
+      // could request "../../..." and make MaestroClaw ITSELF read arbitrary
+      // host files and forward the contents to a peer adapter. This is the
+      // most serious path-traversal bug in the package; see
+      // docs/audits/MAESTROCLAW-ATTACK-PLAN.md §2 item 4.
+      const fullPath = tryResolveContainedRealpath(workDir, relPath);
+      if (fullPath === null) {
+        getIncidentService()?.report({
+          severity: "critical",
+          category: "security_violation",
+          title: "agent_query.files path escape blocked",
+          message: `Model-generated agent_query.files entry attempted to read outside the loop workspace.`,
+          metadata: { workDir, relPath },
+        });
+        continue;
+      }
       if (!existsSync(fullPath)) continue;
       try {
         const content = readFileSync(fullPath, "utf8").slice(0, MAX_CONTENT_BYTES);

@@ -5,6 +5,7 @@ import type { Adapter, AdapterResult, OnLineFn } from "./types.js";
 import { buildCliArguments, resolveCliInvocation } from "./command.js";
 import { LineSplitter } from "../lib/line-splitter.js";
 import { AGENT_01_SESSION_INSTRUCTIONS, appendSessionLogEvent } from "../lib/session-log.js";
+import { buildChildEnv } from "../lib/child-env.js";
 
 function buildWrapperPrompt(promptFileName: string): string {
   return `Read the file named ${promptFileName} in the current workspace and follow its instructions exactly. Use the current workspace as your repository context if needed. Return only your final answer. Do not add commentary about reading the prompt file.`;
@@ -22,7 +23,7 @@ export class CopilotCliAdapter implements Adapter {
         const proc = spawn(invocation.command, buildCliArguments(invocation, ["--version"]), {
           shell: false,
           timeout: 5000,
-          env: { ...process.env },
+          env: buildChildEnv(),
         });
         proc.on("close", (code) => resolve(code === 0));
         proc.on("error", () => resolve(false));
@@ -135,7 +136,7 @@ export class CopilotCliAdapter implements Adapter {
           cwd: workDir,
           timeout: timeoutMs,
           shell: false,
-          env: { ...process.env },
+          env: buildChildEnv(),
         },
       );
 

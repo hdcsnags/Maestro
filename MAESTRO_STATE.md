@@ -10,10 +10,10 @@
 | Primary branch | `main` |
 | Active blockers | Sonnet timeouts on artifact-heavy prompts |
 | Last verified deploy | All 19 functions ACTIVE (verified 2026-06-09): `orchestrate` v39 (Karpathy embed, 2026-06-02); `synthesize` v14 (PRO-01 deliberation-aware synthesis, 2026-06-09 — v13 and earlier did NOT have it); `repo-memory-update` v2 (graph_update action + kind/relations columns, 2026-06-02); `github-execute` v30 (C-03 intra-agent path dedup, 2026-06-02); `deliberate` v3 (SOM-04 2026-05-12); `concierge-triage` v8 (ACTIVE — not unbuilt as SPRINT_MASTER claims); `executor-api` v19 (ACTIVE); `iteration-init` v2 (2026-05-08) |
-| Unapplied migrations | `20260703000000_build_tasks_priority.sql` NOT yet applied remotely (52nd migration, added on the C-06 branch). Apply BEFORE deploying `concierge` (its decompose now persists `priority`). All prior 51 applied (verified 2026-06-02) |
+| Unapplied migrations | `20260817000000_approval_token_replay_guard.sql` (SEC-02 nonce ledger) — remote status *(unverified 2026-09-05)*. `20260703000000_build_tasks_priority.sql` NOT yet applied remotely (52nd migration, added on the C-06 branch). Apply BEFORE deploying `concierge` (its decompose now persists `priority`). All prior 51 applied (verified 2026-06-02) |
 | CI | `.github/workflows/ci.yml` — typecheck + lint + build + maestroclaw tests on push/PR to main (first run green 2026-06-09) |
 | Active locks | None |
-| MaestroClaw version | v0.1.0 |
+| MaestroClaw version | v0.1.0 — 9 adapters: shell_stub, claude_code, copilot_cli, codex_cli, gemini_cli, **kimi_cli**, **agy_cli** (Antigravity; plain `gemini` CLI is tier-blocked), approved_shell, pty_shell. Build + 72/73 tests green 2026-09-05 (1 skip) |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
 
@@ -203,6 +203,67 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-09-05 — Claude Code (claude-fable-5-1) — Catch-up: August work committed + logged; new-generation council study launched
+
+**Context:** MAESTRO_STATE.md had no entry after 2026-07-06, yet the working tree held ~7 weeks of
+uncommitted work (kimi/agy adapters, 30 `eliana-*.ts` dispatch scripts, security hardening + tests, a
+migration, the `docs/audits/` archive). This entry reconstructs that work FROM FILE EVIDENCE (attack plan,
+script headers, test names, diffs), not from memory — claims below are attributed to their source.
+
+**What was done today (verified this session):**
+1. `npm --prefix packages/maestroclaw run build` clean; `npm test` 73 tests → 72 pass, 1 skip, 0 fail
+   (suite now includes path-guard, security-regressions, approved-shell, codex-cli real-binary tests).
+2. Live probes: `codex exec --model gpt-6-astra` answers ("GPT-6 READY", read-only sandbox OK);
+   `kimi -m kimi-code/k3` answers (weekly wall from 2026-08-30 has lifted); `agy models` lists
+   `gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-*`, `gemini-3.6-*`, `gemini-3.1-pro-*`,
+   `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`. Codex `~/.codex/config.toml`
+   default model is now `gpt-6-astra` (was `gpt-5.6-sol` in every August script).
+3. New script `packages/maestroclaw/scripts/eliana-ux-council-study.ts` — first four-adapter PARALLEL
+   run and first run of the new-generation council (gpt-6-astra / K3 swarm / Gemini 3.8 Flash /
+   Fable 5.1): blind UX/UI study of Home, Bible reader, themes, nav; per-model disposable clones;
+   prior UX report removed from clones; reproducibility envelope via `lib/eliana-manifest.ts`.
+   Output → `docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/`. Results logged in the
+   next entry once harvested.
+4. Committed everything (this commit).
+
+**August work being committed, as recorded by its own artifacts (not re-verified line-by-line today):**
+- `docs/audits/MAESTROCLAW-ATTACK-PLAN.md` — Fable's plan + sprint ledger. Sprints marked DONE there:
+  1 adapter flag/model currency (Fable) · 2 `kimi_cli` adapter (Sonnet) · 3 `agy_cli` adapter (Sonnet;
+  probe-first notes in file header: no `--cwd`, needs `--add-dir` + `--dangerously-skip-permissions`,
+  `--sandbox` hard-fails on Windows, `--effort` rejected for claude-* tags, JSON output parsed) ·
+  4 adversarial regression tests (Fable) · 5 executor/session job-lifecycle correctness (Sonnet,
+  Fable-reviewed) · 7 Supabase edge-function security fixes (Sonnet). §8: Eliana read-only proof
+  workload executed 2026-08-17 — found and fixed a `codex_cli` regression (`--ask-for-approval` after
+  `exec` was a hard parse error; every real codex job had been failing since Sprint 1).
+- `src/lib/child-env.ts` — secrets stripped from every spawned child env (deny-list; CLAW_* config
+  allowlisted). `src/lib/path-guard.ts` + `lib/kernel/trusted-commands.ts` — workspace containment.
+- `supabase/migrations/20260817000000_approval_token_replay_guard.sql` + `_shared/approval-tokens.ts`
+  + `executor-api` — one-time-use approval tokens (jti nonce ledger). Remote apply status unverified.
+- `.michael/opus/PERSONAS_THEOLOGY.md` — theology-domain reader personas (Sonnet, 2026-08-17), §6a
+  task-mode split (`underclaim_challenge` / `canonical_calibration`) after Sol's one-sidedness finding.
+- `docs/audits/MAESTRO-2026-FULL-AUDIT.md`, `MAESTROCLAW-ASSESSMENT-{fable,sol}.md` — audits.
+- `docs/audits/eliana-readonly-poc/` — 8 archived runs 2026-08-17→08-24 (VOTD, Forsaken Cry ×9 runs
+  incl. personas, store listing, swarm check, pastor/scholar, risk weighting, room audit, Who Raised
+  Him blind drafts). Plus ~20 further `eliana-*.ts` scripts (word-study pilot/batch/verify/draft,
+  Kimi adjudication rounds, icon refinement, contested-notes verify, honest-brackets counsel) whose
+  outputs live in the Elianas Rhythm repo / `Michael/wordstudy-pilot/`, not here.
+- `graphify-out/` churn = post-commit hook output. `.bolt/` removed.
+
+**Files touched:** `MAESTRO_STATE.md`, `packages/maestroclaw/scripts/eliana-ux-council-study.ts` (new);
+everything else in this commit is the August backlog listed above.
+
+**Decisions made:**
+- Committed the backlog as one checkpoint rather than reconstructing per-sprint commits — the attack
+  plan is the per-sprint record; git history from here forward is honest.
+- The council study uses ONE prompt with the model as the only variable (greeting word aside), so
+  convergence/divergence across the four is attributable to the model, not the brief.
+
+**What didn't work / open:** the `Read This First` migration row now lists two unapplied/unverified
+migrations — someone with Supabase access should `supabase migration list` and update. R4 empty-lane
+policy question (2026-07-06) still awaits a Conductor decision.
+
+---
 
 ### 2026-07-06 — Claude Code (claude-fable-5) — C-06 merge gate closed: rework verification, F2/F3 surfacing, first web test suite, README rewrite
 

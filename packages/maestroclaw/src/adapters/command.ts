@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
+import { buildChildEnv } from "../lib/child-env.js";
 
 interface CliInvocation {
   command: string;
@@ -34,7 +35,7 @@ async function resolvePowerShellScript(commandName: string): Promise<string | nu
       {
         shell: false,
         timeout: 5000,
-        env: { ...process.env },
+        env: buildChildEnv(),
       },
     );
 
