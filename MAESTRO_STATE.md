@@ -204,6 +204,37 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-05 (later) — Claude Code (claude-fable-5-1) — UX council study harvested: 3 of 4 seats, 26-row verified convergence matrix
+
+**What was done:** `scripts/eliana-ux-council-study.ts` ran all four seats in parallel. Gemini 3.8 Flash
+(agy, 3m53s), Kimi K3 (kimi_cli, 10m40s) and Fable 5.1 blind seat (claude_code, 6m01s) each returned a
+full report + parseable 12-finding JSON block. Conductor verified every finding against source: all 36
+hold (2 Gemini framing overclaims, 1 Fable partial). **14 verified defects beyond the 09-03 baseline
+report**, incl. 11 routes registered in BOTH NavHosts (Kimi), Reading-mode selection never rendered and
+mode never persisted (Fable), dead Strong's chip + dead profile ViewModel (Gemini). Results:
+`docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/` — `SYNTHESIS.md`, `manifest.{json,md}`,
+per-seat `<label>.md` / `-findings.json` / `-run.json`, `prompt.md`. README row added. Committed `2a8ea1f`.
+
+**Astra (gpt-6-astra) seat is EMPTY**: attempt 1 — Codex read-only sandbox cannot read `%TEMP%`
+(`CreateProcessWithLogonW failed: 267`; model correctly returned `[]`); fixed — scratch clones now under
+`C:\New folder\claw-scratch`. Attempt 2 — OpenAI usage limit ("try again at 4:16 AM"). Rerun from
+`packages/maestroclaw`: `CLAW_CODEX_MODEL=gpt-6-astra npx tsx scripts/eliana-ux-council-study.ts only=astra`
+then `npx tsx scripts/eliana-ux-council-study.ts manifest-only`.
+
+**Script changes:** per-seat `<label>-run.json` records + `manifest-only` re-assembly; `only=<label>` seat
+reruns; `session.log` removed from clones (the app repo TRACKED MaestroClaw's instrumentation log →
+false-positive UNEXPECTED_WRITE on every seat; three records hand-verified and corrected to clean; the app
+repo now gitignores it, commit `8443db7` there); tracked-diff check excludes instrumentation files.
+
+**Files touched:** `packages/maestroclaw/scripts/eliana-ux-council-study.ts`, `docs/audits/eliana-readonly-poc/README.md`,
+`docs/audits/eliana-readonly-poc/2026-09-05-ux-council-study/**` (new), `MAESTRO_STATE.md`.
+
+**Decisions:** Fable 5.1 takes a blind seat AND conducts — the conductor's own model is graded like the
+others. Kimi self-identified as "K2-class" despite `-m kimi-code/k3`; recorded as a manifest gap (kimi_cli
+emits no resolved-model field). **Open:** Astra rerun; the IA decision (what Journey means) is Michael's.
+
+---
+
 ### 2026-09-05 — Claude Code (claude-fable-5-1) — Catch-up: August work committed + logged; new-generation council study launched
 
 **Context:** MAESTRO_STATE.md had no entry after 2026-07-06, yet the working tree held ~7 weeks of
