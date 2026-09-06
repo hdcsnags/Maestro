@@ -1,0 +1,509 @@
+[
+ {
+  "n": 37,
+  "reference": "Psalms 34:18",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully distills the insight's focus on divine presence and saving action meeting human brokenness without explanation or delay.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 38,
+  "reference": "Romans 8:38",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately translates the Greek perfect pepeismai into settled conviction that frames the entire cosmic list.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 39,
+  "reference": "John 10:10",
+  "verdicts": [
+   "CONTRADICTS",
+   "FILLER",
+   "INSIGHT_SUSPECT"
+  ],
+  "reason": "The card's Notice This disputes the insight's lexical distinction between zoe and bios with academic meta-commentary that adds no devotional fruit, while the insight itself relies on an invalid lexical fallacy.",
+  "rewrite": {
+   "noticeThis": "Jesus contrasts the thief’s three-part destruction — stealing, slaughtering, and destroying — with a single, overflowing purpose: that his sheep may have life in abundance.",
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "The insight commits Trench's lexical fallacy by claiming zōē inherently denotes a distinct non-biological 'kind' of life over against bios and psychē; bios never occurs in John, and psychē is precisely what the Good Shepherd lays down for the sheep in verse 11."
+ },
+ {
+  "n": 40,
+  "reference": "Philippians 4:6",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card cleanly preserves the structural symmetry between 'nothing' and 'everything' and the concrete practice of replacing anxiety with thankful prayer.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 41,
+  "reference": "2 Timothy 1:7",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully uses the hapax legomenon sōphronismos to describe steady self-command opposite cowardice within Paul's prison context.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 42,
+  "reference": "Psalms 16:11",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately draws on the Hebrew idiom panekha ('Your face') to locate fullness of joy in direct relational nearness to God.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 43,
+  "reference": "Micah 6:8",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully contrasts the escalating ritual offerings of verse 6 with ongoing companionship and covenant chesed.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 44,
+  "reference": "Zephaniah 3:17",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card beautifully captures the legitimate translation tension in yacharish, highlighting God's love expressed in quiet stillness as well as loud singing.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 45,
+  "reference": "John 15:5",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card preserves the insight's Greek grammatical points on total negation and organic capacity versus permission.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 46,
+  "reference": "Isaiah 26:3",
+  "verdicts": [
+   "FILLER",
+   "DRIFT"
+  ],
+  "reason": "Notice This expends word count on a pedantic grammatical distinction regarding 'leans' as a picture rather than a reflexive action, while the card drifts into defensive hedging about emotional relief.",
+  "rewrite": {
+   "noticeThis": "The doubled 'peace, peace' is Hebrew’s way of expressing complete, unbroken wholeness, promised to a mind (yetzer) that is sāmuḵ — steadily resting its full weight on God.",
+   "whyItMatters": "This peace is not circumstantial calm, but the steady reality of a mind that stops trying to hold itself up and leans its full weight onto God in trust.",
+   "carryItWithYou": "Notice one anxious thought pattern today, and instead of trying to think your way out of it, consciously lean its weight onto God in a spoken act of trust."
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 47,
+  "reference": "Hebrews 4:16",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully translates the civic background of parrēsia into unhesitating, frank approach to the throne of grace.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 48,
+  "reference": "Psalms 37:4",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Why It Matters retreats into detached third-person hedging ('Many readers have understood...') rather than distilling the insight's confident reading of desire being reshaped by delight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": "Delighting in God is a posture you cultivate rather than a mood you wait for. As delight grows, it reshapes what your heart desires, aligning your deepest longings with what God gives.",
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 49,
+  "reference": "Romans 12:2",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully conveys the contrast between outward conformity to the age and inward transformation through the renewed mind.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 50,
+  "reference": "Nehemiah 8:10",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully distills ma'oz as a concrete fortress of refuge rather than an emotional boost.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 51,
+  "reference": "1 Corinthians 13:4",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately highlights the verbal nature of Paul's list and the deliberate echo of 1 Corinthians 8:1 regarding pride.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 52,
+  "reference": "Psalms 91:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully captures the poetic pairing of permanent residence and overnight lodging in the shadow of Shaddai.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 53,
+  "reference": "Isaiah 41:10",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately connects the prophetic perfect verbs with settled divine assurance grounded in God's covenant with Israel.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 54,
+  "reference": "James 1:2",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately conveys pasan charan and hēgēsasthe as a deliberate evaluation of trials rather than an emotional pretense.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 55,
+  "reference": "Psalms 62:5",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully highlights the grammatical shift from description to an active imperative addressed to one's own soul.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 56,
+  "reference": "Ephesians 3:20",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card captures the linguistic overflow of hyperekperissou and God's capacity exceeding human asking or imagination.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 57,
+  "reference": "Deuteronomy 31:8",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately notes the echo in Joshua 1:9 and the intense force of techat against the collapse of resolve.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 58,
+  "reference": "Psalms 119:105",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully distills the pairing of lamp and light into step-by-step illumination for a person walking in trust.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 59,
+  "reference": "John 14:27",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully captures the inclusio with John 14:1 and the depth of eirēnē as whole covenant shalom.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 60,
+  "reference": "Psalms 27:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately treats the opening questions as strong poetic assertions of fearless confidence in God as stronghold.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 61,
+  "reference": "Habakkuk 3:17",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully conveys the personification of kichesh (the harvest lying or disappointing) across the catalog of total loss.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 62,
+  "reference": "Matthew 6:33",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully captures the redirection of seeking from Gentile anxiety to God's reign and righteousness.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 63,
+  "reference": "2 Chronicles 7:14",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully honors the temple covenant context and treats the four verbs as one unified posture of repentance.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 64,
+  "reference": "John 8:36",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately contrasts ontōs ('free indeed') with the crowd's assumed lineage freedom in verse 33.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 65,
+  "reference": "Psalms 103:12",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully distills pesha and hirchiq into decisive, unbridgeable removal of rebellion.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 66,
+  "reference": "Romans 8:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully applies katakrima as a judicial verdict reversed in Christ following Romans 5 and 7.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 67,
+  "reference": "Genesis 50:20",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately captures the dual agency of chashav without relabeling evil as good or forcing premature resolution.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 68,
+  "reference": "Hebrews 12:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully links the athletic agōn to chapter 11's heroes (katēgōnisanto) as an active, ongoing race.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 69,
+  "reference": "Galatians 5:22",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card faithfully distills the singular karpos versus plural works into an organic, unified harvest of the Spirit.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 70,
+  "reference": "Proverbs 16:9",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately contrasts human course-planning (derekh) with the Lord's establishing of concrete steps (tza'ad).",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 71,
+  "reference": "Exodus 14:14",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card captures the contrast between divine warfare and human stillness while rightly anticipating verse 15's forward march.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 72,
+  "reference": "Hosea 6:6",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card accurately links chesed here with Hosea 6:4 to prioritize enduring covenant loyalty over empty ritual performance.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ }
+]

@@ -1,0 +1,511 @@
+[
+ {
+  "n": 1,
+  "reference": "Psalms 22:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card distills the insight faithfully; the vv.24/27 material is accurate and drawn from the chain-partner insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 2,
+  "reference": "Matthew 27:46",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card compresses the insight well; 'Eli can also function in Aramaic' is a defensible refinement, not disagreement.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 3,
+  "reference": "Exodus 4:22",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "'Custody claim, not labor dispute' is a faithful sharpening of the insight's belonging argument.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 4,
+  "reference": "Hosea 11:1",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card carries the insight's corporate reading and the Matthew 2:15 typology caveat intact.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 5,
+  "reference": "Matthew 2:15",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "The insight affirms Matthew's typology as deliberate embodiment of Israel's story; the card retreats to an open question ('invites the reader to ask').",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": "Matthew isn't claiming Hosea secretly forecast this journey — he's showing that Jesus doesn't stand apart from Israel's story but takes it up and embodies it. Israel was called God's son and brought out of Egypt; now the true Son retraces that path, and Matthew calls the correspondence \"fulfilled.\"",
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 6,
+  "reference": "Isaiah 56:7",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "The card's covenant qualifier is Isaiah 56:6's own language and tempers without contradicting the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 7,
+  "reference": "Jeremiah 7:11",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Hideout-not-crime-scene point survives distillation intact.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 8,
+  "reference": "Mark 11:17",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "The card replaces the insight's concrete Court-of-the-Gentiles explanation of why the two quotations belong together with a vague 'deeper doorway' gesture.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": "Jesus doesn't invent a new standard for the temple; he holds it to what Scripture already said it should be. The market filled the court of the Gentiles — the one space where the nations could draw near — so Isaiah's welcome and Jeremiah's warning name a single failure: the place meant for others' access to God had become a refuge for self-interest.",
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 9,
+  "reference": "Jonah 1:17",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Card adds discipline-and-rescue framing and an abuse safeguard the insight lacks — both defensible improvements; keep the card and backport the safeguard into the insight's practice.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Take-Home Practice should adopt the card's safeguard distinguishing God's appointment from human captivity."
+ },
+ {
+  "n": 10,
+  "reference": "Matthew 12:40",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Card's 'only sign / retrospective' point isn't in the insight, while the insight's two fruits (kētos = sea creature, part-of-a-day idiom answering the Friday–Sunday question) are dropped.",
+  "rewrite": {
+   "noticeThis": "The \"great fish\" (kētos) is simply a large sea creature — \"whale\" is tradition, not translation. And \"three days and three nights\" was an ordinary Jewish way of counting any part of a day as a day, so Friday to Sunday morning honestly fits the idiom — a question worth naming rather than dodging.",
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 11,
+  "reference": "Psalms 88:18",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card carries the insight's last-word-is-darkness point cleanly.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 12,
+  "reference": "Hebrews 10:31",
+  "verdicts": [
+   "FILLER",
+   "DRIFT"
+  ],
+  "reason": "'With a compound verb, for falling among robbers' is muddled hedging that adds no fruit — Luke 10:36 uses empiptō itself for falling into robbers' hands (unverified), as the insight cites.",
+  "rewrite": {
+   "noticeThis": "\"Fall into the hands of\" uses a helpless, physical verb — the same word used for falling into a pit or into the hands of robbers (Luke 10:36): an uncontrolled drop into something inescapable. And the hands belong to the living God — not an idea that can be filed away, but someone real, present, and able to judge.",
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 13,
+  "reference": "Isaiah 58:6",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card rightly skips the rare-word discussion and keeps the verbs — model distillation.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 14,
+  "reference": "Genesis 16:13",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Card overhedges past its own insight, burying the unique fact (Hagar alone names God) and flattening the insight's split between the clear name and the genuinely difficult following clause (unverified).",
+  "rewrite": {
+   "noticeThis": "Hagar — an enslaved Egyptian woman in the wilderness — is the only person Scripture records giving God a name: El Roi, \"the God who sees me.\" Her astonished question afterward is genuinely difficult Hebrew, but the name itself is clear — and it's the name the well keeps (v. 14).",
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 15,
+  "reference": "Psalms 145:18",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Card loads a second sense onto be'emet (calling on God-as-he-is) that the insight's word study doesn't carry, diluting the concrete practice.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": "Nearness to God isn't earned by polished words or religious performance — it's found in calling on him honestly, from where you actually are. \"In truth\" names the genuineness of the cry itself: real, without pretense, rather than words recited while trusting something else.",
+   "carryItWithYou": "The next time you pray, drop the version of your request that sounds appropriately spiritual and say what's actually true — the real complaint, the real fear, the real hope — trusting that this is exactly the calling this verse says draws God near."
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 16,
+  "reference": "Psalms 46:10",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "'Stand down' point carried faithfully; widening the addressee is fair on the insight's own martial reading.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 17,
+  "reference": "Philippians 4:13",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card's manuscript claim is accurate (unverified) and compatible with the insight's translation-supplies framing; scope-limiting of 'all things' preserved.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 18,
+  "reference": "Romans 8:28",
+  "verdicts": [
+   "DRIFT"
+  ],
+  "reason": "Card substitutes 8:29's definition of 'good' for the insight's manuscript-variant discussion — a defensible editorial improvement for 6am; fix cohesion by adding 8:29 to the insight, not by rewriting the card.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Insight should add the 8:29 conformed-to-the-Son definition of 'good' so the card's best line has a source."
+ },
+ {
+  "n": 19,
+  "reference": "Isaiah 40:31",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Active-expectant qavah point carried cleanly.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 20,
+  "reference": "Jeremiah 29:11",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "29:8 contrast and covenant-scope caution both come straight from the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 21,
+  "reference": "Matthew 11:28",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Two-participles point compressed without loss — grammar as fruit.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 22,
+  "reference": "2 Corinthians 12:9",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card is faithful and quietly corrects the insight's 'unanswered prayer' — the prayer was answered with a no.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Change 'unanswered prayer' to 'prayer answered, but not with removal' (adopt the card's wording)."
+ },
+ {
+  "n": 23,
+  "reference": "Proverbs 3:5",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Load-bearing metaphor carried faithfully from the insight's Nifal analysis.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 24,
+  "reference": "1 Peter 5:7",
+  "verdicts": [
+   "COHERENT",
+   "INSIGHT_SUSPECT"
+  ],
+  "reason": "Card is right (Luke 19:35 is the verb's only other NT use, unverified); the insight's 'Greek OT cloak over an animal's back' conflates Luke 19:35 with the LXX and misses the direct echo of Ps 54:23 LXX (Eng 55:22), same verb and same noun (unverified).",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Ranked: 1) cite LXX Ps 54:23 / Eng 55:22 ('Cast your merimna on the Lord') as the verse Peter echoes — same verb, same noun; 2) keep the cloak image via Luke 19:35; 3) drop 'Greek OT cloak over an animal's back' (the nearest LXX mantle text, 1 Kgs 19:19, is onto a person)."
+ },
+ {
+  "n": 25,
+  "reference": "Ephesians 2:8",
+  "verdicts": [
+   "COHERENT",
+   "INSIGHT_SUSPECT"
+  ],
+  "reason": "Card correctly declines to derive perseverance from the periphrastic perfect; the insight's 'grace keeps you there' hangs theological freight on a tense that only gives present standing.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Everyday Insight should read 'grace put you there, and you stand there now' — assurance about the future belongs to God's character elsewhere, not to this tense."
+ },
+ {
+  "n": 26,
+  "reference": "Romans 5:8",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Present-tense synistēsin point carried faithfully with due modesty.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 27,
+  "reference": "John 3:16",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card's hedge on monogenēs is a defensible softening of the insight's confident etymology while keeping the strong usage evidence (Heb 11:17).",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 28,
+  "reference": "Psalms 23:4",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card keeps the He→You grammatical turn and rightly drops the tsalmavet etymology debate.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 29,
+  "reference": "Joshua 1:9",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Threefold-command structure and grounding-in-presence both carried from the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 30,
+  "reference": "Lamentations 3:22",
+  "verdicts": [
+   "COHERENT",
+   "INSIGHT_SUSPECT"
+  ],
+  "reason": "Card names the MT-vs-emendation fork honestly; the insight renders with the emendation ('never end') while glossing MT tamnu ('we are not consumed') without flagging the tension (unverified).",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Ranked: 1) name the textual issue explicitly (MT 'we are not consumed' vs the well-supported emendation 'they never cease'); 2) make the lens gloss agree with the printed rendering."
+ },
+ {
+  "n": 31,
+  "reference": "Hebrews 13:5",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Doubled ou mē emphasis and Deuteronomy/Joshua echo carried faithfully.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 32,
+  "reference": "1 John 4:18",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Card correctly scopes the fear to kolasis-dread per the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 33,
+  "reference": "Colossians 3:2",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Orientation-not-avoidance reading carried straight from the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 34,
+  "reference": "Galatians 2:20",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "Perfect-tense both-at-once point compressed without loss.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ },
+ {
+  "n": 35,
+  "reference": "Psalms 139:14",
+  "verdicts": [
+   "COHERENT",
+   "INSIGHT_SUSPECT"
+  ],
+  "reason": "Card's 'related, not identical words' hedge is more accurate than the insight's flat 'same root appears twice' — MT points nifleiti from palah, a byform of pala (unverified).",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": "Soften 'the same root, פ־ל־א, appears twice' to 'twin forms of closely related roots (פלה/פלא),' noting some manuscripts read nifle'ti — i.e., promote the card's hedge into the insight."
+ },
+ {
+  "n": 36,
+  "reference": "Isaiah 43:2",
+  "verdicts": [
+   "COHERENT"
+  ],
+  "reason": "When-not-if structure and no-blanket-exemption caution both carried from the insight.",
+  "rewrite": {
+   "noticeThis": null,
+   "whyItMatters": null,
+   "carryItWithYou": null
+  },
+  "insight_issue": null
+ }
+]

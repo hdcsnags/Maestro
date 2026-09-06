@@ -204,6 +204,35 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-06 (afternoon) — Claude Code (claude-fable-5-1) — Journey assessment; VOTD↔Deeper-Lens cohesion pass (5 seats, mixed generations)
+
+**Journey assessment** (`docs/audits/eliana-readonly-poc/2026-09-06-journey-assess/`): Astra + Gemini 3.8
+critiqued the rebuilt Journey tab with Michael's reaction verbatim; both "revise"; Kimi 403 monthly
+quota. Conductor merged layout built in the app (branch `ux-council-fixes`). Astra found a real nav bug
+(tap on the already-selected tab ignored) — fixed there.
+
+**VOTD ↔ Deeper Lens cohesion** (`2026-09-06-votd-cohesion/`, script `eliana-votd-cohesion.ts`): 72 card/
+insight pairs × 5 seats (gpt-6-astra, gpt-5.6-sol, gemini-3.8-flash, gemini-3.6-flash, claude-fable-5),
+inline payload built from the 2026-09-05 Firestore backup. **Finding inverts the premise:** the Deeper
+insights carry grammar-as-proof overclaims; the cards mostly already hedge them. Conductor verified 9 of 9
+disputed lexical claims against `sources/verify.py` — all in the seats' favour, none in the insights'.
+Michael's newer-vs-older experiment: grounding, not generation, predicted quality — Astra/Sol (ran the
+corpus) 69%/52% flagged and every check held; Fable 5 (denied the corpus, said so, marked unverified)
+29% and every flag verified true; Gemini 3.8/3.6 8%/16%, most permissive, 3.6 silent about skipping
+verification. `SYNTHESIS.md` §3 has the table; §4 the proposed two-directional fix awaiting Michael.
+
+**Adapter lessons:** agy passes the prompt as argv → `spawn ENAMETOOLONG` at 131 KB; script now writes
+agy's payload to a file in the seat's --add-dir. OpenAI usage window bit Astra mid-verification
+(batch B pending, 7:49 PM). One agy "timeout waiting for response" (rerun). Only one seat per process:
+adapters read their model env at import.
+
+**Maestro-side takeaways for the coming Maestro work:** (1) per-seat env isolation should be a launcher
+concern, not a script quirk; (2) a "grounding attestation" field per run (did the seat run verify.py?
+did it say so?) would have separated the seats automatically; (3) the agreement matrix (`matrix.py`) is
+the reusable piece — it belongs in `scripts/lib/`.
+
+---
+
 ### 2026-09-06 — Claude Code (claude-fable-5-1) — Council study → fix pass executed in the app repo
 
 **Michael's decisions (asked via the concierge, 4 questions):** bottom tabs unchanged, bugs only; Aliyah

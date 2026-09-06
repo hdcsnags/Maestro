@@ -1,0 +1,245 @@
+# VOTD cohesion — agreement matrix
+
+Seats: astra, fable5, gemini36, gemini38, sol
+
+| # | Reference | astra | fable5 | gemini36 | gemini38 | sol | flagged by |
+|---|---|---|---|---|---|---|---|
+| 1 | Psalms 22:1 | insight? | ok | drift | · | insight? | 3 |
+| 2 | Matthew 27:46 | insight? | ok | drift | · | insight? | 3 |
+| 3 | Exodus 4:22 | ok | ok | ok | · | ok | 0 |
+| 4 | Hosea 11:1 | drift, insight? | ok | ok | · | insight? | 2 |
+| 5 | Matthew 2:15 | drift | drift | ok | · | ok | 2 |
+| 6 | Isaiah 56:7 | insight? | ok | ok | · | insight? | 2 |
+| 7 | Jeremiah 7:11 | insight? | ok | ok | · | insight? | 2 |
+| 8 | Mark 11:17 | drift, filler, insight? | drift | ok | · | insight? | 3 |
+| 9 | Jonah 1:17 | drift, insight? | drift | drift | · | ok | 3 |
+| 10 | Matthew 12:40 | drift | drift | drift | · | drift | 4 |
+| 11 | Psalms 88:18 | insight? | ok | ok | · | ok | 1 |
+| 12 | Hebrews 10:31 | filler, insight? | filler, drift | ok | · | drift, filler | 3 |
+| 13 | Isaiah 58:6 | ok | ok | ok | · | insight? | 1 |
+| 14 | Genesis 16:13 | CONTRA, insight? | drift | ok | · | insight? | 3 |
+| 15 | Psalms 145:18 | drift | drift | drift | · | drift | 4 |
+| 16 | Psalms 46:10 | insight? | ok | ok | · | ok | 1 |
+| 17 | Philippians 4:13 | CONTRA, filler, insight? | ok | ok | · | ok | 1 |
+| 18 | Romans 8:28 | insight? | drift | drift | · | drift | 4 |
+| 19 | Isaiah 40:31 | ok | ok | ok | · | ok | 0 |
+| 20 | Jeremiah 29:11 | ok | ok | drift | · | ok | 1 |
+| 21 | Matthew 11:28 | insight? | ok | ok | · | ok | 1 |
+| 22 | 2 Corinthians 12:9 | ok | ok | ok | · | CONTRA, insight? | 1 |
+| 23 | Proverbs 3:5 | ok | ok | ok | · | ok | 0 |
+| 24 | 1 Peter 5:7 | insight? | insight? | ok | · | insight? | 3 |
+| 25 | Ephesians 2:8 | filler, insight? | insight? | ok | · | CONTRA, insight? | 3 |
+| 26 | Romans 5:8 | ok | ok | ok | · | ok | 0 |
+| 27 | John 3:16 | filler, insight? | ok | ok | · | insight? | 2 |
+| 28 | Psalms 23:4 | ok | ok | ok | · | ok | 0 |
+| 29 | Joshua 1:9 | drift, insight? | ok | ok | · | ok | 1 |
+| 30 | Lamentations 3:22 | CONTRA, insight? | insight? | ok | · | CONTRA, insight? | 3 |
+| 31 | Hebrews 13:5 | ok | ok | ok | · | ok | 0 |
+| 32 | 1 John 4:18 | ok | ok | ok | · | ok | 0 |
+| 33 | Colossians 3:2 | ok | ok | ok | · | ok | 0 |
+| 34 | Galatians 2:20 | insight? | ok | ok | · | ok | 1 |
+| 35 | Psalms 139:14 | insight? | insight? | ok | · | insight? | 3 |
+| 36 | Isaiah 43:2 | insight? | ok | ok | · | ok | 1 |
+| 37 | Psalms 34:18 | · | ok | ok | ok | insight? | 1 |
+| 38 | Romans 8:38 | · | ok | ok | ok | ok | 0 |
+| 39 | John 10:10 | · | CONTRA, insight? | CONTRA, insight? | CONTRA, filler, insight? | insight? | 4 |
+| 40 | Philippians 4:6 | · | ok | ok | ok | ok | 0 |
+| 41 | 2 Timothy 1:7 | · | ok | ok | ok | ok | 0 |
+| 42 | Psalms 16:11 | · | ok | ok | ok | ok | 0 |
+| 43 | Micah 6:8 | · | ok | ok | ok | ok | 0 |
+| 44 | Zephaniah 3:17 | · | insight? | ok | ok | insight? | 2 |
+| 45 | John 15:5 | · | ok | ok | ok | ok | 0 |
+| 46 | Isaiah 26:3 | · | CONTRA, insight? | drift, filler | filler, drift | insight? | 4 |
+| 47 | Hebrews 4:16 | · | ok | ok | ok | insight? | 1 |
+| 48 | Psalms 37:4 | · | drift | drift | drift | insight? | 4 |
+| 49 | Romans 12:2 | · | ok | ok | ok | insight? | 1 |
+| 50 | Nehemiah 8:10 | · | ok | ok | ok | ok | 0 |
+| 51 | 1 Corinthians 13:4 | · | ok | ok | ok | ok | 0 |
+| 52 | Psalms 91:1 | · | CONTRA, insight? | CONTRA | ok | CONTRA, insight? | 3 |
+| 53 | Isaiah 41:10 | · | ok | ok | ok | insight? | 1 |
+| 54 | James 1:2 | · | ok | ok | ok | ok | 0 |
+| 55 | Psalms 62:5 | · | ok | ok | ok | ok | 0 |
+| 56 | Ephesians 3:20 | · | ok | ok | ok | insight? | 1 |
+| 57 | Deuteronomy 31:8 | · | ok | ok | ok | drift, insight? | 1 |
+| 58 | Psalms 119:105 | · | filler | drift, filler | ok | drift, insight? | 3 |
+| 59 | John 14:27 | · | ok | ok | ok | ok | 0 |
+| 60 | Psalms 27:1 | · | ok | ok | ok | insight? | 1 |
+| 61 | Habakkuk 3:17 | · | ok | ok | ok | insight? | 1 |
+| 62 | Matthew 6:33 | · | ok | ok | ok | ok | 0 |
+| 63 | 2 Chronicles 7:14 | · | ok | ok | ok | insight? | 1 |
+| 64 | John 8:36 | · | ok | ok | ok | ok | 0 |
+| 65 | Psalms 103:12 | · | insight? | ok | ok | insight? | 2 |
+| 66 | Romans 8:1 | · | ok | ok | ok | insight? | 1 |
+| 67 | Genesis 50:20 | · | ok | ok | ok | ok | 0 |
+| 68 | Hebrews 12:1 | · | ok | ok | ok | filler, insight? | 1 |
+| 69 | Galatians 5:22 | · | insight? | ok | ok | insight? | 2 |
+| 70 | Proverbs 16:9 | · | ok | ok | ok | ok | 0 |
+| 71 | Exodus 14:14 | · | drift, insight? | ok | ok | insight? | 2 |
+| 72 | Hosea 6:6 | · | ok | ok | ok | ok | 0 |
+
+## Verification queue — flagged by two or more seats
+
+- **#1 Psalms 22:1** — astra, gemini36, sol
+  - astra: INSIGHT_SUSPECT — The study makes the verb form adjudicate divine abandonment beyond what the lament's wording establishes.
+    - insight: Text: the speaker accuses God of forsaking him; the Qal perfect does not establish the theological nature or extent of that abandonment. Reading: hold the real lament alongside verse 24's testimony that God heard.
+  - gemini36: DRIFT — Card WhyItMatters imports Psalm 22:24 and 22:27 trajectory which the insight for this entry does not introduce or focus on.
+  - sol: INSIGHT_SUSPECT — The Qal perfect expresses the sufferer’s accusation of abandonment but cannot by itself prove an objective divine withdrawal or explain the cross.
+    - insight: Lexical correction: עזב means forsake or leave, but its morphology does not adjudicate the theology or ontology of God’s action.
+- **#2 Matthew 27:46** — astra, gemini36, sol
+  - astra: INSIGHT_SUSPECT — The study overreads the verb's components and both layers diminish Gethsemane's anguish while asserting willing obedience.
+    - insight: Text: Yeshua voices Psalm 22 and in Matthew 26:39 asks for the cup to pass while submitting to the Father. Reading: willing obedience and suffering inflicted upon him coexist; prefixes do not prove complete divine withdrawal, and lema is not a verb.
+  - gemini36: DRIFT — Card CarryItWithYou shifts the practical application to borrowing Scripture's words when own words run out, whereas the insight applies the verse to bringing raw feelings of abandonment directly to God in prayer.
+  - sol: INSIGHT_SUSPECT — The card coheres, but the insight wrongly derives complete and decisive withdrawal from the internal prefixes of ἐγκαταλείπω.
+    - insight: Lexical correction: ἐγκατέλιπες means “you forsook or abandoned me”; its contextual force should not be manufactured by separately theologizing its prefixes.
+- **#4 Hosea 11:1** — astra, sol
+  - astra: DRIFT, INSIGHT_SUSPECT — The card weakens the study's Christian typology while both layers describe the exodus too absolutely as the relationship's beginning.
+    - insight: Text: Exodus 4:22 calls Israel God's son before release from Egypt. Reading: the exodus manifests and shapes this relationship rather than creating a previously nonexistent sonship; Matthew's typological fulfillment should be stated as a Christian reading grounded in his Gospel.
+  - sol: INSIGHT_SUSPECT — The insight says the exodus constitutes Israel as God’s son even though Exodus 4:22 names Israel as His son before the release.
+    - insight: Contextual correction: the exodus displays and enacts God’s fatherly claim upon Israel rather than first creating that sonship.
+- **#5 Matthew 2:15** — astra, fable5
+  - astra: DRIFT — The card substitutes an open question for the study's defensible account of Yeshua embodying and fulfilling Israel's history.
+  - fable5: DRIFT — The insight affirms Matthew's typology as deliberate embodiment of Israel's story; the card retreats to an open question ('invites the reader to ask').
+- **#6 Isaiah 56:7** — astra, sol
+  - astra: INSIGHT_SUSPECT — The card preserves the passage's covenant-shaped welcome more accurately than the study's overextended grammatical explanation.
+    - insight: Text: the house will be called a house of prayer for all peoples, with covenant allegiance specified in the context. Reading: this declares its intended identity, but neither passive voice nor the word all independently proves an unconditional definition.
+  - sol: INSIGHT_SUSPECT — The card is sound, but the insight makes passive voice and כֹּל prove a definition and exceptionless scope that come instead from the passage’s stated inclusions.
+    - insight: Grammatical correction: Isaiah’s breadth rests on his explicit welcome of covenant-joining foreigners and eunuchs, not on the passive form or כֹּל alone.
+- **#7 Jeremiah 7:11** — astra, sol
+  - astra: INSIGHT_SUSPECT — Both layers turn the fruitful hideout image into an unwarranted exclusion of wrongdoing inside the temple.
+    - insight: Reading: Jeremiah 7:9–11 condemns presumed sanctuary after wrongdoing; it does not exclude crimes within the temple, which Jeremiah 7:30 also condemns.
+  - sol: INSIGHT_SUSPECT — Both card and insight correctly see the den as refuge but overstate this by excluding wrongdoing within sacred space altogether.
+    - insight: Interpretive correction: the den image emphasizes false refuge after wrongdoing but does not prove that no wrongdoing occurred at the temple.
+- **#8 Mark 11:17** — astra, fable5, sol
+  - astra: DRIFT, FILLER, INSIGHT_SUSPECT — The card withholds the central prophetic contrast while the study presents a proposed historical reconstruction as stated fact.
+    - insight: Text: Mark combines Isaiah 56:7 and Jeremiah 7:11. Reading: commerce obstructing Gentile worship is a proposed explanation, not Mark's explicit account; the outer court was not the only place non-Jews could approach God at all.
+  - fable5: DRIFT — The card replaces the insight's concrete Court-of-the-Gentiles explanation of why the two quotations belong together with a vague 'deeper doorway' gesture.
+  - sol: INSIGHT_SUSPECT — The prophetic combination is accurate, but the insight states the Court-of-the-Gentiles obstruction reconstruction more firmly than Mark permits.
+    - insight: Historical-inference correction: commerce obstructing the Gentile court is plausible but is not explicitly located or explained that way by Mark.
+- **#9 Jonah 1:17** — astra, fable5, gemini36
+  - astra: DRIFT, INSIGHT_SUSPECT — The study overstates what appointment and the duration phrase establish, while the card adds an overly categorical test of providence.
+    - insight: Text: God appoints the fish, plant, worm, and wind. Reading: the narrative establishes the fish's preserving role, and inclusive day-counting is a possible explanation of the duration rather than its fixed lexical meaning.
+  - fable5: DRIFT — Card adds discipline-and-rescue framing and an abuse safeguard the insight lacks — both defensible improvements; keep the card and backport the safeguard into the insight's practice.
+    - insight: Take-Home Practice should adopt the card's safeguard distinguishing God's appointment from human captivity.
+  - gemini36: DRIFT — Card CarryItWithYou adds an extra cautionary proviso about human captors and escaping confinement which is absent from the insight's practice.
+- **#10 Matthew 12:40** — astra, fable5, gemini36, sol
+  - astra: DRIFT — The card adds an unsupported claim that the sign cannot be evaluated before its fulfillment.
+  - fable5: DRIFT — Card's 'only sign / retrospective' point isn't in the insight, while the insight's two fruits (kētos = sea creature, part-of-a-day idiom answering the Friday–Sunday question) are dropped.
+  - gemini36: DRIFT — Card NoticeThis introduces the claim that the sign of Jonah is 'retrospective' and 'cannot be evaluated in advance,' shifting away from the insight's typological focus on burial and time reckoning.
+  - sol: DRIFT — The card’s claim that the sign cannot be evaluated in advance goes beyond the insight and is too absolute because the comparison already announces a future event.
+- **#12 Hebrews 10:31** — astra, fable5, sol
+  - astra: FILLER, INSIGHT_SUSPECT — The falling-word excursus distracts from the warning and both layers assign too much force to isolated vocabulary.
+    - insight: Text: Hebrews 10:31 and Luke 10:36 use the same falling verb. Reading: the surrounding judgment warning supplies the terror; the idiom itself does not mean an uncontrolled descent beyond mercy, and living is not the warning's sole basis.
+  - fable5: FILLER, DRIFT — 'With a compound verb, for falling among robbers' is muddled hedging that adds no fruit — Luke 10:36 uses empiptō itself for falling into robbers' hands (unverified), as the insight cites.
+  - sol: DRIFT, FILLER — The falling-word parallels consume space while the card overstates that the warning rests entirely on “living” rather than also on the judgment context of verse 30.
+- **#14 Genesis 16:13** — astra, fable5, sol
+  - astra: CONTRADICTS, INSIGHT_SUSPECT — The card rightly acknowledges difficulty in the divine name where the study claims its meaning is unambiguous.
+    - insight: Text: the local morphology does not identify the first ro'i as the asserted possessive form. Reading: God who sees me is defensible but not unambiguous, remained alive is interpretive supplementation, and an exhaustive only-person claim is unnecessary.
+  - fable5: DRIFT — Card overhedges past its own insight, burying the unique fact (Hagar alone names God) and flattening the insight's split between the clear name and the genuinely difficult following clause (unverified).
+  - sol: INSIGHT_SUSPECT — The card is appropriately cautious, but the insight falsely parses רֳאִי as a possessive form meaning “who sees me.”
+    - insight: Lexical correction: the local morphology identifies רֳאִי as an absolute noun without a first-person suffix, so “God who sees me” is contextual interpretation rather than transparent morphology.
+- **#15 Psalms 145:18** — astra, fable5, gemini36, sol
+  - astra: DRIFT — The card turns truthful knowledge of God into an additional emphasis beyond the study's focus on sincere calling.
+  - fable5: DRIFT — Card loads a second sense onto be'emet (calling on God-as-he-is) that the insight's word study doesn't carry, diluting the concrete practice.
+  - gemini36: DRIFT — Card WhyItMatters and CarryItWithYou introduce a second condition for calling 'in truth' (not calling on a version of God trimmed to preferences) which goes beyond the insight's focus on personal honesty and unfeigned sincerity.
+  - sol: DRIFT — The card turns sincerity in calling into a warning against a preference-shaped doctrine of God, a defensible idea not developed by this insight.
+- **#18 Romans 8:28** — astra, fable5, gemini36, sol
+  - astra: INSIGHT_SUSPECT — The card is sound, but the study falsely treats omission of explicit God as forcing an alternative subject and potentially impersonal process.
+    - insight: Text: the local SBLGNT lacks explicit ho theos. Reading: God can still be the implied subject, or all things can be the subject; neither construction removes God's purposeful agency from the passage's context.
+  - fable5: DRIFT — Card substitutes 8:29's definition of 'good' for the insight's manuscript-variant discussion — a defensible editorial improvement for 6am; fix cohesion by adding 8:29 to the insight, not by rewriting the card.
+    - insight: Insight should add the 8:29 conformed-to-the-Son definition of 'good' so the card's best line has a source.
+  - gemini36: DRIFT — Card NoticeThis shifts focus to defining 'good' via verse 29, omitting the insight's analysis of prothesis and the manuscript variant of ho theos.
+  - sol: DRIFT — Defining the good through verse 29 is contextually valuable but is an addition rather than a condensation of the supplied insight.
+- **#24 1 Peter 5:7** — astra, fable5, sol
+  - astra: INSIGHT_SUSPECT — The card improves the study, whose lexical and aorist claims wrongly require a forceful, instantaneous release of anxiety.
+    - insight: Text: the verb can mean cast or place upon, and the participle connects with humbling oneself. Reading: the aorist does not require one instantaneous release, exclude gradual entrusting, or make recurring anxiety evidence of failed faith.
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card is right (Luke 19:35 is the verb's only other NT use, unverified); the insight's 'Greek OT cloak over an animal's back' conflates Luke 19:35 with the LXX and misses the direct echo of Ps 54:23 LXX (Eng 55:22), same verb and same noun (unverified).
+    - insight: Ranked: 1) cite LXX Ps 54:23 / Eng 55:22 ('Cast your merimna on the Lord') as the verse Peter echoes — same verb, same noun; 2) keep the cloak image via Luke 19:35; 3) drop 'Greek OT cloak over an animal's back' (the nearest LXX mantle text, 1 Kgs 19:19, is onto a person).
+  - sol: INSIGHT_SUSPECT — The card avoids the problem, but the insight wrongly makes the aorist require a single decisive release rather than a gradual or repeated practice.
+    - insight: Grammatical correction: the aorist participle links casting with humbling oneself but does not by itself prescribe an instantaneous psychological handoff.
+- **#25 Ephesians 2:8** — astra, fable5, sol
+  - astra: FILLER, INSIGHT_SUSPECT — The card's grammatical safeguards crowd out its pastoral point while the study draws permanence and agency claims too directly from grammar.
+    - insight: Text: believers presently stand saved by grace through faith. Reading: this most naturally refers to the whole saving reality; gender alone does not settle every question about faith's origin, and the perfect does not independently prove future perseverance. Prefer have been saved in both renderings.
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card correctly declines to derive perseverance from the periphrastic perfect; the insight's 'grace keeps you there' hangs theological freight on a tense that only gives present standing.
+    - insight: Everyday Insight should read 'grace put you there, and you stand there now' — assurance about the future belongs to God's character elsewhere, not to this tense.
+  - sol: CONTRADICTS, INSIGHT_SUSPECT — The card says the perfect does not settle perseverance, while the insight makes it prove that grace keeps believers saved from start to finish.
+    - insight: Grammatical correction: the construction presents a present saved condition resulting from God’s action but cannot alone settle every later question about perseverance.
+- **#27 John 3:16** — astra, sol
+  - astra: FILLER, INSIGHT_SUSPECT — The translation debate crowds out the gift while both layers unnecessarily separate the manner of God's love from its greatness.
+    - insight: Reading: usage supports one and only or unique, but etymology alone cannot dispose of the historic rendering or settle eternal generation. The manner of God's love and its magnitude need not be opposed.
+  - sol: INSIGHT_SUSPECT — The card is cautious, but the insight too categorically dismisses “only begotten” and makes μονογενής decide a disputed theological question negatively.
+    - insight: Lexical correction: μονογενής securely marks the Son as unique, but the word alone should not be made to settle the eternal-generation question either way.
+- **#30 Lamentations 3:22** — astra, fable5, sol
+  - astra: CONTRADICTS, INSIGHT_SUSPECT — The card recognizes the Masoretic first-person subject that the study's explanation silently replaces with acts of love.
+    - insight: Text: tamnu is first-person plural, we are not consumed; distinguish that reading from the alternative behind loyal loves never cease. The plural chasdei does not require concrete acts rather than an abstract quality. Recommended shared rendering: Because of the LORD's loyal love we are not consumed, for his compassions do not fail.
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card names the MT-vs-emendation fork honestly; the insight renders with the emendation ('never end') while glossing MT tamnu ('we are not consumed') without flagging the tension (unverified).
+    - insight: Ranked: 1) name the textual issue explicitly (MT 'we are not consumed' vs the well-supported emendation 'they never cease'); 2) make the lens gloss agree with the printed rendering.
+  - sol: CONTRADICTS, INSIGHT_SUSPECT — The card’s notice admits that the MT says “we are not consumed,” while its rendering and the insight make the first-person plural verb mean that God’s loyal loves never end.
+    - insight: Textual correction: the MT most naturally reads that the LORD’s loyal love is why “we are not consumed,” while “His loyal loves never cease” requires a labeled textual or interpretive adjustment.
+- **#35 Psalms 139:14** — astra, fable5, sol
+  - astra: INSIGHT_SUSPECT — Both layers assert identical Hebrew roots where the local corpus assigns distinct lemmas with overlapping senses.
+    - insight: Text: the local corpus tags nifleiti as H6395, palah, and nifla'im as H6381, pala. Reading: related sound and overlapping sense connect the speaker's formation with God's wonderful works, but identical-root repetition should not be asserted as settled.
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card's 'related, not identical words' hedge is more accurate than the insight's flat 'same root appears twice' — MT points nifleiti from palah, a byform of pala (unverified).
+    - insight: Soften 'the same root, פ־ל־א, appears twice' to 'twin forms of closely related roots (פלה/פלא),' noting some manuscripts read nifle'ti — i.e., promote the card's hedge into the insight.
+  - sol: INSIGHT_SUSPECT — The card and insight call נִפְלֵיתִי and נִפְלָאִים the same root, but the local morphological corpus assigns them different lemmas.
+    - insight: Lexical correction: the local corpus tags נִפְלֵיתִי with Strong’s 6395 and נִפְלָאִים with 6381, so same-root repetition is not secure.
+- **#39 John 10:10** — fable5, gemini36, gemini38, sol
+  - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card says the abundant-life claim rests on Johannine context, not a lexical 'kind' of life; insight says 'the distinction matters' as a zōē-vs-bios word-study claim — the card is right, and its noticeThis is left playing defense instead of giving fruit.
+    - insight: Ranked: (1) drop the zōē/bios 'kinds of life' framing as lexically decisive — John's zōē is loaded by usage (zōē aiōnios 3:16, 5:24) and by 10:11, where the shepherd lays down his psychē so the sheep may have zōē (unverified); (2) keep the perisson and thysē-triad material unchanged; (3) practice is fine.
+  - gemini36: CONTRADICTS, INSIGHT_SUSPECT — The card explicitly refutes the insight's lexical argument distinguishing zōē from physical life, while the insight itself overclaims a sharp lexical contrast.
+    - insight: The insight overclaims a sharp lexical distinction between zōē and bios/psychē (zōē in Koine Greek is the standard general word for life, not a specialized 'spiritual life' term), though the card correctly nuances this contextually.
+  - gemini38: CONTRADICTS, FILLER, INSIGHT_SUSPECT — The card's Notice This disputes the insight's lexical distinction between zoe and bios with academic meta-commentary that adds no devotional fruit, while the insight itself relies on an invalid lexical fallacy.
+    - insight: The insight commits Trench's lexical fallacy by claiming zōē inherently denotes a distinct non-biological 'kind' of life over against bios and psychē; bios never occurs in John, and psychē is precisely what the Good Shepherd lays down for the sheep in verse 11.
+  - sol: INSIGHT_SUSPECT — The study turns John's characteristic use of zōē into a lexical kind-of-life distinction that the word itself does not encode, while the card correctly relocates the claim in context.
+    - insight: [Text] Yeshua contrasts destruction with abundant life; [context] John binds this life to the Son and eternal life; [not lexical proof] zōē alone does not denote a separate higher kind of life.
+- **#44 Zephaniah 3:17** — fable5, sol
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card handles the yacharish ambiguity honestly per the insight, but the insight miscites Isaiah 53:7 (that verb is ne'elamah, root אלם, not charash — unverified) and misattributes translation wording.
+    - insight: Swap Isa 53:7 for a true charash citation (Gen 34:5 or Ps 32:3; keep 1 Sam 10:27). Also: current NIV reads 'he will no longer rebuke you' (emended text; 'quiet you with his love' was NIV-1984), and CSB reads 'he will be quiet in his love' — supports the intransitive grouping but not the quoted 'he will bring you quietness' (all unverified; check before editing).
+  - sol: INSIGHT_SUSPECT — The card is measured, but the study's unconditional statement that God is not disappointed in the individual reader outruns an oracle addressed to restored daughter Zion.
+    - insight: [Text] God saves and rejoices over restored Zion; [ambiguous] yacharish may portray His quiet or His quieting action; [Christian application] covenant delight applies through belonging to God's redeemed people, not as an unqualified verdict detached from that setting.
+- **#46 Isaiah 26:3** — fable5, gemini36, gemini38, sol
+  - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card says 'leans' is the picture, not the lexical meaning; insight asserts samukh means 'a mind actively resting its weight on God' — but samukh is a qal passive participle, 'supported/upheld' (unverified), so the card is right and the insight overclaims.
+    - insight: Ranked: (1) state samukh as passive — a mind held steady, God the implied supporter (which preaches better, not worse); keep 'leaning' only as explicitly-ranked imagery from the root's usage; (2) ground 'trust comes first' in the ki-clause ('because it trusts in You'), which genuinely carries it; (3) soften the practice's 'watch what that does to the anxiety' per the card's no-guarantee-of-immediate-calm guard.
+  - gemini36: DRIFT, FILLER — The card uses word space to quibble over whether 'leans' is lexical vs interpretive instead of focusing on the doubled shalom and supported mind.
+  - gemini38: FILLER, DRIFT — Notice This expends word count on a pedantic grammatical distinction regarding 'leans' as a picture rather than a reflexive action, while the card drifts into defensive hedging about emotional relief.
+  - sol: INSIGHT_SUSPECT — The Qal passive participle means supported or steadfast and does not lexically encode a mind performing a reflexive act of leaning.
+    - insight: [Text] God keeps the supported or steadfast disposition in peace because it trusts Him; [interpretive picture] leaning can illustrate dependence; [not grammar] the form does not encode reflexive leaning or guaranteed immediate calm.
+- **#48 Psalms 37:4** — fable5, gemini36, gemini38, sol
+  - fable5: DRIFT — Card's whyItMatters double-hedges the insight's central, defensible claim (delight reshapes desire) into 'many readers have understood…' — under-claiming to the point of sterilizing the warm slot.
+  - gemini36: DRIFT — The card introduces academic hedge language about whether delight reshapes desire, softening the insight's clear teaching.
+  - gemini38: DRIFT — Why It Matters retreats into detached third-person hedging ('Many readers have understood...') rather than distilling the insight's confident reading of desire being reshaped by delight.
+  - sol: INSIGHT_SUSPECT — The imperative calls for delight, but the Hitpael does not prove 'work yourself into delight,' and desire-reshaping remains an interpretation rather than the verse's stated mechanism.
+    - insight: [Text] Delight in the LORD, who gives the heart's requests; [strong contextual inference] delight and desire belong together; [defensible pastoral reading] delight may reshape desire; [not explicit] the grammar does not explain how.
+- **#52 Psalms 91:1** — fable5, gemini36, sol
+  - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card calls yitlonan the traveler's overnight lodging; insight says the stem means 'settling in, not a brief visit — not just passing through for a night' — opposite characterizations, and the card is lexically right (lun = spend the night; cf. Job 39:28, unverified).
+    - insight: Ranked: (1) correct the Hitpolel claim — derive the settled, lived-in trust from the yoshev/yitlonan parallelism (residence + nightly lodging together), not from the stem; this is exactly the card's merism reading; (2) keep the exemplary Shaddai-etymology honesty paragraph; (3) optionally adopt the card's two-scales framing as the payoff.
+  - gemini36: CONTRADICTS — The card describes yitlonan as a brief traveler's overnight shelter, contradicting the insight's point that it signifies a settled dwelling.
+  - sol: CONTRADICTS, INSIGHT_SUSPECT — The card calls 'lodges' a traveler's overnight shelter, while the insight says it means 'settling in, not a brief visit,' although the verb genuinely means lodging or spending the night and does not prove either devotional scheme.
+    - insight: [Text] The one dwelling in the Most High's shelter lodges under Shaddai's shadow; [contextual inference] the form and imagery can suggest habitual refuge; [not lexical proof] lun does not mean permanent settlement rather than overnight lodging.
+- **#58 Psalms 119:105** — fable5, gemini36, sol
+  - fable5: FILLER — whyItMatters re-litigates noticeThis's hedge in method vocabulary ('synonymous poetic parallelism') and adds no fruit the previous field didn't already give.
+  - gemini36: DRIFT, FILLER — The card adds academic hedging about synonymous parallelism, dulling the insight's distinction between nēr and 'ōr.
+  - sol: DRIFT, INSIGHT_SUSPECT — The card initially admits synonymous parallelism but its practice then asserts that the lamp reveals only the next step, a calibrated distinction the two Hebrew nouns do not establish.
+    - insight: [Text] God's word is both a lamp for the foot and light for the path; [possible poetic hearing] immediate footing and broader direction; [equally plausible] synonymous parallelism reinforcing one claim of guidance.
+- **#65 Psalms 103:12** — fable5, sol
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card is faithful (and wisely omits the insight's claim that the psalmist intended east/west as the literal never-meeting axis 'unlike north and south, which curve back on a sphere' — an anachronism projected onto authorial intent).
+    - insight: Replace the sphere rationale: east-to-west is a merism of maximal horizons — removal beyond measure. If the poles-meet contrast is kept, rank it explicitly as a modern illustration, not the psalmist's geometry.
+  - sol: INSIGHT_SUSPECT — The study's contrast between east-west and north-south travel on a sphere is anachronistic and unnecessary to the psalm's immeasurable-distance image.
+    - insight: [Text] God has made Israel's transgressions as distant as east from west; [poetic force] immeasurable, decisive removal; [drop] modern spherical geometry as the psalmist's rationale.
+- **#69 Galatians 5:22** — fable5, sol
+  - fable5: COHERENT, INSIGHT_SUSPECT — Card correctly ranks the singular-fruit reading as venerable rather than proven; the insight calls the grammar 'deliberate and significant' when karpos is routinely collective (Eph 5:9, Phil 1:11 — unverified).
+    - insight: Demote the grammatical claim to the card's rank: the singular permits the one-harvest reading but doesn't prove intent; keep the cultivation-vs-manufacture theology grounded in the fruit metaphor itself, which carries it fine.
+  - sol: INSIGHT_SUSPECT — Singular 'fruit' permits a unified-harvest reading but, as a normal collective noun, does not prove a deliberate singular-versus-plural contrast or forbid focused cultivation of particular virtues.
+    - insight: [Text] Paul uses singular 'fruit' for qualities produced by the Spirit; [plausible reading] the list portrays unified Spirit-shaped character; [not provable from number alone] a deliberate contrast with plural 'works' or nine inseparable qualities.
+- **#71 Exodus 14:14** — fable5, sol
+  - fable5: DRIFT, INSIGHT_SUSPECT — Card adds 14:15's 'move forward,' correcting the insight's 'restraint, not action' framing, which is incomplete against the very next verse; the card is right and needs no rewrite.
+    - insight: Ranked: (1) add v.15 — God immediately rebukes the crying-out and commands motion, so the commanded silence ends panic rather than replacing obedient action; (2) fix the stem muddle — the insight labels the Hifil 'causative' then glosses it reflexively; Hifil of charash here is the ordinary internal/stative 'keep silence' (unverified).
+  - sol: INSIGHT_SUSPECT — The study overgeneralizes silence as non-action, whereas the immediate narrative commands Israel to cease panic and then move forward in obedience.
+    - insight: [Text] The LORD fights while Israel keeps silent; [narrative qualification] Israel is immediately told to advance; [pastoral point] cease panic-driven control so obedience, rather than frantic self-rescue, determines the next action.
+
+## Seat strictness
+
+- **astra**: 36 judged, 25 flagged (69%); {'INSIGHT_SUSPECT': 22, 'COHERENT': 11, 'DRIFT': 7, 'FILLER': 5, 'CONTRADICTS': 3}
+- **fable5**: 72 judged, 21 flagged (29%); {'COHERENT': 58, 'DRIFT': 10, 'FILLER': 2, 'INSIGHT_SUSPECT': 11, 'CONTRADICTS': 3}
+- **gemini36**: 72 judged, 12 flagged (16%); {'DRIFT': 10, 'COHERENT': 60, 'CONTRADICTS': 2, 'INSIGHT_SUSPECT': 1, 'FILLER': 2}
+- **gemini38**: 36 judged, 3 flagged (8%); {'COHERENT': 33, 'CONTRADICTS': 1, 'FILLER': 2, 'INSIGHT_SUSPECT': 1, 'DRIFT': 2}
+- **sol**: 72 judged, 38 flagged (52%); {'INSIGHT_SUSPECT': 34, 'COHERENT': 34, 'DRIFT': 6, 'FILLER': 2, 'CONTRADICTS': 4}
