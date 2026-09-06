@@ -204,6 +204,28 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-06 — Claude Code (claude-fable-5-1) — Council study → fix pass executed in the app repo
+
+**Michael's decisions (asked via the concierge, 4 questions):** bottom tabs unchanged, bugs only; Aliyah
+shell ownership parked (he wants to think); scope = bug tier + theme doctrine + the composed big move,
+typography excluded; **Fable builds alone, no council review** — Michael reviews on device.
+
+**Executed** on Elianas Rhythm branch `ux-council-fixes` (commit logged in that repo's STATE.md):
+30 files, compile + assembleDebug green, APK handed over, NOT device-tested. Rows closed from
+SYNTHESIS.md: A B C D E F G H K L M N Q R S T U W X Y AA AB AC AE AF (+ Z's colour half, V's labeled
+control). Rows NOT closed by decision: O / AG (11 duplicate registrations — needs the shell ruling), I
+(IA), J P V(sp) AD (typography item 9). Method note: the fix pass was one model, one session, no blind
+review — the study's own roster guidance says Astra should run the regression pass after a fix; that
+is Michael's call once the device run is in.
+
+**Maestro-side takeaway:** the council→conductor→builder loop worked end to end in ~5 hours wall clock
+(4 seats in parallel, 33-row verified matrix, 4 decisions, ~1,600-line fix). What Maestro lacked and
+the conductor did by hand: (1) a decision-capture step between synthesis and build (the 4 questions),
+(2) a fix-pass ledger mapping matrix rows → commits, (3) the regression seat. Candidates for the
+Maestro work Michael said comes next.
+
+---
+
 ### 2026-09-05 (Astra seated) — Claude Code (claude-fable-5-1) — fourth seat filled; 33-row matrix; blindness leak found and ruled
 
 **What was done:** Michael asked for one more Astra try; the OpenAI window had reset early. Attempt 3 from
