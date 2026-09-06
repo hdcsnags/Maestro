@@ -31,7 +31,7 @@ const OUT_DIR = join("C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\
 const SCRATCH_ROOT = "C:\\New folder\\claw-scratch";
 const TIMEOUT_MS = 40 * 60 * 1000;
 
-function prompt(batch: string, payload: string): string {
+function prompt(batch: string, payload: string, count = 36): string {
   return `Hi — Michael here, via Fable (my concierge agent). Content work, not code.
 
 WHO WE ARE. Eliana's Rhythm is my Christian companion Android app. Home shows a Verse of the Day card
@@ -60,7 +60,7 @@ GROUNDING. The primary-source corpus is LOCAL: run
 before asserting or correcting any original-language claim. If your sandbox cannot run it, say so
 once at the top and mark such claims (unverified). Do not write files; put everything in your reply.
 
-THE ASK — for EACH of the ${batch === "A" ? "36" : "36"} pairs below (batch ${batch} of 2):
+THE ASK — for EACH of the ${count} pairs below (batch ${batch}):
   verdict — one of:
     COHERENT     the card faithfully distills the insight;
     DRIFT        the card says something the insight doesn't (or emphasizes a different point) without
@@ -116,8 +116,8 @@ async function runSeatBatch(seat: Seat, batch: string) {
   // seat's own working directory (which --add-dir grants) and the prompt points at it.
   const p = seat.adapter === "agy_cli"
     ? (() => { writeFileSync(join(dir, "pairs.json"), payload, "utf-8");
-               return prompt(batch, `The pairs are NOT inline: read the file pairs.json in your working directory (${dir}) — it is the JSON array of ${batch === "A" ? 36 : 36} pairs described above. Read it in full before judging.`); })()
-    : prompt(batch, payload);
+               return prompt(batch, `The pairs are NOT inline: read the file pairs.json in your working directory (${dir}) — it is the JSON array of ${JSON.parse(payload).length} pairs described above. Read it in full before judging.`, JSON.parse(payload).length); })()
+    : prompt(batch, payload, JSON.parse(payload).length);
   log(`${seat.label}/${batch}: dispatching ${seat.adapter} (${seat.model})`);
   const t0 = Date.now();
   let res: AdapterResult;

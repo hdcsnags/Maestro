@@ -45,7 +45,7 @@ Of Michael's specific claim that the *original text* "may vastly differ": the ca
 | GPT-6 Astra | newest OpenAI | 5m/batch (B died on usage limit at 7:49 PM window) | **yes, all 36** + STEP lexicons | 69% | 22/36 | Every lexical claim I checked held. Most granular rank labels ("Text / reading / application"). |
 | GPT-5.6 Sol | previous OpenAI | 4m/batch | **yes** (noted MT verse offsets) | 52% | 34/72 | Every claim checked held; found the morphology errors (#14, #35, #30). |
 | Claude Fable 5 | previous Anthropic | 7m/batch | **no** — sandbox denied python and the sources path; marked every claim (unverified) | 29% | 11/72 | Named the pattern inversion first; its unverified flags (LXX Ps 54:23, Isa 53:7 miscitation, Lam 3:22) all **verified true** by the conductor. |
-| Gemini 3.8 Flash | newest Google | 4m/batch (A died: agy ERROR, rerun pending) | says yes (batch B) | **8%** | 1/36 | Passed pairs Sol/Astra/Fable5/conductor show to be insight errors (#52, #46). |
+| Gemini 3.8 Flash | newest Google | 4m/batch (a 36-pair batch exceeds agy's ~5-min response window twice; ran as 18+18) | says yes | **26%** (19/72) | 6/72 | Passed pairs Sol/Astra/Fable5/conductor show to be insight errors (#52, #46). |
 | Gemini 3.6 Flash | older Google | **1m45s**/batch | **no, and did not say so** | 16% | 1/72 | Fastest; found real DRIFTs by addition; sided with the insight on Ps 91:1 (wrong). |
 
 Readings for Michael:
@@ -68,6 +68,6 @@ Nothing in the calendar or Firestore has been changed. Proposed rewrites are in 
 
 ## 5. Gaps
 - Astra batch B (entries 37–72) failed at the OpenAI usage limit mid-verification; window reopens 7:49 PM. Rerun: `CLAW_CODEX_MODEL=gpt-6-astra npx tsx scripts/eliana-votd-cohesion.ts only=astra batch=B`.
-- Gemini 3.8 batch A failed inside agy ("timeout waiting for response", no output); rerun launched 14:58.
+- Gemini 3.8 batch A failed twice inside agy ("timeout waiting for response" at ~5 min); completed as two 18-pair halves (A1, A2). Lesson: agy seats need ≤18-pair payloads.
 - Kimi's swarm is the one seat built for exactly this adversarial content work and is quota-blocked for the cycle.
 - agy cannot take a 131 KB prompt on the command line (`spawn ENAMETOOLONG`); the script now hands agy seats the payload as a file in their working directory.
