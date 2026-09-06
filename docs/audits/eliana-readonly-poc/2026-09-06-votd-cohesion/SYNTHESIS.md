@@ -42,7 +42,7 @@ Of Michael's specific claim that the *original text* "may vastly differ": the ca
 
 | Seat | Generation | Time | Ran the corpus? | Flagged | Questioned the insight | Verdict quality |
 |---|---|---|---|---|---|---|
-| GPT-6 Astra | newest OpenAI | 5m/batch (B died on usage limit at 7:49 PM window) | **yes, all 36** + STEP lexicons | 69% | 22/36 | Every lexical claim I checked held. Most granular rank labels ("Text / reading / application"). |
+| GPT-6 Astra | newest OpenAI | 5m/batch (B rerun after the 7:49 PM usage window) | **yes, all 72** + STEP lexicons | **73%** (53/72; B alone 28/36) | 49/72 | Every lexical claim I checked held, in both batches (Isa 41:10 perfects, Deut 31:8 ≠ Josh 1:9, Hab 3:17, Ps 32:3/Gen 34:5). Most granular rank labels ("Text / reading / application"). |
 | GPT-5.6 Sol | previous OpenAI | 4m/batch | **yes** (noted MT verse offsets) | 52% | 34/72 | Every claim checked held; found the morphology errors (#14, #35, #30). |
 | Claude Fable 5 | previous Anthropic | 7m/batch | **no** — sandbox denied python and the sources path; marked every claim (unverified) | 29% | 11/72 | Named the pattern inversion first; its unverified flags (LXX Ps 54:23, Isa 53:7 miscitation, Lam 3:22) all **verified true** by the conductor. |
 | Gemini 3.8 Flash | newest Google | 4m/batch (a 36-pair batch exceeds agy's ~5-min response window twice; ran as 18+18) | says yes | **26%** (19/72) | 6/72 | Passed pairs Sol/Astra/Fable5/conductor show to be insight errors (#52, #46). |
@@ -50,7 +50,7 @@ Of Michael's specific claim that the *original text* "may vastly differ": the ca
 
 Readings for Michael:
 - **Grounding, not generation, predicted quality.** The two seats that ran the corpus (Astra, Sol) and the one that couldn't but *said so and marked everything* (Fable 5) were the ones whose flags survived verification. The Gemini seats were the least willing to question the *insight* (3.6: 1/72, 3.8: 6/72, against Sol's 34/72), and 3.6 was the most permissive overall. **Correction on 3.8:** at full coverage it flagged 26% — between Fable 5 and 3.6 — but 15 of its 19 flags are DRIFT-by-addition against the card; it almost never turned the lens on the insight, which is where the errors were. Note also that 3.8's flag rate rose from 8% (one 36-pair batch) to 26% (two 18-pair halves + one 36): payload size changed its verdicts, which is its own finding. Gemini 3.6's report never mentions the verifier and never says it skipped it; that silence is the worst failure mode in the table.
-- **Older Sol matched newer Astra on substance** at roughly the same cost, and covered both batches where Astra lost one to the usage window. For a content audit like this Sol is not obsolete.
+- **Older Sol matched newer Astra on substance** at roughly the same cost, and covered both batches first where Astra lost one to the usage window. With B rerun, Astra ends as the most demanding seat (73% flagged, 49/72 insights questioned) and the one whose second-half findings (the perfects/imperfects-as-proof cluster in entries 37–72) were all corpus-true. For a content audit like this Sol is not obsolete; Astra is the sharper court when its window is open.
 - **Fable 5 (not 5.1) read the *shape* of the problem best** ("cards quietly correcting insights; back-port the hedges") and did it blind of the corpus. Its weakness was tooling access, not judgment.
 - **Gemini's speed is real** (3.6 in under two minutes) and its DRIFT-by-addition catches are genuine; it is a good *first pass*, not a court.
 
@@ -64,10 +64,10 @@ The fix is two-directional and mostly aimed at the **insights** (Firestore `vers
 4. **House style:** Jesus → Yeshua in both layers (Astra caught remaining instances).
 5. Leave the rest alone: 45 of 72 pairs are clean by majority, and "divergence is not inherently a defect" (Sol) — the goal is *ranked* cohesion, not mechanical sameness.
 
-Nothing in the calendar or Firestore has been changed. Proposed rewrites are in each seat's `*-verdicts.json` (`rewrite` and `insight_issue`); the conductor's recommendation is to start from Sol's and Astra's rewrites (grounded) and Fable 5's framing.
+**Applied 2026-09-06 (evening) on Michael's ruling** — "the corpus is our standard and the old insights were done via sonnet anyway, if the corpus fixes or corrects a claim, you can fix it … proof should still be grammatical, i.e. it must read like you want a human to read it, pastoral in voicing while still being true." 41 entries corrected by the conductor: 32 card fields in `votd_calendar.json`; 45 `verse_insights.content` and 44 `eliana_bible.key_word_meaning` documents by verbatim-sentence `.update()`; Jesus → Yeshua across all 72 pairs (34 card + 53 insight occurrences). Script and before/after record: `Michael/votd-cohesion/corrections.py` and `Michael/votd-cohesion/corrections/2026-09-06-votd-cohesion-corrections.md` (migrate folder). Seat rewrites in `*-verdicts.json` were the raw material; the conductor drafted from Sol's and Astra's grounded rewrites and Fable 5's framing, re-verifying each corpus claim before writing it.
 
 ## 5. Gaps
-- Astra batch B (entries 37–72) failed at the OpenAI usage limit mid-verification; window reopens 7:49 PM. Rerun: `CLAW_CODEX_MODEL=gpt-6-astra npx tsx scripts/eliana-votd-cohesion.ts only=astra batch=B`.
+- Astra batch B (entries 37–72) failed at the OpenAI usage limit mid-verification; rerun after the 7:49 PM window succeeded (`only=astra batch=B`) — verdicts, `matrix.md` and §3 reflect the full 72. Its 11 new insight findings beyond the shared queue (#37, #47, #49, #53, #56, #57, #60, #61, #63, #66, #68) were corpus-checked and applied.
 - Gemini 3.8 batch A failed twice inside agy ("timeout waiting for response" at ~5 min); completed as two 18-pair halves (A1, A2). Lesson: agy seats need ≤18-pair payloads.
 - Kimi's swarm is the one seat built for exactly this adversarial content work and is quota-blocked for the cycle.
 - agy cannot take a 131 KB prompt on the command line (`spawn ENAMETOOLONG`); the script now hands agy seats the payload as a file in their working directory.

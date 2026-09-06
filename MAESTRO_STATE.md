@@ -204,6 +204,30 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-06 (evening) — Claude Code (claude-fable-5-1) — Astra B rerun; cohesion corrections applied; CONCIERGE.md cold-start guide
+
+**Astra batch B** (`only=astra batch=B`) ran clean once the usage window reopened: 28/36 flagged, 27
+insight issues — Astra now covers all 72 (53/72 flagged, 73%; questioned the insight on 49/72), the
+highest of the five seats, and every claim of its I checked held (Isa 41:10 perfects, Deut 31:8 vs
+Josh 1:9 wording, Hab 3:17, Ps 32:3/Gen 34:5 for charash). `matrix.md` and `SYNTHESIS.md` §3–§5 updated.
+
+**Corrections applied in the app on Michael's ruling** ("the corpus is our standard … if the corpus
+fixes or corrects a claim, you can fix it … pastoral in voicing while still being true"): 41 entries,
+32 card fields, 45 + 44 Firestore documents, Jesus→Yeshua across the 72 pairs. Script and before/after
+record live in the migrate folder (`Michael/votd-cohesion/corrections.py`, `…/corrections/`). Applied
+by the conductor directly — no seat writes anything, ever.
+
+**CONCIERGE.md** (`C:\New folder\Elianas RhythmMigrate\CONCIERGE.md`, mirrored into the app repo's
+`docs/`): the cold-start guide Michael asked for — roster, slugs, quota behaviour, dispatch rules,
+corpus commands, Firebase map, standing decisions. `AGENTS.md` Rule 0 item 7 points at it. Any agent
+seated as concierge reads it before touching the council.
+
+**Bash-tool lesson (recurring):** heredoc Python with backslashes (`\N`, `\s`, `\\n`) gets mangled on
+this Windows Bash bridge — write scripts to a file with the editor tool and run the file. Also: Python
+text mode on Windows converts LF→CRLF on write; use `newline=""` when rewriting repo files.
+
+---
+
 ### 2026-09-06 (afternoon) — Claude Code (claude-fable-5-1) — Journey assessment; VOTD↔Deeper-Lens cohesion pass (5 seats, mixed generations)
 
 **Journey assessment** (`docs/audits/eliana-readonly-poc/2026-09-06-journey-assess/`): Astra + Gemini 3.8

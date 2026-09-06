@@ -12,6 +12,7 @@ Before writing any code, making any changes, or answering architecture questions
 3. For stable architecture (stack, tables, edge functions, key files): read `docs/reference/REFERENCE.md`.
 4. For active feature specs: browse `docs/specs/active/` — each file is a self-contained spec.
 5. If you are a CLI agent, verify the "Read This First" block at the top of MAESTRO_STATE.md is current. If it's stale, update it before proceeding.
+7. If your task is the Eliana's Rhythm council (dispatching seats through MaestroClaw, content audits, Firestore corrections): read `C:\New folder\Elianas RhythmMigrate\CONCIERGE.md` first — the cold-start guide Michael asked for on 2026-09-06.
 6. If you are a web agent receiving MAESTRO_STATE.md as context, treat Part 2 (Operational State) as directional — check verification dates before trusting volatile claims. Stable architecture is in `docs/reference/REFERENCE.md`.
 
 ---

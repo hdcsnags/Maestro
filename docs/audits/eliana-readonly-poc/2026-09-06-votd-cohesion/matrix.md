@@ -40,42 +40,42 @@ Seats: astra, fable5, gemini36, gemini38, sol
 | 34 | Galatians 2:20 | insight? | ok | ok | ok | ok | 1 |
 | 35 | Psalms 139:14 | insight? | insight? | ok | insight?, filler | insight? | 4 |
 | 36 | Isaiah 43:2 | insight? | ok | ok | drift | ok | 2 |
-| 37 | Psalms 34:18 | · | ok | ok | ok | insight? | 1 |
-| 38 | Romans 8:38 | · | ok | ok | ok | ok | 0 |
-| 39 | John 10:10 | · | CONTRA, insight? | CONTRA, insight? | CONTRA, filler, insight? | insight? | 4 |
-| 40 | Philippians 4:6 | · | ok | ok | ok | ok | 0 |
-| 41 | 2 Timothy 1:7 | · | ok | ok | ok | ok | 0 |
-| 42 | Psalms 16:11 | · | ok | ok | ok | ok | 0 |
-| 43 | Micah 6:8 | · | ok | ok | ok | ok | 0 |
-| 44 | Zephaniah 3:17 | · | insight? | ok | ok | insight? | 2 |
-| 45 | John 15:5 | · | ok | ok | ok | ok | 0 |
-| 46 | Isaiah 26:3 | · | CONTRA, insight? | drift, filler | filler, drift | insight? | 4 |
-| 47 | Hebrews 4:16 | · | ok | ok | ok | insight? | 1 |
-| 48 | Psalms 37:4 | · | drift | drift | drift | insight? | 4 |
-| 49 | Romans 12:2 | · | ok | ok | ok | insight? | 1 |
-| 50 | Nehemiah 8:10 | · | ok | ok | ok | ok | 0 |
-| 51 | 1 Corinthians 13:4 | · | ok | ok | ok | ok | 0 |
-| 52 | Psalms 91:1 | · | CONTRA, insight? | CONTRA | ok | CONTRA, insight? | 3 |
-| 53 | Isaiah 41:10 | · | ok | ok | ok | insight? | 1 |
-| 54 | James 1:2 | · | ok | ok | ok | ok | 0 |
-| 55 | Psalms 62:5 | · | ok | ok | ok | ok | 0 |
-| 56 | Ephesians 3:20 | · | ok | ok | ok | insight? | 1 |
-| 57 | Deuteronomy 31:8 | · | ok | ok | ok | drift, insight? | 1 |
-| 58 | Psalms 119:105 | · | filler | drift, filler | ok | drift, insight? | 3 |
-| 59 | John 14:27 | · | ok | ok | ok | ok | 0 |
-| 60 | Psalms 27:1 | · | ok | ok | ok | insight? | 1 |
-| 61 | Habakkuk 3:17 | · | ok | ok | ok | insight? | 1 |
-| 62 | Matthew 6:33 | · | ok | ok | ok | ok | 0 |
-| 63 | 2 Chronicles 7:14 | · | ok | ok | ok | insight? | 1 |
-| 64 | John 8:36 | · | ok | ok | ok | ok | 0 |
-| 65 | Psalms 103:12 | · | insight? | ok | ok | insight? | 2 |
-| 66 | Romans 8:1 | · | ok | ok | ok | insight? | 1 |
-| 67 | Genesis 50:20 | · | ok | ok | ok | ok | 0 |
-| 68 | Hebrews 12:1 | · | ok | ok | ok | filler, insight? | 1 |
-| 69 | Galatians 5:22 | · | insight? | ok | ok | insight? | 2 |
-| 70 | Proverbs 16:9 | · | ok | ok | ok | ok | 0 |
-| 71 | Exodus 14:14 | · | drift, insight? | ok | ok | insight? | 2 |
-| 72 | Hosea 6:6 | · | ok | ok | ok | ok | 0 |
+| 37 | Psalms 34:18 | insight? | ok | ok | ok | insight? | 2 |
+| 38 | Romans 8:38 | insight? | ok | ok | ok | ok | 1 |
+| 39 | John 10:10 | insight?, filler | CONTRA, insight? | CONTRA, insight? | CONTRA, filler, insight? | insight? | 5 |
+| 40 | Philippians 4:6 | insight? | ok | ok | ok | ok | 1 |
+| 41 | 2 Timothy 1:7 | insight?, filler | ok | ok | ok | ok | 1 |
+| 42 | Psalms 16:11 | insight? | ok | ok | ok | ok | 1 |
+| 43 | Micah 6:8 | ok | ok | ok | ok | ok | 0 |
+| 44 | Zephaniah 3:17 | insight? | insight? | ok | ok | insight? | 3 |
+| 45 | John 15:5 | ok | ok | ok | ok | ok | 0 |
+| 46 | Isaiah 26:3 | insight?, filler | CONTRA, insight? | drift, filler | filler, drift | insight? | 5 |
+| 47 | Hebrews 4:16 | CONTRA, insight? | ok | ok | ok | insight? | 2 |
+| 48 | Psalms 37:4 | insight? | drift | drift | drift | insight? | 5 |
+| 49 | Romans 12:2 | insight? | ok | ok | ok | insight? | 2 |
+| 50 | Nehemiah 8:10 | ok | ok | ok | ok | ok | 0 |
+| 51 | 1 Corinthians 13:4 | drift | ok | ok | ok | ok | 1 |
+| 52 | Psalms 91:1 | drift, insight? | CONTRA, insight? | CONTRA | ok | CONTRA, insight? | 4 |
+| 53 | Isaiah 41:10 | insight?, filler | ok | ok | ok | insight? | 2 |
+| 54 | James 1:2 | drift, insight? | ok | ok | ok | ok | 1 |
+| 55 | Psalms 62:5 | ok | ok | ok | ok | ok | 0 |
+| 56 | Ephesians 3:20 | insight? | ok | ok | ok | insight? | 2 |
+| 57 | Deuteronomy 31:8 | insight? | ok | ok | ok | drift, insight? | 2 |
+| 58 | Psalms 119:105 | insight?, filler | filler | drift, filler | ok | drift, insight? | 4 |
+| 59 | John 14:27 | ok | ok | ok | ok | ok | 0 |
+| 60 | Psalms 27:1 | insight? | ok | ok | ok | insight? | 2 |
+| 61 | Habakkuk 3:17 | insight? | ok | ok | ok | insight? | 2 |
+| 62 | Matthew 6:33 | CONTRA, insight? | ok | ok | ok | ok | 1 |
+| 63 | 2 Chronicles 7:14 | CONTRA, insight? | ok | ok | ok | insight? | 2 |
+| 64 | John 8:36 | ok | ok | ok | ok | ok | 0 |
+| 65 | Psalms 103:12 | insight? | insight? | ok | ok | insight? | 3 |
+| 66 | Romans 8:1 | insight? | ok | ok | ok | insight? | 2 |
+| 67 | Genesis 50:20 | insight? | ok | ok | ok | ok | 1 |
+| 68 | Hebrews 12:1 | insight?, filler | ok | ok | ok | filler, insight? | 2 |
+| 69 | Galatians 5:22 | insight? | insight? | ok | ok | insight? | 3 |
+| 70 | Proverbs 16:9 | ok | ok | ok | ok | ok | 0 |
+| 71 | Exodus 14:14 | CONTRA, insight? | drift, insight? | ok | ok | insight? | 3 |
+| 72 | Hosea 6:6 | ok | ok | ok | ok | ok | 0 |
 
 ## Verification queue — flagged by two or more seats
 
@@ -211,7 +211,14 @@ Seats: astra, fable5, gemini36, gemini38, sol
   - astra: INSIGHT_SUSPECT — The card corrects the study's universalized outcome, but its when-versus-if claim still places too much weight on the conjunction.
     - insight: Text: God promises Jacob and Israel preserving presence through danger. Reading: when is reasonable here, but the conjunction does not guarantee each reader's exposure to every danger; Christian application neither guarantees identical physical outcomes nor forbids praying for rescue.
   - gemini38: DRIFT — The card turns a direct, comforting promise of God’s accompanying presence into an academic discussion of restoration oracles and protective disclaimers.
-- **#39 John 10:10** — fable5, gemini36, gemini38, sol
+- **#37 Psalms 34:18** — astra, sol
+  - astra: INSIGHT_SUSPECT — Both layers infer absence of responsibility from brokenness, which the grammar does not establish.
+    - insight: Verified: brokenhearted is a Nifal participle and crushed is an adjective; neither identifies responsibility for suffering. State that God is near, not that the grammar proves innocence or that God is comparatively closest during grief.
+  - sol: INSIGHT_SUSPECT — Passive morphology describes broken people but cannot establish that their condition was wholly caused by others or was not connected to anything they did.
+    - insight: [Text] The forms describe brokenhearted and crushed people; [pastoral inference] their devastation does not exclude them from God's nearness; [not established] who caused their condition.
+- **#39 John 10:10** — astra, fable5, gemini36, gemini38, sol
+  - astra: INSIGHT_SUSPECT, FILLER — The card properly qualifies an overstated lexical distinction but gives readers the audit process instead of its pastoral fruit.
+    - insight: Verified: John 10:10 uses zoe and 10:11 uses psyche for Yeshua's own life. Ground the theological distinction in John's context rather than treating these words as separate lexical kinds of life.
   - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card says the abundant-life claim rests on Johannine context, not a lexical 'kind' of life; insight says 'the distinction matters' as a zōē-vs-bios word-study claim — the card is right, and its noticeThis is left playing defense instead of giving fruit.
     - insight: Ranked: (1) drop the zōē/bios 'kinds of life' framing as lexically decisive — John's zōē is loaded by usage (zōē aiōnios 3:16, 5:24) and by 10:11, where the shepherd lays down his psychē so the sheep may have zōē (unverified); (2) keep the perisson and thysē-triad material unchanged; (3) practice is fine.
   - gemini36: CONTRADICTS, INSIGHT_SUSPECT — The card explicitly refutes the insight's lexical argument distinguishing zōē from physical life, while the insight itself overclaims a sharp lexical contrast.
@@ -220,46 +227,112 @@ Seats: astra, fable5, gemini36, gemini38, sol
     - insight: The insight commits Trench's lexical fallacy by claiming zōē inherently denotes a distinct non-biological 'kind' of life over against bios and psychē; bios never occurs in John, and psychē is precisely what the Good Shepherd lays down for the sheep in verse 11.
   - sol: INSIGHT_SUSPECT — The study turns John's characteristic use of zōē into a lexical kind-of-life distinction that the word itself does not encode, while the card correctly relocates the claim in context.
     - insight: [Text] Yeshua contrasts destruction with abundant life; [context] John binds this life to the Son and eternal life; [not lexical proof] zōē alone does not denote a separate higher kind of life.
-- **#44 Zephaniah 3:17** — fable5, sol
+- **#44 Zephaniah 3:17** — astra, fable5, sol
+  - astra: INSIGHT_SUSPECT — The study mishandles evidence for the disputed middle line and turns Zion's restoration promise into an unsupported verdict on every reader.
+    - insight: Verified: Isaiah 53:7 uses another root, 1 Samuel 10:27 shows an intransitive Hifil use of charash, and the local LXX has a renewal reading. Correct the translation attributions, rank quiet tenderness as interpretation, and replace 'God is not disappointed in you right now' with the contextual promise of God's delight in restored Zion.
   - fable5: COHERENT, INSIGHT_SUSPECT — Card handles the yacharish ambiguity honestly per the insight, but the insight miscites Isaiah 53:7 (that verb is ne'elamah, root אלם, not charash — unverified) and misattributes translation wording.
     - insight: Swap Isa 53:7 for a true charash citation (Gen 34:5 or Ps 32:3; keep 1 Sam 10:27). Also: current NIV reads 'he will no longer rebuke you' (emended text; 'quiet you with his love' was NIV-1984), and CSB reads 'he will be quiet in his love' — supports the intransitive grouping but not the quoted 'he will bring you quietness' (all unverified; check before editing).
   - sol: INSIGHT_SUSPECT — The card is measured, but the study's unconditional statement that God is not disappointed in the individual reader outruns an oracle addressed to restored daughter Zion.
     - insight: [Text] God saves and rejoices over restored Zion; [ambiguous] yacharish may portray His quiet or His quieting action; [Christian application] covenant delight applies through belonging to God's redeemed people, not as an unqualified verdict detached from that setting.
-- **#46 Isaiah 26:3** — fable5, gemini36, gemini38, sol
+- **#46 Isaiah 26:3** — astra, fable5, gemini36, gemini38, sol
+  - astra: INSIGHT_SUSPECT, FILLER — The card rightly corrects an overstated leaning interpretation but leaves editorial qualifications in the devotional foreground.
+    - insight: Verified: samukh is a passive participle, so active leaning is an interpretive image rather than a reflexive lexical meaning. Retain God's keeping and trust without making peace an immediate anxiety-reduction mechanism; Isaiah 25:1 uses related words rather than the same exact repetition.
   - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card says 'leans' is the picture, not the lexical meaning; insight asserts samukh means 'a mind actively resting its weight on God' — but samukh is a qal passive participle, 'supported/upheld' (unverified), so the card is right and the insight overclaims.
     - insight: Ranked: (1) state samukh as passive — a mind held steady, God the implied supporter (which preaches better, not worse); keep 'leaning' only as explicitly-ranked imagery from the root's usage; (2) ground 'trust comes first' in the ki-clause ('because it trusts in You'), which genuinely carries it; (3) soften the practice's 'watch what that does to the anxiety' per the card's no-guarantee-of-immediate-calm guard.
   - gemini36: DRIFT, FILLER — The card uses word space to quibble over whether 'leans' is lexical vs interpretive instead of focusing on the doubled shalom and supported mind.
   - gemini38: FILLER, DRIFT — Notice This expends word count on a pedantic grammatical distinction regarding 'leans' as a picture rather than a reflexive action, while the card drifts into defensive hedging about emotional relief.
   - sol: INSIGHT_SUSPECT — The Qal passive participle means supported or steadfast and does not lexically encode a mind performing a reflexive act of leaning.
     - insight: [Text] God keeps the supported or steadfast disposition in peace because it trusts Him; [interpretive picture] leaning can illustrate dependence; [not grammar] the form does not encode reflexive leaning or guaranteed immediate calm.
-- **#48 Psalms 37:4** — fable5, gemini36, gemini38, sol
+- **#47 Hebrews 4:16** — astra, sol
+  - astra: CONTRADICTS, INSIGHT_SUSPECT — The card leaves help's timing to God while the study tells readers to expect no delay.
+    - insight: Card: 'leaving the timing and shape of the help to Him'; study: 'approach expecting timely help, not delay.' Retain the card: timely help warrants confident approach through Yeshua our high priest, not a promise that the petitioner will experience no delay.
+  - sol: INSIGHT_SUSPECT — Parrēsia supports confident openness but not by itself an acknowledged legal right to be heard, and timely help does not specify the petitioner's preferred schedule.
+    - insight: [Text] Because of the sympathetic high priest believers approach openly for mercy and well-suited help; [theological ground] access rests on Christ; [not guaranteed] a particular timing or form of intervention.
+- **#48 Psalms 37:4** — astra, fable5, gemini36, gemini38, sol
+  - astra: INSIGHT_SUSPECT — The study treats a command as proof of generated emotion and a pastoral reading of reshaped desire as the verse's stated mechanism.
+    - insight: Verified: the Hitpael imperative commands delight but does not prove an ability to generate feelings directly. Keep cultivation as application and reshaped desires as a defensible pastoral interpretation, not the explicit mechanism of the promise.
   - fable5: DRIFT — Card's whyItMatters double-hedges the insight's central, defensible claim (delight reshapes desire) into 'many readers have understood…' — under-claiming to the point of sterilizing the warm slot.
   - gemini36: DRIFT — The card introduces academic hedge language about whether delight reshapes desire, softening the insight's clear teaching.
   - gemini38: DRIFT — Why It Matters retreats into detached third-person hedging ('Many readers have understood...') rather than distilling the insight's confident reading of desire being reshaped by delight.
   - sol: INSIGHT_SUSPECT — The imperative calls for delight, but the Hitpael does not prove 'work yourself into delight,' and desire-reshaping remains an interpretation rather than the verse's stated mechanism.
     - insight: [Text] Delight in the LORD, who gives the heart's requests; [strong contextual inference] delight and desire belong together; [defensible pastoral reading] delight may reshape desire; [not explicit] the grammar does not explain how.
-- **#52 Psalms 91:1** — fable5, gemini36, sol
+- **#49 Romans 12:2** — astra, sol
+  - astra: INSIGHT_SUSPECT — The card is sound, but the study derives too sharp an outward-versus-essential distinction and too much agency and duration from morphology.
+    - insight: Ground inward transformation in renewal of the mind, not a rigid schema/morphe root contrast. The present forms do not independently exclude a decisive event, and the passive does not identify the Spirit and renewed mind as cooperating agents; God's transforming work is a contextual theological reading.
+  - sol: INSIGHT_SUSPECT — The study's outward-schema versus essential-morphē distinction is root-based overstatement, while tense and voice alone do not establish duration or identify the transforming agent.
+    - insight: [Text] Reject this age's pattern and be transformed through renewed understanding; [context] renewal enables discernment; [useful echo] the transformation verb occurs in transfiguration texts; [not established] a surface/essence distinction, exact duration, or named agent.
+- **#52 Psalms 91:1** — astra, fable5, gemini36, sol
+  - astra: DRIFT, INSIGHT_SUSPECT — The card adds an overly fixed permanent-versus-overnight distinction while the study also overreads the dwelling verb's stem.
+    - insight: Verified: the corpus tags yitlonan as Hithpolel. Neither its stem nor the paired dwelling verbs establish the proposed duration distinctions; settled trust is a contextual interpretation of the shelter imagery.
   - fable5: CONTRADICTS, INSIGHT_SUSPECT — Card calls yitlonan the traveler's overnight lodging; insight says the stem means 'settling in, not a brief visit — not just passing through for a night' — opposite characterizations, and the card is lexically right (lun = spend the night; cf. Job 39:28, unverified).
     - insight: Ranked: (1) correct the Hitpolel claim — derive the settled, lived-in trust from the yoshev/yitlonan parallelism (residence + nightly lodging together), not from the stem; this is exactly the card's merism reading; (2) keep the exemplary Shaddai-etymology honesty paragraph; (3) optionally adopt the card's two-scales framing as the payoff.
   - gemini36: CONTRADICTS — The card describes yitlonan as a brief traveler's overnight shelter, contradicting the insight's point that it signifies a settled dwelling.
   - sol: CONTRADICTS, INSIGHT_SUSPECT — The card calls 'lodges' a traveler's overnight shelter, while the insight says it means 'settling in, not a brief visit,' although the verb genuinely means lodging or spending the night and does not prove either devotional scheme.
     - insight: [Text] The one dwelling in the Most High's shelter lodges under Shaddai's shadow; [contextual inference] the form and imagery can suggest habitual refuge; [not lexical proof] lun does not mean permanent settlement rather than overnight lodging.
-- **#58 Psalms 119:105** — fable5, gemini36, sol
+- **#53 Isaiah 41:10** — astra, sol
+  - astra: INSIGHT_SUSPECT, FILLER — The study overstates a temporal explanation, and the card's cautious tense discussion obscures its stronger observation about Israel and God's presence.
+    - insight: Verified: the three verbs are perfect forms, but that fact does not settle their temporal interpretation or prove future help pictured as completed. Retain God's righteous and saving faithfulness to Israel, with prophetic certainty offered as an interpretive explanation rather than a grammatical fact.
+  - sol: INSIGHT_SUSPECT — The completed forms are verified, but treating them categorically as future promises stated by a regular prophetic-perfect rule is more certain than the Hebrew permits.
+    - insight: [Text] God assures servant Israel of strengthening, help, and support; [rhetorical force] the forms convey firm assurance; [debated] whether English should represent completed, present-result, or promised future action.
+- **#56 Ephesians 3:20** — astra, sol
+  - astra: INSIGHT_SUSPECT — The study invents a real-time word-creation story, and the shared application benefits from recovering the prayer's communal setting.
+    - insight: The intensive expression supports abundant language, but the local text cannot establish Pauline coinage or composition in real time. Ground the application in Ephesians 3:16–19 and distinguish God's ability from an unconditional promise to grant or enlarge a particular request.
+  - sol: INSIGHT_SUSPECT — The intensive expression is real, but claiming Paul built or coined a new word in real time because ordinary vocabulary was insufficient is speculative.
+    - insight: [Text] Hyperekperissou is exceptionally intensive and God's ability exceeds asking and imagining; [context] His power works among believers; [not demonstrable] that Paul coined the expression here or that we can recover his composition process.
+- **#57 Deuteronomy 31:8** — astra, sol
+  - astra: INSIGHT_SUSPECT — The study falsely calls the Joshua wording exact and turns paired fear language into a defined psychological progression.
+    - insight: Verified: Joshua 1:9 uses different fear wording and negative particles while retaining the dismay verb. Call it a close commissioning parallel, not an exact phrase, and present collapse of resolve as an illustrative interpretation rather than a lexical second stage of fear.
+  - sol: DRIFT, INSIGHT_SUSPECT — Joshua 1:9 echoes the commission but uses a different first fear-word, and the card additionally turns Joshua's task-specific promise into an unqualified promise that God goes before every reader.
+    - insight: [Text] Deuteronomy pairs fear with the deeper collapse expressed by chathath; [canonical echo] Joshua 1:9 repeats chathath and God's presence; [not exact] the full Hebrew phrase differs.
+- **#58 Psalms 119:105** — astra, fable5, gemini36, sol
+  - astra: INSIGHT_SUSPECT, FILLER — The study overstates two scales of illumination, and the card repeats that debate before treating limited visibility as a promised specification.
+    - insight: Verified: lamp and light are distinct nouns, but the parallel does not specify two ranges of guidance or a maximum amount of future knowledge. Retain next-step trust as pastoral application rather than the precise lexical promise.
   - fable5: FILLER — whyItMatters re-litigates noticeThis's hedge in method vocabulary ('synonymous poetic parallelism') and adds no fruit the previous field didn't already give.
   - gemini36: DRIFT, FILLER — The card adds academic hedging about synonymous parallelism, dulling the insight's distinction between nēr and 'ōr.
   - sol: DRIFT, INSIGHT_SUSPECT — The card initially admits synonymous parallelism but its practice then asserts that the lamp reveals only the next step, a calibrated distinction the two Hebrew nouns do not establish.
     - insight: [Text] God's word is both a lamp for the foot and light for the path; [possible poetic hearing] immediate footing and broader direction; [equally plausible] synonymous parallelism reinforcing one claim of guidance.
-- **#65 Psalms 103:12** — fable5, sol
+- **#60 Psalms 27:1** — astra, sol
+  - astra: INSIGHT_SUSPECT — The card's rhetorical reading is sound, but the study claims the imperfect forms prove an enduring psychological disposition.
+    - insight: Verified: the fear verbs are imperfects, but this does not prove David's uninterrupted characteristic state. Say that the rhetorical questions voice confidence grounded in God; describe a settled stance as interpretation of the confession, not a consequence of tense.
+  - sol: INSIGHT_SUSPECT — The rhetorical parallel establishes confident resolve, but the imperfect forms alone do not encode a settled ongoing disposition.
+    - insight: [Text] Two rhetorical questions force the answer 'no one'; [poetic ground] the LORD is light, salvation, and stronghold; [not tense-based] the imperfects alone do not prove a characteristic disposition.
+- **#61 Habakkuk 3:17** — astra, sol
+  - astra: INSIGHT_SUSPECT — Both layers overstate the crop image and make unflinching confrontation with loss a test of worthwhile faith.
+    - insight: Rank the harvest's broken promise as an illustrative reading of failure or disappointment, not a narrated history of blossoms. The inventory depicts comprehensive collapse without establishing its historical completion; replace 'faith that's worth anything' with an invitation to honest lament and trust.
+  - sol: INSIGHT_SUSPECT — Kachash can portray failure or disappointment, but neither the word nor the verse says that visible blossoms promised a harvest and then lied.
+    - insight: [Text] The olive's produce fails or disappoints amid total agricultural collapse; [vivid option] 'deceives' personifies the failed yield; [not stated] that blossoms had visibly promised a harvest.
+- **#63 2 Chronicles 7:14** — astra, sol
+  - astra: CONTRADICTS, INSIGHT_SUSPECT — The card rejects a staged formula while the study explicitly requires humbling before prayer begins.
+    - insight: Card: 'not a staged formula'; study: 'Before words are spoken in prayer' and 'prior to any request being made.' The coordinated verbs describe the full response of repentance without establishing that chronology; retain the card's Israel, temple, and land setting.
+  - sol: INSIGHT_SUSPECT — The study's four-step trigger language and broad checklist application risk detaching a covenant promise to Israel, temple, and land from its stated address.
+    - insight: [Text] God calls His named people to humility, prayer, seeking, and turning in response to the disasters of verse 13; [enduring pattern] repentance joins posture, prayer, desire, and conduct; [not portable mechanism] four completed steps do not guarantee national or communal healing.
+- **#65 Psalms 103:12** — astra, fable5, sol
+  - astra: INSIGHT_SUSPECT — The study reverses its historical example and imports an unsupported geography argument that the card largely avoids.
+    - insight: Verified: 2 Kings 3:5 describes Moab's king rebelling against Israel's king. Remove the spherical-geography explanation and fixed hierarchy or root-derived definitions of sin terms; retain rebellion's lexical edge and the poem's immense-distance image of removal.
   - fable5: COHERENT, INSIGHT_SUSPECT — Card is faithful (and wisely omits the insight's claim that the psalmist intended east/west as the literal never-meeting axis 'unlike north and south, which curve back on a sphere' — an anachronism projected onto authorial intent).
     - insight: Replace the sphere rationale: east-to-west is a merism of maximal horizons — removal beyond measure. If the poles-meet contrast is kept, rank it explicitly as a modern illustration, not the psalmist's geometry.
   - sol: INSIGHT_SUSPECT — The study's contrast between east-west and north-south travel on a sphere is anachronistic and unnecessary to the psalm's immeasurable-distance image.
     - insight: [Text] God has made Israel's transgressions as distant as east from west; [poetic force] immeasurable, decisive removal; [drop] modern spherical geometry as the psalmist's rationale.
-- **#69 Galatians 5:22** — fable5, sol
+- **#66 Romans 8:1** — astra, sol
+  - astra: INSIGHT_SUSPECT — The card's absence of condemnation is more precise than the study's unqualified language of a not-guilty verdict.
+    - insight: Verified: the text declares no condemnation for those in Messiah Yeshua, not absence of actual wrongdoing. Rank acquittal and justification as theological explanation, distinguish them from factual innocence, and do not make one disputed identification of Romans 7's speaker the necessary basis of assurance.
+  - sol: INSIGHT_SUSPECT — Katakrima denotes condemnation or its adverse sentence, but the study's claimed lexical verdict 'not guilty' is stronger and not identical to Paul's wording.
+    - insight: [Text] No condemning sentence remains for those in Christ Yeshua; [theological context] this rests on union with Christ rather than successful self-reform; [do not collapse] no condemnation into a lexical definition of a not-guilty verdict.
+- **#68 Hebrews 12:1** — astra, sol
+  - astra: INSIGHT_SUSPECT, FILLER — A real word-family relationship is promoted into a definite athletic callback when the passage already supplies a clearer connection.
+    - insight: Verified: agon and the conquest verb in Hebrews 11:33 are related, but this does not establish an athletic image in that conquest clause or prove an intentional callback. Rank a verbal resonance as possible interpretation and ground the exhortation in the explicit chapter connection.
+  - sol: FILLER, INSIGHT_SUSPECT — The proposed root echo between agōn and 'they conquered' adds no reliable exegetical fruit because chapter 11's connection is already explicit in 'therefore' and the witnesses.
+    - insight: [Text] Agōn is the demanding contest or race set before believers; [context] 'therefore' makes chapter 11's witnesses examples for present endurance; [drop] the root-link to 'they conquered.'
+- **#69 Galatians 5:22** — astra, fable5, sol
+  - astra: INSIGHT_SUSPECT — The singular fruit image is overused to discourage deliberate cultivation of particular virtues.
+    - insight: Verified: fruit is singular and works plural, but collective singular usage does not prove an indivisible growth mechanism or forbid cultivating particular virtues. Keep unified harvest as a pastoral image, correct the placement of pistis to verse 22, and label the expanded card Galatians 5:22–23.
   - fable5: COHERENT, INSIGHT_SUSPECT — Card correctly ranks the singular-fruit reading as venerable rather than proven; the insight calls the grammar 'deliberate and significant' when karpos is routinely collective (Eph 5:9, Phil 1:11 — unverified).
     - insight: Demote the grammatical claim to the card's rank: the singular permits the one-harvest reading but doesn't prove intent; keep the cultivation-vs-manufacture theology grounded in the fruit metaphor itself, which carries it fine.
   - sol: INSIGHT_SUSPECT — Singular 'fruit' permits a unified-harvest reading but, as a normal collective noun, does not prove a deliberate singular-versus-plural contrast or forbid focused cultivation of particular virtues.
     - insight: [Text] Paul uses singular 'fruit' for qualities produced by the Spirit; [plausible reading] the list portrays unified Spirit-shaped character; [not provable from number alone] a deliberate contrast with plural 'works' or nine inseparable qualities.
-- **#71 Exodus 14:14** — fable5, sol
+- **#71 Exodus 14:14** — astra, fable5, sol
+  - astra: CONTRADICTS, INSIGHT_SUSPECT — The card retains commanded movement while the study makes cessation of striving Israel's only task.
+    - insight: Card: 'this stillness can't mean doing nothing'; study: 'their only task is to stop talking and stop striving.' Verified: Exodus 14:15 commands movement; keep God's fighting and Israel's silence without forbidding obedience, and remove automatic reflexive or passive meanings assigned to the stems.
   - fable5: DRIFT, INSIGHT_SUSPECT — Card adds 14:15's 'move forward,' correcting the insight's 'restraint, not action' framing, which is incomplete against the very next verse; the card is right and needs no rewrite.
     - insight: Ranked: (1) add v.15 — God immediately rebukes the crying-out and commands motion, so the commanded silence ends panic rather than replacing obedient action; (2) fix the stem muddle — the insight labels the Hifil 'causative' then glosses it reflexively; Hifil of charash here is the ordinary internal/stative 'keep silence' (unverified).
   - sol: INSIGHT_SUSPECT — The study overgeneralizes silence as non-action, whereas the immediate narrative commands Israel to cease panic and then move forward in obedience.
@@ -267,7 +340,7 @@ Seats: astra, fable5, gemini36, gemini38, sol
 
 ## Seat strictness
 
-- **astra**: 36 judged, 25 flagged (69%); {'INSIGHT_SUSPECT': 22, 'COHERENT': 11, 'DRIFT': 7, 'FILLER': 5, 'CONTRADICTS': 3}
+- **astra**: 72 judged, 53 flagged (73%); {'INSIGHT_SUSPECT': 49, 'COHERENT': 19, 'DRIFT': 10, 'FILLER': 11, 'CONTRADICTS': 7}
 - **fable5**: 72 judged, 21 flagged (29%); {'COHERENT': 58, 'DRIFT': 10, 'FILLER': 2, 'INSIGHT_SUSPECT': 11, 'CONTRADICTS': 3}
 - **gemini36**: 72 judged, 12 flagged (16%); {'DRIFT': 10, 'COHERENT': 60, 'CONTRADICTS': 2, 'INSIGHT_SUSPECT': 1, 'FILLER': 2}
 - **gemini38**: 72 judged, 19 flagged (26%); {'DRIFT': 15, 'COHERENT': 53, 'FILLER': 9, 'CONTRADICTS': 4, 'INSIGHT_SUSPECT': 6}
