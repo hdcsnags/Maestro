@@ -1,0 +1,46 @@
+{
+ "verdict": "revise",
+ "journey_is": "The believer's active response and enduring spiritual ledger: where you pray in the Throne Room, journal your heart, study in the Library, and remember God's faithfulness across time.",
+ "remove": [
+  "SectionLabel(\"Practice\")",
+  "2x2 grid of Write/Pray/Guided prompts/Generate a prayer",
+  "Time-of-day greeting duplicating Home (Good morning, Beloved)"
+ ],
+ "bring_back": [
+  "The Library doorway (teachings) under a Formation & Teachings section"
+ ],
+ "sections": [
+  {
+   "label": "Header",
+   "items": [
+    "Psalm 119:105 lamp verse (heroFill container, gold reference)"
+   ]
+  },
+  {
+   "label": "Conversation & Reflection",
+   "items": [
+    "Throne Room Card (throne_room) with embedded 'Generate with AI' chip (prayer_generator)",
+    "Sacred Journal Card (journal) with embedded 'Guided Prompts' chip (guidedJournal)"
+   ]
+  },
+  {
+   "label": "Formation & Teachings",
+   "items": [
+    "The Library Card (teachings)"
+   ]
+  },
+  {
+   "label": "Look Back",
+   "items": [
+    "RecentEntriesCard (3 live previews, journalHistory, searchJournal)"
+   ]
+  },
+  {
+   "label": "Your Walk",
+   "items": [
+    "JourneyProgressCard (entries count, days written)"
+   ]
+  }
+ ],
+ "disagree_with_michael": "Treating Journey as a 'second home' that holds 'everything else' is a mistake because it re-invites lazy duplicate buttons for bottom tabs (Stillness, Bible, Eliana); Journey is not a catch-all launchpad, but the personal sanctuary for response, formation, and memory."
+}

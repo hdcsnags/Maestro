@@ -1,0 +1,61 @@
+{
+ "verdict": "revise",
+ "journey_is": "Journey is your home for prayer, journaling, stillness, conversation with Eliana, and returning to what you have written and prayed.",
+ "remove": [
+  "Greeting-and-verse card",
+  "Practice heading",
+  "Four-card activity/helper arrangement",
+  "Standalone Generate a prayer shortcut",
+  "Three-entry preview stack",
+  "Separate statistics card"
+ ],
+ "bring_back": [
+  "Sacred Stillness as a secondary destination",
+  "Ask Eliana destination, labeled Talk with Eliana",
+  "Broader access to non-reading activities"
+ ],
+ "sections": [
+  {
+   "label": "Journey",
+   "items": [
+    "Static subtitle"
+   ]
+  },
+  {
+   "label": "Write",
+   "items": [
+    "New entry → journal",
+    "Help me start → guidedJournal"
+   ]
+  },
+  {
+   "label": "Pray",
+   "items": [
+    "Open the Throne Room → throne_room"
+   ]
+  },
+  {
+   "label": "Sacred Stillness",
+   "items": [
+    "Open → stillness"
+   ]
+  },
+  {
+   "label": "Talk with Eliana",
+   "items": [
+    "Open → eliana"
+   ]
+  },
+  {
+   "label": "Look back",
+   "items": [
+    "One latest journal preview",
+    "Read your journal → journalHistory",
+    "Search your journal → searchJournal",
+    "Revisit your prayers → throne_room",
+    "Journal entry and writing-day counts"
+   ]
+  }
+ ],
+ "disagree_with_michael": "A second home still needs hierarchy; restoring every shortcut would weaken it, and Home should retain passage-specific prayer and journaling."
+}
