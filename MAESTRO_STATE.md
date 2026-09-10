@@ -204,6 +204,12 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-10 — Claude Code (claude-fable-5-1) — Theme audit + missed-opportunities sweep (Astra on the work account)
+
+`scripts/eliana-theme-opportunity-audit.ts`: two prompts, one process, Codex read-only clones of `ux-council-fixes`; both tasks clean (read-only verified), 116s / 148s, verdict JSON parsed. **First run on Michael's work account — no usage-window errors.** Outputs: `docs/audits/eliana-readonly-poc/2026-09-10-theme-opportunity-audit/`. Conductor rendered all six themes on the emulator (Android 17) and spot-verified five Astra code claims (getOccurrences has zero call sites; root `bible_reader` route takes no ref; journal quote is `quotes.random()`; streaming bubble tints in `secondary`; reminder copy is generic) — all true. Synthesis for Michael: `Elianas RhythmMigrate/Michael/theme-audit/THEMES-AND-OPPORTUNITIES.md`. Astra and Fable converge independently on the four-theme set (Shekinah · Ivory · Vesper · Selah).
+
+---
+
 ### 2026-09-06 (evening) — Claude Code (claude-fable-5-1) — Astra B rerun; cohesion corrections applied; CONCIERGE.md cold-start guide
 
 **Astra batch B** (`only=astra batch=B`) ran clean once the usage window reopened: 28/36 flagged, 27

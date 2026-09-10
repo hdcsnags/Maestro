@@ -1,0 +1,126 @@
+{
+ "opportunities": [
+  {
+   "rank": 1,
+   "title": "Keep the source in journal entries",
+   "exists": "JournalScreen.kt",
+   "missing": "Persist source alongside response",
+   "why": "Later entries retain what prompted them.",
+   "cost": "S",
+   "risk": "Do not overwrite unrelated drafts"
+  },
+  {
+   "rank": 2,
+   "title": "Carry scripture through both navigation graphs",
+   "exists": "MainActivity.kt",
+   "missing": "Forward root-route reference arguments",
+   "why": "Library citations open the intended passage.",
+   "cost": "S",
+   "risk": "Back-stack behavior"
+  },
+  {
+   "rank": 3,
+   "title": "Put Sacred Word inside the reminder",
+   "exists": "notifications/DailyReminder.kt",
+   "missing": "Calendar text and verse intent",
+   "why": "The notification delivers and opens today's passage.",
+   "cost": "S",
+   "risk": "Reference must match posted text"
+  },
+  {
+   "rank": 4,
+   "title": "Make Chain mean the whole connection",
+   "exists": "ui/components/bible/ChainSheet.kt",
+   "missing": "Action-bar access to existing sheet",
+   "why": "Readers inspect connections before essays.",
+   "cost": "S",
+   "risk": "Preserve evidence distinctions"
+  },
+  {
+   "rank": 5,
+   "title": "Expose the offline word concordance",
+   "exists": "data/local/OriginalsDatabase.kt",
+   "missing": "UI for getOccurrences",
+   "why": "Readers examine other contexts offline.",
+   "cost": "M",
+   "risk": "Same identifier does not imply identical meaning"
+  },
+  {
+   "rank": 6,
+   "title": "Resume the actual study section",
+   "exists": "ui/screens/StudyReaderScreen.kt",
+   "missing": "Durable section position",
+   "why": "Interrupted readers recover their place.",
+   "cost": "M",
+   "risk": "Revised content invalidates offsets"
+  },
+  {
+   "rank": 7,
+   "title": "Give annotations a Journey shelf",
+   "exists": "data/local/BibleDao.kt",
+   "missing": "Browsable marked passages",
+   "why": "Readers recover notes without recalling references.",
+   "cost": "M",
+   "risk": "Legacy annotation ownership"
+  },
+  {
+   "rank": 8,
+   "title": "Turn study practices into responses",
+   "exists": "ui/screens/StudyReaderScreen.kt",
+   "missing": "Practice and passage handoffs",
+   "why": "Reflection stays attached to its study.",
+   "cost": "M",
+   "risk": "Avoid compulsory completion"
+  },
+  {
+   "rank": 9,
+   "title": "Let transliteration open word details",
+   "exists": "ui/components/bible/ElianaVerseTiers.kt",
+   "missing": "Aligned tappable transliteration",
+   "why": "Non-script readers can investigate words.",
+   "cost": "M",
+   "risk": "Incorrect token alignment"
+  },
+  {
+   "rank": 10,
+   "title": "Make manuscript-note references inspectable",
+   "exists": "ui/components/bible/ContestedVerseCard.kt",
+   "missing": "Links in explanatory references",
+   "why": "Readers can inspect the cited passages.",
+   "cost": "S",
+   "risk": "Maintain apparatus attribution"
+  },
+  {
+   "rank": 11,
+   "title": "Let readers retrieve familiar prayers",
+   "exists": "data/PrayerHistoryManager.kt",
+   "missing": "Search and favorites UI",
+   "why": "Returning prayers become easy to find.",
+   "cost": "S",
+   "risk": "Duplicate prayer titles"
+  },
+  {
+   "rank": 12,
+   "title": "Offer a deliberate offline study pack",
+   "exists": "firebase/FirebaseFirestoreManager.kt",
+   "missing": "Managed chapter downloads",
+   "why": "Readers know which depth layers are available offline.",
+   "cost": "L",
+   "risk": "Stale or incomplete content"
+  }
+ ],
+ "remove": [
+  {
+   "what": "Random journal quotation",
+   "why": "Competes with incoming passage context"
+  },
+  {
+   "what": "Repeated Home quick-access grid",
+   "why": "Journey already owns the room directory"
+  },
+  {
+   "what": "Automatic broad verse question",
+   "why": "Let readers ask their actual question with context"
+  }
+ ]
+}

@@ -1,0 +1,89 @@
+{
+ "themes": [
+  {
+   "name": "Sacred",
+   "offered": true,
+   "grade": "B",
+   "contrast_body": 14.92,
+   "verdict": "cut",
+   "tweak": null,
+   "why": "Strong body contrast; redundant gold-dark choice."
+  },
+  {
+   "name": "Vesper",
+   "offered": true,
+   "grade": "B",
+   "contrast_body": 15.22,
+   "verdict": "tweak",
+   "tweak": "primaryMuted=#CF9468; surfaceTint=#161B27; surfaceContainerLow=#161B27; surfaceContainerHigh=#1E2436",
+   "why": "Distinct copper; repair muted text and surface roles."
+  },
+  {
+   "name": "Shekinah",
+   "offered": true,
+   "grade": "A",
+   "contrast_body": 16.56,
+   "verdict": "keep",
+   "tweak": null,
+   "why": "Strong signature, neutral surfaces, true-black ground."
+  },
+  {
+   "name": "Haven",
+   "offered": false,
+   "grade": "C",
+   "contrast_body": 15.71,
+   "verdict": "cut",
+   "tweak": null,
+   "why": "Retired config without premium tokens."
+  },
+  {
+   "name": "Lumina",
+   "offered": false,
+   "grade": "D",
+   "contrast_body": 16.2,
+   "verdict": "cut",
+   "tweak": null,
+   "why": "Retired; gold text and button contrast fail."
+  },
+  {
+   "name": "Selah",
+   "offered": true,
+   "grade": "C",
+   "contrast_body": 14.07,
+   "verdict": "tweak",
+   "tweak": "primary=logoColor=primaryMuted=#5BA3A6; borderGradient=#5BA3A6@0.45,#5BA3A6@0.06; surfaceTint=#15242F; surfaceContainerLow=#15242F; surfaceContainerHigh=#1A2D3D",
+   "why": "Distinct teal; current primary and muted text are too dark."
+  },
+  {
+   "name": "Ivory",
+   "offered": true,
+   "grade": "B",
+   "contrast_body": 14.69,
+   "verdict": "tweak",
+   "tweak": "primaryMuted=#735600",
+   "why": "Strong flagship light theme; muted text needs darkening."
+  },
+  {
+   "name": "Crisp Paper",
+   "offered": true,
+   "grade": "C",
+   "contrast_body": 15.27,
+   "verdict": "cut",
+   "tweak": null,
+   "why": "Near-duplicate of redesigned Ivory; muted text fails."
+  }
+ ],
+ "keep_four": [
+  "Shekinah",
+  "Ivory",
+  "Vesper",
+  "Selah"
+ ],
+ "dynamic_color_fifth": true,
+ "delete_from_code": [
+  "Haven",
+  "Lumina",
+  "Sacred",
+  "Crisp Paper"
+ ]
+}
