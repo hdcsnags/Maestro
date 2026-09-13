@@ -204,6 +204,12 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-09-13 — Claude Code (claude-fable-5-1) — Stillness rebuild assessment (Astra) → Eliana v19
+
+First production use of the generic `council-dispatch.ts` on the Eliana repo: `SEATS=astra`, audit mode, read-only verified clean, 1 seat, verdict JSON parsed (`docs/audits/eliana-readonly-poc/2026-09-13-stillness-rebuild/`). Astra's design (protocol JSON → one deterministic timeline; audio follows the clock and never extends a phase; pause = breathe normally, resume restarts the breath; no 20 s hold or 3×30 priming for a first-timer; breathing never gates the Word) was adopted almost whole; the conductor built the engine in parallel and reconciled after. Michael's synthesis: `Elianas RhythmMigrate/Michael/stillness/STILLNESS-PLAN.md`. Emulator was unusable during the run (host starved: 7 frames in 3 min, ANR) — a reminder that the build gate's emulator pass depends on host load; the protocol should record "emulator starved" as a distinct verification state.
+
+---
+
 ### 2026-09-10 (night) — Claude Code (claude-fable-5-1) — ELAY bootstrap: generic council-dispatch.ts
 
 Michael is starting a second app (ELAY, shared time/goal planner with "time locks"; spec `C:\New folder\Elay\Elay.docx`) as a **Maestro test**: council-designed, agent-built, Michael reviewing. Added `packages/maestroclaw/scripts/council-dispatch.ts` — one script for any project: env-driven (`SOURCE`, `PROMPT_FILE`, `SEATS`, `NO_GIT`, `MODE=audit|code`), read-only verification by git or file-hash, agy prompt-as-file, `MODE=code` emits `<seat>.patch` for `git apply --3way`. Elay's folder carries `AGENTS.md`, `ELAY-CONCIERGE.md` (roles · loop · gates · usage-window protocol), skills (`/concierge`, `/council`, `/build-gate`, `/usage-windows`), the converted spec, a Sonnet toolchain sheet (UNVERIFIED items flagged) and the first brief — the stack decision: the spec says React Native + Expo + Supabase; Michael leans KMP. Council outputs for Elay land in `docs/audits/elay/`.
