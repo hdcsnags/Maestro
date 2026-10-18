@@ -1,0 +1,198 @@
+{
+ "scores": {
+  "reading_surface": 6,
+  "doors_to_depth": 4,
+  "navigation": 6,
+  "states": 3,
+  "written_study": 6,
+  "launch_readiness": 3
+ },
+ "blockers": [
+  {
+   "id": "F01",
+   "title": "Signed-in clients can overwrite the global verse-insight corpus",
+   "file": "firestore.rules:120-128"
+  },
+  {
+   "id": "F02",
+   "title": "Chapter-depth failures are falsely presented as unwritten content",
+   "file": "app/src/main/java/com/eliana/rhythm/firebase/FirebaseFirestoreManager.kt:362-374"
+  }
+ ],
+ "findings": [
+  {
+   "id": "F01",
+   "severity": "P0",
+   "surface": "Firestore integrity",
+   "file": "firestore.rules:120-128",
+   "title": "Global verse-insight writes are open to non-anonymous clients"
+  },
+  {
+   "id": "F02",
+   "severity": "P0",
+   "surface": "Chapter-depth states",
+   "file": "app/src/main/java/com/eliana/rhythm/firebase/FirebaseFirestoreManager.kt:362-374",
+   "title": "Failures collapse into a false unwritten state"
+  },
+  {
+   "id": "F03",
+   "severity": "P1",
+   "surface": "Study-mode density",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt:85-185",
+   "title": "Full depth on every verse destroys passage continuity"
+  },
+  {
+   "id": "F04",
+   "severity": "P1",
+   "surface": "Depth vocabulary",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:980-1008",
+   "title": "Deeper and Deeper insight describe different actions"
+  },
+  {
+   "id": "F05",
+   "severity": "P1",
+   "surface": "Touch discoverability",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt:521-656",
+   "title": "Star and word-study targets are tiny or visually unmarked"
+  },
+  {
+   "id": "F06",
+   "severity": "P1",
+   "surface": "TalkBack",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt:502-660",
+   "title": "Read mode lacks operable per-verse semantics"
+  },
+  {
+   "id": "F07",
+   "severity": "P1",
+   "surface": "Verse action bar",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:946-1010",
+   "title": "Action bar is oversized and increasingly crowded"
+  },
+  {
+   "id": "F08",
+   "severity": "P1",
+   "surface": "Offline",
+   "file": "app/src/main/java/com/eliana/rhythm/data/OfflinePackManager.kt:8-64",
+   "title": "Kept-offline status is not a verified availability guarantee"
+  },
+  {
+   "id": "F09",
+   "severity": "P1",
+   "surface": "Chapter navigation",
+   "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt:524-537",
+   "title": "Navigation is swipe-only and stops at book boundaries"
+  },
+  {
+   "id": "F10",
+   "severity": "P2",
+   "surface": "Back stack",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/VerseStudyScreen.kt:56-58",
+   "title": "Transient states and duplicate reader entries lack a coherent Back hierarchy"
+  },
+  {
+   "id": "F11",
+   "severity": "P2",
+   "surface": "Reader chrome",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:233-439",
+   "title": "Top controls consume excessive phone reading space"
+  },
+  {
+   "id": "F12",
+   "severity": "P2",
+   "surface": "Written study",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/VerseStudyScreen.kt:107-163",
+   "title": "Long-form study is functional but insufficiently authored and responsive"
+  },
+  {
+   "id": "F13",
+   "severity": "P1",
+   "surface": "Accessibility contrast",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ReadingDisplayComponents.kt:430-535",
+   "title": "Small alpha-reduced text and 40dp controls fail launch-quality accessibility"
+  },
+  {
+   "id": "F14",
+   "severity": "P2",
+   "surface": "Tablets and foldables",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:528-537",
+   "title": "Readable width exists but Study remains a phone column"
+  },
+  {
+   "id": "F15",
+   "severity": "P2",
+   "surface": "Firestore scale",
+   "file": "app/src/main/java/com/eliana/rhythm/data/OfflinePackManager.kt:52-59",
+   "title": "Chapter packs can generate hundreds of document reads"
+  },
+  {
+   "id": "F16",
+   "severity": "P2",
+   "surface": "Corpus truth",
+   "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt:120-125",
+   "title": "Hard-coded counts and unfinished-language contradict the completed corpus"
+  }
+ ],
+ "upgrades": [
+  {
+   "name": "Native verse sharing",
+   "when": "before",
+   "why": "Low-cost distribution feature using the existing selection and copy model"
+  },
+  {
+   "name": "Cross-book previous and next navigation",
+   "when": "before",
+   "why": "Essential reader behavior with moderate implementation cost"
+  },
+  {
+   "name": "Verified offline chapter manager",
+   "when": "before",
+   "why": "The current download promise is not sufficiently trustworthy"
+  },
+  {
+   "name": "Reading plans",
+   "when": "after",
+   "why": "Highest likely daily-retention feature but should not delay core-reader repair"
+  },
+  {
+   "name": "Bookmarks and reading history",
+   "when": "after",
+   "why": "Extends the existing resume system at relatively low cost"
+  },
+  {
+   "name": "Audio Bible",
+   "when": "after",
+   "why": "High user value but substantial licensing, playback, and download scope"
+  },
+  {
+   "name": "Curated cross-references",
+   "when": "after",
+   "why": "Chains provide a strong base that can be expanded deliberately"
+  },
+  {
+   "name": "Memorisation mode",
+   "when": "after",
+   "why": "Useful secondary workflow once core reader demand is measured"
+  },
+  {
+   "name": "Tablet two-pane study",
+   "when": "after",
+   "why": "Promising but requires physical-device usability testing"
+  },
+  {
+   "name": "Live regeneration of completed studies",
+   "when": "never",
+   "why": "Adds cost and uncertainty while undermining the completed curated corpus"
+  },
+  {
+   "name": "Public verse comments",
+   "when": "never",
+   "why": "Moderation cost and conflict risk outweigh reader value"
+  },
+  {
+   "name": "Punitive reading streaks",
+   "when": "never",
+   "why": "Guilt-oriented engagement conflicts with the product's spiritual-companion role"
+  }
+ ]
+}

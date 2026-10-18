@@ -1,0 +1,185 @@
+{
+ "scores": {
+  "reading_surface": 5,
+  "doors_to_depth": 4,
+  "navigation": 6,
+  "states": 3,
+  "written_study": 5,
+  "launch_readiness": 4
+ },
+ "blockers": [
+  {
+   "id": "F-01",
+   "title": "Raw Markdown asterisks and 18-line unclipped keyWordMeaning in ElianaVerseTiers make a single verse card overflow the screen in Study mode",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt:156"
+  },
+  {
+   "id": "F-02",
+   "title": "Deeper chip in VerseActionBar is a dead no-op in Study mode and collides with adjacent Deeper insight chip",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:675"
+  },
+  {
+   "id": "F-03",
+   "title": "Missing Loading/Offline states for elianaEntries flashes false 'awaiting its Eliana rendering' card on chapter load and misleads offline users",
+   "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt:328"
+  },
+  {
+   "id": "F-04",
+   "title": "firestore.rules still permits any non-anonymous authenticated user to overwrite canonical verse_insights documents",
+   "file": "firestore.rules:124"
+  }
+ ],
+ "findings": [
+  {
+   "id": "F-01",
+   "severity": "P0",
+   "surface": "ElianaVerseTiers / Study Mode",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt:156",
+   "title": "Raw Markdown asterisks and 18-line unclipped keyWordMeaning overflow the viewport"
+  },
+  {
+   "id": "F-02",
+   "severity": "P0",
+   "surface": "VerseActionBar",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:675",
+   "title": "Deeper chip is a no-op in Study mode and collides with Deeper insight"
+  },
+  {
+   "id": "F-03",
+   "severity": "P0",
+   "surface": "Loading & Offline States",
+   "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt:328",
+   "title": "Missing Loading/Offline state flashes ElianaChapterInviteCard and falsely claims verses are not yet in the Eliana Bible when offline"
+  },
+  {
+   "id": "F-04",
+   "severity": "P0",
+   "surface": "Firestore Security Rules",
+   "file": "firestore.rules:124",
+   "title": "verse_insights collection allows unconstrained writes/overwrites by any signed-in Google user"
+  },
+  {
+   "id": "F-05",
+   "severity": "P1",
+   "surface": "VerseStudyScreen",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/VerseStudyScreen.kt:107",
+   "title": "Written study duplicates tier card opening sections in degraded LTR sans-serif font and exposes 'Eliana pipeline' label"
+  },
+  {
+   "id": "F-06",
+   "severity": "P1",
+   "surface": "Data Layer & Performance",
+   "file": "app/src/main/java/com/eliana/rhythm/data/local/BibleRoomRepository.kt:132",
+   "title": "Duplicate chapter Firestore reads on ELIANA version, full-chapter Firestore read on single-verse Compare, and per-verse N+1 Room queries in ElianaVerseTiers"
+  },
+  {
+   "id": "F-07",
+   "severity": "P1",
+   "surface": "OfflinePackManager / Top Bar",
+   "file": "app/src/main/java/com/eliana/rhythm/data/OfflinePackManager.kt:55",
+   "title": "Unlabeled download icon runs 2xN sequential network requests per chapter and caches only 1 fuzzy word study per verse"
+  },
+  {
+   "id": "F-08",
+   "severity": "P1",
+   "surface": "Doors to Depth",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/WordStudySheet.kt:127",
+   "title": "Zero visual affordance on tappable Hebrew/Greek/transliterated tokens and Tier 4 study doorway; Aleph glyph used on Greek NT"
+  },
+  {
+   "id": "F-09",
+   "severity": "P1",
+   "surface": "Navigation & Gestures",
+   "file": "app/src/main/java/com/eliana/rhythm/viewmodel/EnhancedBibleReaderViewModel.kt:526",
+   "title": "Chapter swipe dead-ends at book boundaries, conflicts with SelectionContainer, and lacks BackHandler for selection/search/immersive"
+  },
+  {
+   "id": "F-10",
+   "severity": "P2",
+   "surface": "Top Chrome & Mode Switcher",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/screens/EnhancedBibleReaderScreen.kt:249",
+   "title": "3-row static header consumes ~180dp and places per-verse Compare modal action inside the chapter mode switcher"
+  },
+  {
+   "id": "F-11",
+   "severity": "P2",
+   "surface": "Accessibility & Scaling",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/components/bible/ElianaVerseTiers.kt:129",
+   "title": "Tiers 1, 2, and 4 ignore fontSizeSp scaling; Thompson chain badge is below 48dp touch target; ContinuousChapterPage merges up to 50 verses into one TalkBack node"
+  },
+  {
+   "id": "F-12",
+   "severity": "P3",
+   "surface": "Theme & Multi-select Polish",
+   "file": "app/src/main/java/com/eliana/rhythm/ui/theme/FourThemeSystem.kt:85",
+   "title": "SacredLinen primary orange accent clashes with warm linen palette and multi-verse selection hides depth chips without explanation"
+  }
+ ],
+ "upgrades": [
+  {
+   "name": "Parse Markdown emphasis and cap Tier 4 keyWordMeaning at 3 lines with explicit 'Read full verse study' CTA",
+   "when": "before",
+   "why": "Fixes raw asterisks and full-screen single-verse cards on the primary Study surface"
+  },
+  {
+   "name": "Unify Deeper and Deeper insight in VerseActionBar and fix Study mode expansion",
+   "when": "before",
+   "why": "Eliminates a broken no-op button and confusing duplicate depth labels"
+  },
+  {
+   "name": "Lock verse_insights to allow write: if false in firestore.rules",
+   "when": "before",
+   "why": "Prevents any authenticated client from poisoning canonical verse studies in production"
+  },
+  {
+   "name": "Add Loading/Offline states to elianaEntries and remove ElianaChapterInviteCard",
+   "when": "before",
+   "why": "Stops false 'awaiting rendering' flashes on every chapter change and honest offline messaging"
+  },
+  {
+   "name": "Render ElianaVerseTiers header in VerseStudyScreen and strip duplicate Scripture/Fresh Rendering markdown sections",
+   "when": "before",
+   "why": "Eliminates verbatim repetition and fixes LTR sans-serif Hebrew rendering on the study screen"
+  },
+  {
+   "name": "Preload chapter OriginalWordEntity rows in ViewModel and deduplicate Firestore chapter reads",
+   "when": "before",
+   "why": "Removes async layout jumps on scroll and cuts Firestore chapter reads by 50%+"
+  },
+  {
+   "name": "Add BackHandler, cross-book chapter rollover, and bottom Prev/Next chapter buttons",
+   "when": "before",
+   "why": "Prevents accidental reader exits on Back press and dead-ends at book boundaries"
+  },
+  {
+   "name": "Bundle 31,069 eliana_bible rows into local Room database asset",
+   "when": "after",
+   "why": "Makes all 4 tiers instant and 100% offline while reducing ongoing Firestore chapter read cost to zero"
+  },
+  {
+   "name": "Wire ScriptureLinkedText into VerseStudyScreen and WordStudySheet markdown",
+   "when": "after",
+   "why": "Turns cross-references inside verse and word essays into interactive scripture doors"
+  },
+  {
+   "name": "Parallelize OfflinePackManager.keepChapter with batched queries and clear UI labeling",
+   "when": "after",
+   "why": "Makes offline chapter study caching 10x faster and understandable to users"
+  },
+  {
+   "name": "ElianaChapterInviteCard progress counter and live chapter rendering prompt",
+   "when": "never",
+   "why": "All 31,069 verses are already complete; the invite card only misfires during loading and offline states"
+  },
+  {
+   "name": "Separate Deeper and Deeper insight chips in VerseActionBar",
+   "when": "never",
+   "why": "Two similarly named depth chips in one bar permanently confuse the hierarchy between inline tiers and full essays"
+  },
+  {
+   "name": "Full-chapter SelectionContainer wrapping the LazyColumn",
+   "when": "never",
+   "why": "Conflicts with horizontal chapter swipe gestures and duplicates the cleaner verse-tap Copy/Share flow"
+  }
+ ]
+}

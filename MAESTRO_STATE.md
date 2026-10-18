@@ -13,7 +13,7 @@
 | Unapplied migrations | `20260817000000_approval_token_replay_guard.sql` (SEC-02 nonce ledger) — remote status *(unverified 2026-09-05)*. `20260703000000_build_tasks_priority.sql` NOT yet applied remotely (52nd migration, added on the C-06 branch). Apply BEFORE deploying `concierge` (its decompose now persists `priority`). All prior 51 applied (verified 2026-06-02) |
 | CI | `.github/workflows/ci.yml` — typecheck + lint + build + maestroclaw tests on push/PR to main (first run green 2026-06-09) |
 | Active locks | None |
-| MaestroClaw version | v0.1.0 — 9 adapters: shell_stub, claude_code, copilot_cli, codex_cli, gemini_cli, **kimi_cli**, **agy_cli** (Antigravity; plain `gemini` CLI is tier-blocked), approved_shell, pty_shell. Build + 72/73 tests green 2026-09-05 (1 skip) |
+| MaestroClaw version | v0.1.0 — 9 adapters: shell_stub, claude_code, copilot_cli, codex_cli, gemini_cli, **kimi_cli**, **agy_cli** (Antigravity; plain `gemini` CLI is tier-blocked), approved_shell, pty_shell. Build + 72/73 tests green 2026-10-18 (1 skip; re-verified by Mythos 5.1) |
 | Stable architecture | See `docs/reference/REFERENCE.md` |
 | Session log (pre-May-6) | See `docs/session-log/HISTORY.md` |
 
@@ -143,6 +143,7 @@
 
 | Issue | Since | Owner |
 |-------|-------|-------|
+| **`agy_cli` adapter accepts an empty response as success**: run 1 of the 09-22 vision council returned agy `status: SUCCESS` with `response` empty in 17 s and was recorded `success=true`. Fix: require `response.trim().length > 0` in `packages/maestroclaw/src/adapters/agy-cli.ts`. Also: **Kimi K3 monthly quota** has emptied the kimi seat in three studies (09-05, 09-06, 09-22) — treat as best-effort. | 2026-09-22 | Unassigned |
 | **Pending deploys from the C-06 branch**: migration `20260703000000_build_tasks_priority.sql` unapplied remotely; `concierge` (persists decompose `priority` — deploy only AFTER the migration) and `audit-log` (optional `metadata` passthrough for `manifest_reconcile` events) not redeployed. Until then: priority tier falls back to lane/tie-break ordering (harmless), and collision audit rows are written without metadata detail (deployed fn ignores unknown body fields). | 2026-07-06 | Unassigned |
 | **R4 (review nit, policy question for the Conductor)**: a task with empty `lane_name` sorts before every named lane in the reconcile (code-unit `''` is minimal) — deterministic and test-acknowledged, but "no owner outranks every owner" deserves a deliberate decision. | 2026-07-06 | Conductor |
 | ~~**GPT OSS phantom agent**: fires during builds even when not selected as a builder — phantom agent bug~~ ✅ Fixed (2026-05-04, commit `c6ed517`): `isBuilderEligible()` predicate added; `openrouter_a` filtered from LLM roster text, candidate pool for builder lanes, stale-ID fallback, and Pre-Build candidate list; edge-path dispatch guard added; `architect` + `concierge` redeployed | 2026-04-19 | Done |
@@ -203,6 +204,48 @@ These areas change often and should be re-verified after any significant work se
 # Part 3 — Session Log
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
+
+### 2026-10-18 — Claude Code (claude-mythos-5-1) — Eliana reader + Deeper insight council (Gemini 4 Argon + Sol), emulator pass, 16-verse pipeline gap
+
+Onboarded per AGENTS.md; verified `npm run typecheck`, maestroclaw build and tests (72 pass / 1 skip) still green — the Read This First row holds as of today. Then the Eliana task: `council-dispatch.ts` with `NO_GIT=1` on a curated working-tree copy of the app (`C:\New folder\claw-scratch\eliana-reader-council-src`: source + 25 screenshots, no STATE.md), seats **gemini** (`CLAW_AGY_MODEL=gemini-4-argon-high`, 554 s, verdict parsed, read-only clean) and **sol** (152 s, verdict parsed, clean), one process each. Outputs: `docs/audits/eliana-readonly-poc/2026-10-18-reader-council/`. Synthesis for Michael: `Elianas RhythmMigrate/Michael/reader-council-2026-10/SYNTHESIS.md` (+ brief, 30 emulator shots).
+
+**Findings that matter to Maestro:** (1) **Gemini 4 Argon** (first use) reads whole files end to end and produced the sharpest single finding (3,985 `eliana_bible` docs carry literal `*` markdown in `key_word_meaning`), but stated two UI facts confidently that are not in the build (a terracotta Sacred theme, a Compare tab in the reader chrome) — it had read an Aug 22 store screenshot as current. Pair it with a device pass or a grounded seat; same lesson as 09-06. (2) **Sol** 16/16 verified incl. two exact contrast numbers and one absence claim (`FirebaseInit.initialize()` never called). (3) The concierge's own device pass found four things no code-only seat could (scroll/selection loss on back from the study, KJV/ASV contested-verse duplication, status-bar/inset wiring, ghost tab labels) — the emulator pass is part of the method, not an extra. (4) **Pipeline bug class worth a tripwire:** `builder.py verse_count()` = `COUNT(*)` vs. numbering `MAX(verse)` silently dropped 16 chapter-final verses in a 31k-verse run; a per-chapter "count == max" check would have caught it on 2026-08-10.
+
+**Files touched:** `docs/audits/eliana-readonly-poc/2026-10-18-reader-council/**` (new), `MAESTRO_STATE.md`. App repo: STATE.md entry + the Oct 3 v21 working tree committed locally (not pushed); `docs/CONCIERGE.md` mirror refreshed (roster rows for Gemini 4 Argon and Mythos). No Maestro code changed. **Still open:** the `agy_cli` empty-response-as-success bug (09-22) — agy returned a full response this run, so it was not exercised.
+
+**What didn't work:** `adb` is not on PATH (use `D:\AndroidStudio\platform-tools\adb.exe`, per the Elay build-gate skill); one `input tap` after a `popBackStack` landed on a different verse than intended because the reader restored at the top — screenshot after every tap, as the skill says; a bash heredoc mangled backslashes in a Python script again — write scripts with the editor tool (CONCIERGE.md already says so).
+
+---
+
+### 2026-09-26 — Claude Code (claude-opus-5-5) — Solar Explorer "next level" council (Astra + Gemini 3.8 + Kimi K3 + Fable 5.1)
+
+First council run for a non-Eliana's-Rhythm project: Michael's Godot toddler app at `C:\New folder\AndroidGame`. Ran `council-dispatch.ts` with `NO_GIT=1` on a curated 11 MB folder (plan, credits, 16 screenshots, the Planet Parade HTML). Four seats ran in parallel, one process each, and all came back read-only-clean. Kimi quota was available again (it returned 403 on 09-06). Codex was signed in via ChatGPT. Outputs are in `docs/audits/solar-explorer/2026-09-26-next-level-{astra,gemini,kimi,fable}/`, with the synthesis in `docs/audits/solar-explorer/2026-09-26-SYNTHESIS.md`.
+
+The seats converged 4/4 on: voice-first narration, a toddler HUD, a parent gate on settings and exits, palm rejection, and fixing the star filtering. One Gemini claim (the M02 HUD) was false and was caught when the concierge checked the image. **Maestro-side takeaways:** (1) curate a small folder of images rather than cloning a 250 MB game repo; (2) all four seats read the PNGs through their CLIs. No Maestro code changed; not committed, because the working tree already held others' uncommitted edits.
+
+---
+
+### 2026-09-24 — Claude Code (claude-fable-5-1) — ELAY Stage 6 crash recovery: D2 fonts + D3 icon merged, two emulator-pass fixes
+
+Michael's PC crashed on 2026-09-23 ~02:16 mid-gate in the Elay session (the D2+D3 gate had returned BUILD FAILED; cause unread). Today: cause = a **poisoned Gradle build-cache entry** — `mergeDebugResources` restored FROM-CACHE without the moved `ic_launcher_foreground`; `:androidApp:clean` does not touch the build cache, `mergeDebugResources --rerun` fixed and re-stored it. Then D2 (five bundled faces, 224 KB) and D3 (the "el." monogram from the bundled Newsreader Italic; adaptive + monochrome + rasters + iOS) merged, with two defects found on the emulator pass and fixed: light splash invisible (silk-on-paper; now a per-mode `ic_splash_mark`) and dark-mode sign-in black-on-obsidian (no root `Surface` outside `Scaffold`; `ElayTheme` now provides one). Gate green (361 host tests, all rails); pushed `af4376f`, CI android + ios-verify running at time of writing; Elay `STATE.md` backfilled for LEAD-0/D1 (the crash swallowed those entries). Outputs: `C:\New folder\Elay\research\shots\stage6-d23-0{1..5}-*.png`.
+
+**Maestro-side takeaways:** (1) a crash mid-gate can leave the *build cache* wrong while the tree is right — the build-gate protocol should carry "file present but 'not found' → rerun the task with `--rerun`" as a named recovery; (2) the session transcript (`~/.claude/projects/<dir>/*.jsonl`) was the only record of what the crashed session was doing — STATE files lag the work by design, so an in-flight checkpoint line ("gate running over D2+D3") would have saved the reconstruction. No Maestro code changed.
+
+---
+
+### 2026-09-22 — Claude Code (claude-fable-5-1) — Vision council: Intelligence Orchestration Vision reviewed by Astra + Gemini 3.8 + Fable
+
+Michael's new direction (dictated to Sol 2026-09-21, `MAESTRO_INTELLIGENCE_ORCHESTRATION_VISION (1).md`, untracked): route each task to the minimum sufficient capability, local-first, "any task, any industry" (home / dentist / school board). Michael: "don't be bound by my vision, show me what I am missing, do research." First use of `council-dispatch.ts` on the Maestro repo itself (`SOURCE=Maestro`, audit mode, prompt inlined 44 KB because the doc is untracked). Seats: **astra** (gpt-6-astra, 200 s, verdict parsed), **gemini** (agy default → Gemini 3.8 Flash High, 128 s, verdict parsed; first run with explicit `CLAW_AGY_MODEL` returned agy SUCCESS with an empty response — adapter accepted it as success), **kimi** (403 monthly quota, third study running), **fable-conductor** (not blind, written before reading seats, one marked correction). Outputs: `docs/audits/maestro/2026-09-22-vision-council/` (`SYNTHESIS.md`, per-seat `.md` + `-verdict.json`, `prompt.md`).
+
+**Three-way convergence (14 rows):** routing is commoditized (FrugalGPT/RouteLLM/Home Assistant) and not the moat; the non-dev examples are connector + policy problems; reject the T0–T7 ladder, the utility formula and clause-level provenance tags; the router starves the grading flywheel unless a shadow-council sample runs; adopt MCP / A2A / Agent Skills instead of bespoke schemas; the security boundary is a broker outside the model that authorizes typed parameter-validated operations; **grounding attestation, not model confidence, is the escalation signal** (the 09-06 finding, absent from the vision's router inputs); `concierge-triage` conflates classification with fulfilment (hard overrides already short-circuit in code at :150–153 before the Haiku fetch at :193 — verified; corrected my own seat on this). Same first three steps from all three seats in different order: ledger/route receipts + execution identity → deterministic triage shadowed then flipped → OpenAI-compatible `base_url` local provider (Ollama, Foundry Local) for grading only. Conductor verified 10 code claims (all true); both external seats assumed US law (HIPAA/FERPA) — Michael is in Ontario (MFIPPA/PHIPA).
+
+**Divergences ruled:** new race = qualified workflows (Astra) made verifiable by the ledger (Fable) running on a local node with connectors (Gemini); council is repositioned as the *qualification service* + shadow grader, not demoted; router location = split (client/local node for deterministic + private intents, cloud for cloud seats) which the existing shell fast-path already does; full local-first waits for Core extraction per the Aug-17 audit, which the vision doc does not cite and must engage or overturn.
+
+**Files touched:** `docs/audits/maestro/2026-09-22-vision-council/**` (new), `docs/audits/maestro/README.md` (new), `MAESTRO_STATE.md`. No code changed. **Open for Michael (SYNTHESIS §5):** sequencing vs the Aug-17 audit; proving grounds (recommend Maestro's own routing + one read-only household workflow; school board as compliance design partner only); money movement fenced; assistant name; PHILOSOPHY Part 2 re-labelled hypothesis; council gate = grounding + blast radius.
+
+**What didn't work:** Kimi quota; agy empty-SUCCESS (fix candidate in SYNTHESIS §8: require non-empty response).
+
+---
 
 ### 2026-09-13 — Claude Code (claude-fable-5-1) — Stillness rebuild assessment (Astra) → Eliana v19
 
