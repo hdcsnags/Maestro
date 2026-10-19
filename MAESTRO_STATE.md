@@ -205,6 +205,12 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-10-18 (night) — Claude Code (claude-mythos-5-1) — Eliana: option A action bar shipped, VOTD mechanical pass applied with corpus verification
+
+Short addendum to the evening entry. Michael ruled on the reader council's option A (his names: "Full Study", "✦ Eliana Lens"); built, emulator-verified, committed locally in the app repo. VOTD: verified the eight "drift" renderings against the primary corpus with `sources/verify.py` before editing a single card (all eight renderings held — the cards had quoted ESV/NIV/KJV), applied the mechanical fixes by script with a before/after record, rebuilt the bundled corpus. **Method note:** the two-seat VOTD council converged on the mechanical defects and diverged on taste (day 53) — exactly the split the synthesis should hand to the owner, not resolve. **Process note:** three `Edit` attempts on one Kotlin block failed on an invisible character; a line-anchored Python patch landed it — keep `kpatch.py`-style patching for files with mixed dashes/quotes. No Maestro code changed.
+
+---
+
 ### 2026-10-18 (evening) — Claude Code (claude-mythos-5-1) — Eliana build session: reader fixes, corpus bundled on device, 16-verse backfill, VOTD council (Astra + Gemini 4 Argon)
 
 Continuation of the morning entry. Council: `council-dispatch.ts` `NO_GIT=1` on a 420 KB payload folder (72 VOTD cards + their Eliana Bible entries + full insights, built by a script from the backup) — **astra** 302 s, verdict parsed, 40 fixes; **gemini** (gemini-4-argon-high) 554 s, output hit its length limit so the `BEGIN VERDICT` block was cut and unparseable, but the prose and 72-row table are complete. Lesson for the brief template: ask agy seats to emit the verdict block FIRST, or cap per-card notes, when the table is long. Outputs `docs/audits/eliana-readonly-poc/2026-10-18-votd-council/`; synthesis in `Elianas RhythmMigrate/Michael/reader-council-2026-10/VOTD-SYNTHESIS.md`.
