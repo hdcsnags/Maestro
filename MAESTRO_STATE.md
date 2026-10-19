@@ -205,6 +205,18 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-10-18 (evening) — Claude Code (claude-mythos-5-1) — Eliana build session: reader fixes, corpus bundled on device, 16-verse backfill, VOTD council (Astra + Gemini 4 Argon)
+
+Continuation of the morning entry. Council: `council-dispatch.ts` `NO_GIT=1` on a 420 KB payload folder (72 VOTD cards + their Eliana Bible entries + full insights, built by a script from the backup) — **astra** 302 s, verdict parsed, 40 fixes; **gemini** (gemini-4-argon-high) 554 s, output hit its length limit so the `BEGIN VERDICT` block was cut and unparseable, but the prose and 72-row table are complete. Lesson for the brief template: ask agy seats to emit the verdict block FIRST, or cap per-card notes, when the table is long. Outputs `docs/audits/eliana-readonly-poc/2026-10-18-votd-council/`; synthesis in `Elianas RhythmMigrate/Michael/reader-council-2026-10/VOTD-SYNTHESIS.md`.
+
+**App work (all in the Eliana repo, local commits `35ac30e` `f3f892a` `81079b5`):** insight page by sections, tier-card door, Read-mode scroll-jump fix, Study header chip, key word → word study, and bundling phase 1 (`eliana_depth.db` 76 MB on device, Firestore fallback) — fresh-install airplane-mode verified. **Pipeline:** `builder.py` COUNT→MAX fix + `--ref`/`--backfill`; 16 verses backfilled with Sonnet 5 via `claude -p` piped on stdin, 16/16 first attempt, ~40 s each; two "Messiah" renderings corrected to the corpus convention with a record.
+
+**Maestro-side takeaways:** (1) `python -I` ignores `PYTHONIOENCODING` — use `-X utf8` on this machine; (2) `MSYS_NO_PATHCONV=1` set for `adb shell df /data` broke the next `adb install` path — scope it to one command; (3) emulator `/data` at 92% rejected a 140 MB APK (streamed install needs ~3× the APK free) — the build-gate skill should carry "check `df /data` before install, uninstall to recover"; (4) the Gemini seat's truncation is the second agy quirk worth encoding in the adapter (detect a cut `BEGIN VERDICT` and re-ask for the block alone).
+
+**Files touched (Maestro):** `docs/audits/eliana-readonly-poc/2026-10-18-votd-council/**` (new), `MAESTRO_STATE.md`. No Maestro code changed.
+
+---
+
 ### 2026-10-18 — Claude Code (claude-mythos-5-1) — Eliana reader + Deeper insight council (Gemini 4 Argon + Sol), emulator pass, 16-verse pipeline gap
 
 Onboarded per AGENTS.md; verified `npm run typecheck`, maestroclaw build and tests (72 pass / 1 skip) still green — the Read This First row holds as of today. Then the Eliana task: `council-dispatch.ts` with `NO_GIT=1` on a curated working-tree copy of the app (`C:\New folder\claw-scratch\eliana-reader-council-src`: source + 25 screenshots, no STATE.md), seats **gemini** (`CLAW_AGY_MODEL=gemini-4-argon-high`, 554 s, verdict parsed, read-only clean) and **sol** (152 s, verdict parsed, clean), one process each. Outputs: `docs/audits/eliana-readonly-poc/2026-10-18-reader-council/`. Synthesis for Michael: `Elianas RhythmMigrate/Michael/reader-council-2026-10/SYNTHESIS.md` (+ brief, 30 emulator shots).
