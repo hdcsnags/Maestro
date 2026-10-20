@@ -205,6 +205,14 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-10-20 — Claude Code (claude-mythos-5-1) — Eliana chat moved to Claude and grounded in the corpus; v26
+
+While testing the gateway, Eliana's typed chat (gpt-4o-mini, Deep mode off by default, grounding only on verse taps) told a reader the Hebrew for father is eben (= stone). Michael: stay on Haiku, build it. Built `data/ChatGrounding.kt` (reference finder for 66 books, word-question detector, GROUND TRUTH block from on-device originals + bundled Eliana Bible entries + Eliana word studies via new `ElianaDepthStore.searchKeyWord`), rerouted all chat to Claude Haiku 4.5 with a conversational grounded teacher prompt, removed every OpenAI call site (JournalingAid rewritten). Emulator: Hosea 11 question now quotes the Eliana renderings verbatim and names na'ar; "Hebrew word for father" answers from 1 Chr 2:50 / Gen 45:8 word studies. v26 → `Michael/eliana-v26.aab`. Next cost lever: Anthropic prompt caching at the gateway.
+
+**Files touched (Eliana repo):** `data/ChatGrounding.kt` (new), `data/local/ElianaDepthStore.kt`, `viewmodel/ElianaCompanionViewModel.kt`, `JournalingAidViewModel.kt`, `app/build.gradle.kts`, `STATE.md`. **Maestro:** `MAESTRO_STATE.md`.
+
+---
+
 ### 2026-10-19 (afternoon) — Claude Code (claude-mythos-5-1) — Eliana: "make the claim" rule; Out of Egypt voice rewrite; v23 bundle
 
 Michael's second ruling on Scripture content, after reading the Matthew 2:15 VOTD card that shipped in v22 with "not a prediction… tracing a pattern, not citing a forecast": no pre-emptive defence against objections the reader did not raise; different words are different words (qanna ≠ envy); investigation belongs in Aliyah where it is staged and answered; weaker links gain strength from the pattern of Yeshua's story. Rule recorded beside the 10-18 "text is its own medicine" rule in the app's `AGENTS.md` and CONCIERGE §7. Applied: day 04 (Matthew 2:15) and days 15/29/43/62/68 VOTD cards rewritten; Forsaken Cry ἐγκαταλείπω claim narrowed to what the corpus supports; **Aliyah "Out of Egypt" fully rewritten to the Forsaken Cry standard** — 17 editorial self-corrections removed, every claim/label/scripture/practice/prayer kept, load-bearing citations re-verified against `sources/` first (Hos 11:1 qatal, LXX plural vs Matt 2:15 singular, Matt 2:5 γέγραπται vs πληρωθῇ, Jer 31:15 participle, Hos 11:10-11 forward verbs, Neh 9:19, Exod 28:29, Lev 16:4, Rom 11). Hedge density 3.5 → 0 per 1,000 words. Emulator: Home → ✦ Ascend opens the rewritten module. Release: versionCode 23, `bundleRelease` green, jarsigner verified, AAB confirmed to carry the rewrite → `Elianas RhythmMigrate/Michael/eliana-v23.aab` for Michael's upload and on-device read.
