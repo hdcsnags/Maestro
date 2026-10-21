@@ -205,6 +205,14 @@ These areas change often and should be re-verified after any significant work se
 
 *Append-only, newest first. Never delete entries. Pre-May-12 history in `docs/session-log/HISTORY.md`.*
 
+### 2026-10-21 — Claude Code (claude-mythos-5-1) — Eliana: Chain №8 The Two Lords shipped (Kimi K3 draft → corpus review → conversion); reader emphasis fix; v28
+
+First external-model content loop end to end: Kimi K3 drafted Chain 8 (Psalm 110:1 → Mark 12:36 → Hebrews 1:13) from the shelf brief; I verified every quoted verse against SBLGNT/WLC/Rahlfs and returned a review with four corrections (fingerprint is contested text; adoni/Adonai lives in Masoretic pointing; adoni addresses angels too; Paul's third form), three additions (Hebrews quotes 110:4 ×3; Hebrews 7:3 credited; v5 staged not shrugged) and voice trims; Kimi applied all; I converted to the module JSON, registered the chain, and fixed the study reader to render `*italic*`/`**bold**` (two shipped modules had literal asterisks). Emulator-verified. v28 → `Michael/eliana-v28.aab`. Michael's sidebar: VR hackathon feasibility (Unity/Unreal via CLI + council) — answered in chat; no Unity/Unreal installed here (Epic Launcher only, RTX 3060, no headset).
+
+**Files touched (Eliana repo):** `assets/studies/entries/the_two_lords.json` (new), `assets/studies/chains.json`, `ui/components/study/ScriptureRefs.kt`, `app/build.gradle.kts`, `STATE.md`. **Maestro:** `MAESTRO_STATE.md`.
+
+---
+
 ### 2026-10-20 — Claude Code (claude-mythos-5-1) — Eliana chat moved to Claude and grounded in the corpus; v26
 
 While testing the gateway, Eliana's typed chat (gpt-4o-mini, Deep mode off by default, grounding only on verse taps) told a reader the Hebrew for father is eben (= stone). Michael: stay on Haiku, build it. Built `data/ChatGrounding.kt` (reference finder for 66 books, word-question detector, GROUND TRUTH block from on-device originals + bundled Eliana Bible entries + Eliana word studies via new `ElianaDepthStore.searchKeyWord`), rerouted all chat to Claude Haiku 4.5 with a conversational grounded teacher prompt, removed every OpenAI call site (JournalingAid rewritten). Emulator: Hosea 11 question now quotes the Eliana renderings verbatim and names na'ar; "Hebrew word for father" answers from 1 Chr 2:50 / Gen 45:8 word studies. v26 → `Michael/eliana-v26.aab`. Next cost lever: Anthropic prompt caching at the gateway.
