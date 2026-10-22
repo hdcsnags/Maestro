@@ -14,6 +14,8 @@ import type { ClawConfig } from "./config.js";
 import type { ExecutorJob } from "./api.js";
 import { reportEvent, completeJob } from "./api.js";
 import { getAdapter } from "./adapters/index.js";
+import { makeAdapter } from "./council/seats.js";
+import type { SeatAdapter } from "./council/types.js";
 import { extractVerdict } from "./council/verdict.js";
 import { StreamThrottle } from "./lib/stream-throttle.js";
 
@@ -35,7 +37,13 @@ export async function executeCouncilSeatJob(config: ClawConfig, job: ExecutorJob
       execFileSync("git", args, { cwd: jobDir, timeout: 60_000, stdio: "pipe" });
       workDir = join(jobDir, "repo");
     }
-    const adapter = getAdapter(job.adapter);
+    // Per-seat model (context_bundle.model) via the Council Runtime's seat factory, so a web council
+    // can seat e.g. codex:gpt-6-astra and agy:claude-opus-5-5-high in the same round. Codex seats run
+    // read-only; everything else uses its task path. Unknown adapters fall back to the registry.
+    const seatAdapters = new Set(["codex_cli", "agy_cli", "kimi_cli", "claude_code"]);
+    const adapter = seatAdapters.has(job.adapter)
+      ? makeAdapter({ label: job.id.slice(0, 8), adapter: job.adapter as SeatAdapter, model: typeof bundle.model === "string" && bundle.model ? bundle.model : undefined }, "audit")
+      : getAdapter(job.adapter);
     if (!(await adapter.check())) throw new Error(`Adapter "${job.adapter}" is not available on this machine`);
 
     const timeoutMs = Math.max(30_000, job.timeout_seconds * 1000 - 8_000);

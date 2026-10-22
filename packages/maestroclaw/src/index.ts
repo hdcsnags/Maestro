@@ -113,7 +113,7 @@ async function main() {
           // Fire-and-forget — do not await; poll loop continues immediately
           const jobRunner = claimed.job_type === "build_session"
             ? executeSessionJob(config, claimed)
-            : claimed.job_type === "council_seat"
+            : claimed.job_type === "council_seat" || claimed.job_type === "concierge_turn"
               ? executeCouncilSeatJob(config, claimed)
               : executeJob(config, claimed);
 
