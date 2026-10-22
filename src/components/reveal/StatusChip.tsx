@@ -100,13 +100,16 @@ export default function StatusChip({
       ? activeExecutor.capabilities.adapters.filter((value): value is string => typeof value === 'string')
       : [];
     if (adapters.length === 0) {
-      return { executorLabel: `${activeExecutor.name} online (no adapters)`, executorTooltip: `${activeExecutor.name} is online but advertises no adapters.`, advertisedAdapters: [] as string[] };
+      const who = activeExecutor.shared ? 'Shared Claw' : activeExecutor.name;
+      return { executorLabel: `${who} online (no adapters)`, executorTooltip: `${activeExecutor.name} is online but advertises no adapters.`, advertisedAdapters: [] as string[] };
     }
 
     const compact = adapters.map((adapter) => compactAdapterName(adapter));
+    // A grantee runs on someone else's MaestroClaw: say so instead of "Local".
+    const prefix = activeExecutor.shared ? 'Shared Claw' : 'Local';
     return {
-      executorLabel: `Local: ${compact.join(', ')}`,
-      executorTooltip: `${activeExecutor.name} · adapters: ${adapters.join(', ')}`,
+      executorLabel: `${prefix}: ${compact.join(', ')}`,
+      executorTooltip: `${activeExecutor.name}${activeExecutor.shared ? ' (shared by owner)' : ''} · adapters: ${adapters.join(', ')}`,
       advertisedAdapters: adapters,
     };
   }, [onlineExecutors]);

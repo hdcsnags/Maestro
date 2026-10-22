@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
+import { markSharedExecutors } from '../lib/sessionBuild';
 import { AGENT_DEFAULTS, Agent, AuditEvent, Round, Session, SessionMode, Workspace, Response as MaestroResponse, Synthesis, ProviderConnection, RepoConnection, ExecutionMode, Executor, ExecutorJob } from '../types';
 
 export function useWorkspace() {
@@ -185,12 +186,12 @@ export function useWorkspace() {
 
   const loadExecutors = useCallback(async () => {
     if (!user) return;
+    // No owner filter: RLS returns owned executors plus any shared via executor_grants.
     const { data } = await supabase
       .from('executors')
       .select('*')
-      .eq('owner_user_id', user.id)
       .order('created_at', { ascending: false });
-    dispatch({ type: 'SET_EXECUTORS', payload: (data ?? []) as Executor[] });
+    dispatch({ type: 'SET_EXECUTORS', payload: markSharedExecutors((data ?? []) as Executor[], user.id) });
   }, [user, dispatch]);
 
   const loadExecutorJobs = useCallback(async () => {

@@ -603,6 +603,33 @@ export interface Executor {
   capabilities: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  /** True when this executor belongs to someone else and is shared with the signed-in user via executor_grants. */
+  shared?: boolean;
+}
+
+// ─── Executor sharing (executor_grants) ───────────────────────
+
+/** Job types an owner can delegate to a grantee on a shared executor. */
+export const EXECUTOR_SHARE_JOB_TYPES = ['concierge_turn', 'council_seat', 'code_task', 'build_session'] as const;
+export type ExecutorShareJobType = typeof EXECUTOR_SHARE_JOB_TYPES[number];
+export const DEFAULT_EXECUTOR_SHARE_JOB_TYPES: ExecutorShareJobType[] = ['concierge_turn', 'council_seat', 'code_task'];
+
+export interface ExecutorGrant {
+  id: string;
+  executor_id: string;
+  grantee_user_id: string;
+  granted_by: string;
+  job_types: string[];
+  label: string | null;
+  created_at: string;
+  revoked_at: string | null;
+  /** Joined executor summary; `status` is present on grants the user has received. */
+  executors?: { id: string; name: string; status?: Executor['status'] } | null;
+}
+
+export interface ExecutorGrantsResponse {
+  given: ExecutorGrant[];
+  received: ExecutorGrant[];
 }
 
 export interface ExecutorJob {

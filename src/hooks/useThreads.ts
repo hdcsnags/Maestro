@@ -8,7 +8,7 @@ import { useDeliberation } from './useDeliberation';
 import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, Executor, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session, ConversationBackend } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
 import { CONCIERGE_MODELS } from '../types';
-import { selectOnlineExecutor } from '../lib/sessionBuild';
+import { markSharedExecutors, selectOnlineExecutor } from '../lib/sessionBuild';
 import { buildDiscoveryPrompt, countDiscoveryProgress, parseDiscoveryReply } from '../lib/discoverySchema';
 import {
   CONCIERGE_LOCAL_SYSTEM_PROMPT,
@@ -950,14 +950,14 @@ export function useThreads() {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), EXECUTOR_REFRESH_TIMEOUT_MS);
     try {
+      // No owner filter: RLS returns owned executors plus any shared via executor_grants.
       const { data, error } = await supabase
         .from('executors')
         .select('*')
-        .eq('owner_user_id', user.id)
         .order('created_at', { ascending: false })
         .abortSignal(controller.signal);
       if (error || !data) return null;
-      const executors = data as Executor[];
+      const executors = markSharedExecutors(data as Executor[], user.id);
       dispatch({ type: 'SET_EXECUTORS', payload: executors });
       return executors;
     } catch {

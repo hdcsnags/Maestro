@@ -44,6 +44,17 @@ export const EXECUTOR_STALE_MS = 120_000;
 const SESSION_POLL_MS = 5_000;
 const SESSION_TIMEOUT_MS = 40 * 60 * 1_000;
 
+/** True when the executor is owned by someone else and only visible through an executor_grant. */
+export function isSharedExecutor(executor: Executor, userId?: string | null): boolean {
+  if (typeof executor.shared === 'boolean') return executor.shared;
+  return !!userId && executor.owner_user_id !== userId;
+}
+
+/** Stamp `shared` on each executor row so chips/labels can tell "Local" from "Shared Claw" without the auth user. */
+export function markSharedExecutors(executors: Executor[], userId?: string | null): Executor[] {
+  return executors.map((executor) => ({ ...executor, shared: !!userId && executor.owner_user_id !== userId }));
+}
+
 export function executorSupportsAdapter(executor: Executor, adapter: string): boolean {
   const rawAdapters = executor.capabilities?.adapters;
   if (!Array.isArray(rawAdapters)) return false;

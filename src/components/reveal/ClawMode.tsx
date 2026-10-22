@@ -118,13 +118,16 @@ export default function ClawMode() {
   const isExecutionPending = !!state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id;
   const isBuildSessionActive = !!activeClawBuildSession;
   // Real executor presence: online and seen within the last minute (same rule as sessionBuild.ts).
-  const hasOnlineExecutor = useMemo(
-    () => (state.executors || []).some((executor) =>
+  const onlineExecutor = useMemo(
+    () => (state.executors || []).find((executor) =>
       executor.status === 'online'
       && !!executor.last_seen_at
-      && Date.now() - new Date(executor.last_seen_at).getTime() < 60_000),
+      && Date.now() - new Date(executor.last_seen_at).getTime() < 60_000) ?? null,
     [state.executors],
   );
+  const hasOnlineExecutor = !!onlineExecutor;
+  // "Shared Claw" when the online worker belongs to someone else (executor_grants).
+  const executorNoun = onlineExecutor?.shared ? 'Shared Claw' : 'Local executor';
 
   // Determine thread type label for context header
   const threadTypeLabel = useMemo(() => {
@@ -168,8 +171,8 @@ export default function ClawMode() {
       const backendLabel = backend === 'edge'
         ? 'Edge functions (cloud)'
         : backend === 'local'
-          ? (hasOnlineExecutor ? 'Local executor' : 'Local executor (offline)')
-          : (hasOnlineExecutor ? 'Auto · local executor online' : 'Auto · no local executor, edge fallback');
+          ? (hasOnlineExecutor ? executorNoun : 'Local executor (offline)')
+          : (hasOnlineExecutor ? `Auto · ${executorNoun.toLowerCase()} online` : 'Auto · no local executor, edge fallback');
       return {
         kind: 'build' as const,
         Icon: Hammer,
@@ -187,7 +190,7 @@ export default function ClawMode() {
         badgeLabel: 'Execute Mode',
         bannerTitle: 'Execution mode armed',
         description: 'Commands run through MaestroClaw. Read-only tasks can auto-run; anything risky stops for approval first.',
-        status: hasOnlineExecutor ? 'Local executor online' : 'Local executor offline',
+        status: hasOnlineExecutor ? `${executorNoun} online` : 'Local executor offline',
       };
     }
 
@@ -214,6 +217,7 @@ export default function ClawMode() {
     activeRepoName,
     activeClawBuildSession,
     clawView,
+    executorNoun,
     hasOnlineExecutor,
     isBuildSessionActive,
     isExecutionPending,

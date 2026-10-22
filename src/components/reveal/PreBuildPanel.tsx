@@ -106,13 +106,15 @@ export default function PreBuildPanel() {
   const [executionBackend, setExecutionBackend] = useState<'edge' | 'local' | 'auto'>(
     state.activeSession?.execution_backend ?? 'edge',
   );
-  const hasOnlineExecutor = useMemo(
-    () => state.executors.some(e =>
+  const onlineExecutor = useMemo(
+    () => state.executors.find(e =>
       e.status === 'online' && e.last_seen_at &&
       Date.now() - new Date(e.last_seen_at).getTime() < 60_000
-    ),
+    ) ?? null,
     [state.executors],
   );
+  const hasOnlineExecutor = !!onlineExecutor;
+  const executorNoun = onlineExecutor?.shared ? 'Shared Claw' : 'Local executor';
   const handleBackendChange = useCallback(async (backend: 'edge' | 'local' | 'auto') => {
     setExecutionBackend(backend);
     if (state.activeSession) {
@@ -1195,10 +1197,10 @@ export default function PreBuildPanel() {
               <span className="font-mono-dm" style={{ fontSize: '9px', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
                 {executionBackend === 'edge' && 'Tasks run via API (costs per token)'}
                 {executionBackend === 'local' && (hasOnlineExecutor
-                  ? 'Tasks route to your MaestroClaw worker'
+                  ? (onlineExecutor?.shared ? 'Tasks route to a MaestroClaw worker shared with you' : 'Tasks route to your MaestroClaw worker')
                   : '⚠️ No executor online — start MaestroClaw first')}
                 {executionBackend === 'auto' && (hasOnlineExecutor
-                  ? 'Local executor online — tasks will route locally'
+                  ? `${executorNoun} online — tasks will route locally`
                   : 'No executor online — tasks will fall back to edge')}
               </span>
             </div>

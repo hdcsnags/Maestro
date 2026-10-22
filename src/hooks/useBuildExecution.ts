@@ -9,6 +9,7 @@ import {
   createArtifactManifestBuffer,
   fetchExecutorJobArtifactManifest,
   getArtifactManifestFromBuffer,
+  markSharedExecutors,
   mergeSessionManifest,
   normalizeSessionManifest,
   selectOnlineExecutor,
@@ -692,12 +693,12 @@ export function useBuildExecution() {
 
   const refreshExecutors = useCallback(async (): Promise<Executor[]> => {
     const authSession = await ensureSession();
+    // No owner filter: RLS returns owned executors plus any shared via executor_grants.
     const { data } = await supabase
       .from('executors')
       .select('*')
-      .eq('owner_user_id', authSession.user.id)
       .order('created_at', { ascending: false });
-    const executors = (data ?? []) as Executor[];
+    const executors = markSharedExecutors((data ?? []) as Executor[], authSession.user.id);
     dispatch({ type: 'SET_EXECUTORS', payload: executors });
     return executors;
   }, [ensureSession, dispatch]);

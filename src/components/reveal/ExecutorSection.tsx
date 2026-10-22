@@ -1,10 +1,18 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useAuth } from '../../context/AuthContext';
 import { invokeEdgeFunction } from '../../lib/functions';
 import { supabase } from '../../lib/supabase';
-import { Executor, ExecutorJob } from '../../types';
-import { Plus, RefreshCw, Copy, Check, Cpu, Loader2, Trash2 } from 'lucide-react';
+import { isSharedExecutor, markSharedExecutors } from '../../lib/sessionBuild';
+import {
+  DEFAULT_EXECUTOR_SHARE_JOB_TYPES,
+  EXECUTOR_SHARE_JOB_TYPES,
+  type Executor,
+  type ExecutorGrant,
+  type ExecutorGrantsResponse,
+  type ExecutorJob,
+} from '../../types';
+import { Plus, RefreshCw, Copy, Check, Cpu, Loader2, Trash2, Share2, Users } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
   online: '#4ade80',
@@ -51,23 +59,100 @@ export default function ExecutorSection() {
   const [rotatingExecutorId, setRotatingExecutorId] = useState<string | null>(null);
   const [tokenMessage, setTokenMessage] = useState('Save this token — it\'s shown only once');
 
+  // Sharing (executor_grants): grants this user has GIVEN, keyed by executor below.
+  const [givenGrants, setGivenGrants] = useState<ExecutorGrant[]>([]);
+  const [shareExecutorId, setShareExecutorId] = useState<string | null>(null);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareJobTypes, setShareJobTypes] = useState<string[]>([...DEFAULT_EXECUTOR_SHARE_JOB_TYPES]);
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState('');
+  const [shareNotice, setShareNotice] = useState('');
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+
   const executors = state.executors;
   const jobs = state.executorJobs;
+
+  // Grants are served by executor-api; a missing/undeployed action must not break the panel.
+  const loadGrants = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await invokeEdgeFunction<ExecutorGrantsResponse>('executor-api?action=grants');
+      setGivenGrants(Array.isArray(data?.given) ? data.given.filter((grant) => !grant.revoked_at) : []);
+    } catch {
+      setGivenGrants([]);
+    }
+  }, [user]);
+
+  useEffect(() => { void loadGrants(); }, [loadGrants]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
     setRefreshing(true);
     try {
+      // No owner filter on executors: RLS returns owned rows plus those shared via executor_grants.
       const [{ data: exData }, { data: jobData }] = await Promise.all([
-        supabase.from('executors').select('*').eq('owner_user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('executors').select('*').order('created_at', { ascending: false }),
         supabase.from('executor_jobs').select('*').eq('requested_by', user.id).order('created_at', { ascending: false }).limit(20),
       ]);
-      dispatch({ type: 'SET_EXECUTORS', payload: (exData ?? []) as Executor[] });
+      dispatch({ type: 'SET_EXECUTORS', payload: markSharedExecutors((exData ?? []) as Executor[], user.id) });
       dispatch({ type: 'SET_EXECUTOR_JOBS', payload: (jobData ?? []) as ExecutorJob[] });
+      await loadGrants();
     } finally {
       setRefreshing(false);
     }
-  }, [user, dispatch]);
+  }, [user, dispatch, loadGrants]);
+
+  const openShare = (executorId: string) => {
+    setShareExecutorId((current) => (current === executorId ? null : executorId));
+    setShareEmail('');
+    setShareJobTypes([...DEFAULT_EXECUTOR_SHARE_JOB_TYPES]);
+    setShareError('');
+    setShareNotice('');
+  };
+
+  const toggleShareJobType = (jobType: string) => {
+    setShareJobTypes((current) => (
+      current.includes(jobType) ? current.filter((entry) => entry !== jobType) : [...current, jobType]
+    ));
+  };
+
+  const handleShare = async (executor: Executor) => {
+    const email = shareEmail.trim();
+    if (!email || shareJobTypes.length === 0) return;
+    setSharing(true);
+    setShareError('');
+    setShareNotice('');
+    try {
+      await invokeEdgeFunction<{ grant: ExecutorGrant }>(
+        'executor-api?action=share',
+        { executor_id: executor.id, email, job_types: shareJobTypes, label: email },
+      );
+      setShareNotice(`Shared ${executor.name} with ${email}.`);
+      setShareEmail('');
+      await loadGrants();
+    } catch (err) {
+      // The 404 "No Maestro account with that email yet…" message is shown verbatim.
+      setShareError(err instanceof Error ? err.message : 'Share failed');
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleRevoke = async (grant: ExecutorGrant) => {
+    setRevokingGrantId(grant.id);
+    setShareError('');
+    try {
+      await invokeEdgeFunction('executor-api?action=unshare', {
+        executor_id: grant.executor_id,
+        grantee_user_id: grant.grantee_user_id,
+      });
+      setGivenGrants((current) => current.filter((entry) => entry.id !== grant.id));
+    } catch (err) {
+      setShareError(err instanceof Error ? err.message : 'Revoke failed');
+    } finally {
+      setRevokingGrantId(null);
+    }
+  };
 
   const handleRegister = async () => {
     if (!newName.trim()) return;
@@ -330,50 +415,172 @@ export default function ExecutorSection() {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {executors.map(ex => (
-            <div
-              key={ex.id}
-              className="rounded-xl p-3 flex items-center justify-between"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: STATUS_COLORS[ex.status] ?? '#6b7280',
-                    boxShadow: ex.status === 'online' ? '0 0 6px rgba(74,222,128,0.5)' : 'none',
-                  }}
-                />
-                <div>
-                  <div style={{ fontSize: '13px', color: 'white', fontWeight: 500 }}>{ex.name}</div>
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                    {ex.status} · seen {timeAgo(ex.last_seen_at)}
+          {executors.map(ex => {
+            const shared = isSharedExecutor(ex, user?.id);
+            const exGrants = givenGrants.filter((grant) => grant.executor_id === ex.id);
+            const shareOpen = shareExecutorId === ex.id;
+            return (
+              <div
+                key={ex.id}
+                className="rounded-xl p-3"
+                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: STATUS_COLORS[ex.status] ?? '#6b7280',
+                        boxShadow: ex.status === 'online' ? '0 0 6px rgba(74,222,128,0.5)' : 'none',
+                      }}
+                    />
+                    <div>
+                      <div className="flex items-center gap-2" style={{ fontSize: '13px', color: 'white', fontWeight: 500 }}>
+                        {ex.name}
+                        {shared && (
+                          <span
+                            className="reveal-chip"
+                            title="This MaestroClaw belongs to another Maestro account and is shared with you."
+                            style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(212,175,55,0.12)', color: 'var(--gold)', border: '1px solid rgba(212,175,55,0.3)' }}
+                          >
+                            <Users size={10} style={{ marginRight: '3px' }} />
+                            Shared by owner
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                        {ex.status} · seen {timeAgo(ex.last_seen_at)}
+                      </div>
+                    </div>
                   </div>
+                  {/* Token / rotate / delete / share are owner-only; a grantee just sees the badge. */}
+                  {!shared && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openShare(ex.id)}
+                        className="reveal-pill"
+                        style={{ padding: '4px 6px', opacity: shareOpen ? 1 : 0.75, color: shareOpen ? 'var(--gold)' : undefined }}
+                        title="Share with another Maestro account"
+                      >
+                        <Share2 size={12} />
+                      </button>
+                      <button
+                        onClick={() => handleRotate(ex)}
+                        className="reveal-pill"
+                        style={{ padding: '4px 6px', opacity: 0.75 }}
+                        title="Rotate token"
+                        disabled={rotatingExecutorId === ex.id}
+                      >
+                        <RefreshCw size={12} className={rotatingExecutorId === ex.id ? 'animate-spin' : ''} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(ex.id)}
+                        className="reveal-pill"
+                        style={{ padding: '4px 6px', opacity: 0.5 }}
+                        title="Remove executor"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  )}
                 </div>
+
+                {/* Share with… (owner only) */}
+                {!shared && shareOpen && (
+                  <div
+                    className="rounded-lg p-3 mt-3"
+                    style={{ background: 'rgba(212,175,55,0.04)', border: '1px solid rgba(212,175,55,0.15)' }}
+                  >
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>
+                      Share with… another Maestro account. Their jobs run on this executor with your signed-in CLI subscriptions.
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="email"
+                        value={shareEmail}
+                        onChange={e => setShareEmail(e.target.value)}
+                        placeholder="partner@example.com"
+                        onKeyDown={e => e.key === 'Enter' && handleShare(ex)}
+                        style={{
+                          flex: 1,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '8px',
+                          padding: '6px 10px',
+                          color: 'white',
+                          fontSize: '13px',
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={() => handleShare(ex)}
+                        disabled={sharing || !shareEmail.trim() || shareJobTypes.length === 0}
+                        className="reveal-pill primary"
+                        style={{ padding: '6px 14px', fontSize: '12px' }}
+                      >
+                        {sharing ? <Loader2 size={14} className="animate-spin" /> : 'Share'}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-2">
+                      {EXECUTOR_SHARE_JOB_TYPES.map((jobType) => (
+                        <label
+                          key={jobType}
+                          className="flex items-center gap-1"
+                          style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', cursor: 'pointer' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={shareJobTypes.includes(jobType)}
+                            onChange={() => toggleShareJobType(jobType)}
+                          />
+                          {jobType}
+                        </label>
+                      ))}
+                    </div>
+                    {shareError && (
+                      <div style={{ color: 'var(--risk)', fontSize: '12px', marginTop: '6px' }}>{shareError}</div>
+                    )}
+                    {shareNotice && (
+                      <div style={{ color: '#4ade80', fontSize: '12px', marginTop: '6px' }}>{shareNotice}</div>
+                    )}
+                  </div>
+                )}
+
+                {/* Current grants on this executor (owner only) */}
+                {!shared && exGrants.length > 0 && (
+                  <div className="flex flex-col gap-1 mt-2">
+                    {exGrants.map((grant) => (
+                      <div
+                        key={grant.id}
+                        className="rounded-lg px-3 py-2 flex items-center justify-between"
+                        style={{ background: 'rgba(255,255,255,0.02)', fontSize: '12px' }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ color: 'rgba(255,255,255,0.7)' }}>
+                            {grant.label || grant.grantee_user_id.slice(0, 8)}
+                          </span>
+                          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginLeft: '8px' }}>
+                            {grant.job_types.join(', ')}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRevoke(grant)}
+                          className="reveal-pill"
+                          style={{ padding: '2px 8px', fontSize: '11px', opacity: 0.75, flexShrink: 0, marginLeft: '8px' }}
+                          title="Revoke access"
+                          disabled={revokingGrantId === grant.id}
+                        >
+                          {revokingGrantId === grant.id ? <Loader2 size={12} className="animate-spin" /> : 'Revoke'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleRotate(ex)}
-                  className="reveal-pill"
-                  style={{ padding: '4px 6px', opacity: 0.75 }}
-                  title="Rotate token"
-                  disabled={rotatingExecutorId === ex.id}
-                >
-                  <RefreshCw size={12} className={rotatingExecutorId === ex.id ? 'animate-spin' : ''} />
-                </button>
-                <button
-                  onClick={() => handleDelete(ex.id)}
-                  className="reveal-pill"
-                  style={{ padding: '4px 6px', opacity: 0.5 }}
-                  title="Remove executor"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
