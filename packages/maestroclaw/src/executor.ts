@@ -497,6 +497,26 @@ export async function executeJob(
       );
     }
 
+    // ── Shell commands: one run, exit code + output ARE the result ──────────
+    // 2026-10-22: `git status` from the live site ran fine, then the code-task quality
+    // gate rejected it ("no content extracted"), the Ralph retry wrapped the command in
+    // a multi-line retry prompt, and the shell kernel refused that as an unsupported
+    // token. Shell adapters never go through content extraction or retries.
+    if (adapterName === "approved_shell" || adapterName === "pty_shell") {
+      const result = await adapter.run(job.prompt, workDir, Math.max(10_000, deadlineMs - Date.now()), (type, line) => throttle.emit(type, line));
+      await throttle.drain();
+      const output = result.output.trimEnd();
+      const ok = result.success;
+      await completeJob(config, job.id, ok, {
+        result_summary: (output || (ok ? "(no output)" : "")).slice(0, 6_000) + (result.error && !ok ? `\n[error] ${result.error.slice(0, 1_000)}` : ""),
+        ...(ok ? {} : { error_text: result.error ?? "command failed" }),
+        artifact_manifest: { kind: "shell", adapter: adapterName, command: job.prompt, success: ok, chars: output.length },
+      });
+      jobSucceeded = ok;
+      console.log(`  ${ok ? "✅" : "❌"} Shell job ${job.id.slice(0, 8)} ${ok ? "succeeded" : "failed"} (${output.length} chars)`);
+      return;
+    }
+
     // ── Ralph Loop ────────────────────────────────────────────────────────
     let finalContent = "";
     let finalOutput = "";
