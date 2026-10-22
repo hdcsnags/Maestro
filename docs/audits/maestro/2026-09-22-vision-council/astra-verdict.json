@@ -1,0 +1,170 @@
+{
+ "model": "GPT-6; resolved slug unavailable",
+ "already_exists": [
+  {
+   "concept": "deterministic pre-router",
+   "where": "src/hooks/useThreads.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "capability registry",
+   "where": "packages/maestroclaw/src/adapters/index.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "harness registry",
+   "where": "packages/maestroclaw/src/adapters/types.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "model+harness reputation",
+   "where": "grading-lab/PROTOCOL.md",
+   "grade": "stub"
+  },
+  {
+   "concept": "top-k council",
+   "where": "MAESTRO_STATE.md",
+   "grade": "stub"
+  },
+  {
+   "concept": "prompt provenance",
+   "where": "grading-lab/PROTOCOL.md",
+   "grade": "partial"
+  },
+  {
+   "concept": "local inference",
+   "where": "packages/maestroclaw/src/adapters/index.ts",
+   "grade": "absent"
+  },
+  {
+   "concept": "telemetry",
+   "where": "packages/maestroclaw/src/lib/session-log.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "function-extraction loop",
+   "where": "packages/maestroclaw/src/conductor/plan.ts (precursor only)",
+   "grade": "absent"
+  },
+  {
+   "concept": "observable routing GUI",
+   "where": "src/hooks/useThreads.ts",
+   "grade": "partial"
+  }
+ ],
+ "contradictions": [
+  {
+   "issue": "Cloud dependency versus local-first",
+   "winner": "current",
+   "why": "Preserve current service while proving one offline workflow separately."
+  },
+  {
+   "issue": "Universal runtime versus thin broker",
+   "winner": "current",
+   "why": "Delegate isolation; enforce bounded operations."
+  },
+  {
+   "issue": "Mandatory council versus routine efficiency",
+   "winner": "vision",
+   "why": "Council belongs in qualification and consequential uncertainty."
+  },
+  {
+   "issue": "Greedy routing starves grading",
+   "winner": "neither",
+   "why": "Both need safe exploration and counterfactual evaluation."
+  }
+ ],
+ "reject": [
+  "Eight-tier ladder",
+  "Uncalibrated utility formula",
+  "Decorative provenance tags",
+  "Automatic substitution from consistency",
+  "Naming milestone"
+ ],
+ "missing": [
+  {
+   "idea": "Workflow contracts",
+   "why_it_matters": "Package semantics, permissions, tests and recovery."
+  },
+  {
+   "idea": "Verification-first selection",
+   "why_it_matters": "Evidence can matter more than model size."
+  },
+  {
+   "idea": "Council as workflow qualification",
+   "why_it_matters": "Expensive reasoning creates cheap reliable operation."
+  }
+ ],
+ "new_race": "Deliver private, verifiable workflows whose cost and intervention decline with operating evidence.",
+ "prior_art": [
+  {
+   "name": "FrugalGPT",
+   "relation": "Cost-aware cascades",
+   "verified": true
+  },
+  {
+   "name": "RouteLLM",
+   "relation": "Preference-trained routing",
+   "verified": true
+  },
+  {
+   "name": "Home Assistant",
+   "relation": "Intent-first local handling",
+   "verified": true
+  },
+  {
+   "name": "Apple Private Cloud Compute",
+   "relation": "Private local/cloud hybrid",
+   "verified": true
+  }
+ ],
+ "security_boundary": "An independently enforced broker owns credentials and authorizes typed operations outside model control.",
+ "first_three": [
+  {
+   "step": "Route receipts",
+   "files": [
+    "src/hooks/useOrchestration.ts",
+    "src/hooks/useThreads.ts",
+    "src/types/index.ts",
+    "supabase/functions/audit-log/index.ts"
+   ],
+   "tests": [
+    "redaction",
+    "flag-off parity",
+    "failure isolation"
+   ],
+   "metric": "99% eligible receipt coverage without regression"
+  },
+  {
+   "step": "Extract and shadow recognizer",
+   "files": [
+    "src/hooks/useThreads.ts",
+    "src/lib/capabilityRouter.ts (new)"
+   ],
+   "tests": [
+    "characterization",
+    "adversarial inputs",
+    "approval preservation"
+   ],
+   "metric": "Zero unexplained extraction differences"
+  },
+  {
+   "step": "Typed list-files operation",
+   "files": [
+    "src/hooks/useThreads.ts",
+    "src/types/index.ts",
+    "supabase/functions/executor-api/index.ts",
+    "packages/maestroclaw/src/executor.ts"
+   ],
+   "tests": [
+    "containment",
+    "tenant isolation",
+    "literal arguments",
+    "duplicate handling"
+   ],
+   "metric": "Zero model/shell calls and lower median latency"
+  }
+ ],
+ "router_name": "Capability Router",
+ "michael_is_wrong_about": "Eliminating inference does not eliminate the hard work of semantics, authorization and recovery."
+}

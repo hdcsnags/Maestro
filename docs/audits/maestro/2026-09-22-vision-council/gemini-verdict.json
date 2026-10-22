@@ -1,0 +1,163 @@
+{
+ "model": "Gemini 3.8 Flash (High)",
+ "already_exists": [
+  {
+   "concept": "deterministic pre-router",
+   "where": "src/hooks/useThreads.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "capability registry",
+   "where": "docs/specs/active/MULTI_EXECUTOR_ROUTING_SPEC.md",
+   "grade": "partial"
+  },
+  {
+   "concept": "harness registry",
+   "where": "packages/maestroclaw/src/adapters/types.ts",
+   "grade": "stub"
+  },
+  {
+   "concept": "model+harness reputation",
+   "where": "grading-lab/PROTOCOL.md",
+   "grade": "stub"
+  },
+  {
+   "concept": "top-k council",
+   "where": "src/hooks/useOrchestration.ts",
+   "grade": "absent"
+  },
+  {
+   "concept": "prompt provenance",
+   "where": "docs/audits/eliana-readonly-poc/README.md",
+   "grade": "stub"
+  },
+  {
+   "concept": "local inference",
+   "where": "packages/maestroclaw/src/adapters/",
+   "grade": "partial"
+  },
+  {
+   "concept": "telemetry",
+   "where": "packages/maestroclaw/src/executor.ts",
+   "grade": "partial"
+  },
+  {
+   "concept": "function-extraction loop",
+   "where": "none",
+   "grade": "absent"
+  },
+  {
+   "concept": "observable routing GUI",
+   "where": "src/components/reveal/RevealComposer.tsx",
+   "grade": "partial"
+  }
+ ],
+ "contradictions": [
+  {
+   "issue": "Router physical location (Cloud Supabase Edge vs Local Workstation)",
+   "winner": "neither",
+   "why": "Routing must be split: client/local node evaluates deterministic and private tasks first; cloud edge orchestrates multi-agent cloud deliberators."
+  },
+  {
+   "issue": "Supabase hard dependency vs Local-first standalone deployment",
+   "winner": "current",
+   "why": "Maestro's developer platform depends on Supabase tables and realtime; ripping it out breaks working builds. Decouple MaestroClaw worker rather than rewriting the database."
+  },
+  {
+   "issue": "Council as primary product vs Council as rare escalation",
+   "winner": "current",
+   "why": "Models do not know when they fail. Gating multi-agent diversity strictly on model uncertainty allows overconfident cheap models to hallucinate uncaught."
+  },
+  {
+   "issue": "Minimum sufficient intelligence routing vs Grading flywheel data starvation",
+   "winner": "neither",
+   "why": "A multi-armed bandit explore/exploit approach is required. Sample a 5-10% background shadow council to keep the reputation engine continuously trained."
+  }
+ ],
+ "reject": [
+  "Rigid T0-T7 taxonomy levels",
+  "Pseudomathematical additive utility formulas",
+  "Autonomous function extraction loops (compiler fantasy)",
+  "Clause-level prompt provenance epistemic tags",
+  "Self-reported local model capability advertising",
+  "Bikeshedding names (Compute Governor, Cognitive Router)"
+ ],
+ "missing": [
+  {
+   "idea": "Grounding-Gated Escalation (attestation over confidence)",
+   "why_it_matters": "Models are systematically overconfident. Route escalation based on whether local tests and compilers pass, not model self-scores."
+  },
+  {
+   "idea": "Asynchronous Shadow Council",
+   "why_it_matters": "Solves the flywheel starvation problem by running multi-model evaluation in the background without user latency."
+  },
+  {
+   "idea": "Schema-First Inversion (models as parameter extractors only)",
+   "why_it_matters": "In business workflows, models should never generate logic; they should strictly slot-fill parameters for deterministic pre-audited code."
+  }
+ ],
+ "new_race": "The local, private operating system for verified domain workflows and grounded code delivery.",
+ "prior_art": [
+  {
+   "name": "RouteLLM (LMSYS/Anyscale)",
+   "relation": "Cost-aware routing between cheap and strong models using trained preference routers",
+   "verified": true
+  },
+  {
+   "name": "FrugalGPT (Stanford)",
+   "relation": "Original cascade router invoking cheap models and cascading on quality thresholds",
+   "verified": true
+  },
+  {
+   "name": "Semantic Router (Aurelio AI)",
+   "relation": "Fast vector/embedding intent classification bypassing LLM calls",
+   "verified": true
+  },
+  {
+   "name": "Model Context Protocol (MCP)",
+   "relation": "Universal open standard for tool, prompt, and resource capability exposure",
+   "verified": true
+  }
+ ],
+ "security_boundary": "Strict isolation between the untrusted probabilistic model and policy-gated, parameter-validated deterministic tools with cryptographic human confirmation for all side effects.",
+ "first_three": [
+  {
+   "step": "Deterministic client/edge intent classifier bypassing Haiku",
+   "files": [
+    "src/lib/intentClassifier.ts",
+    "src/hooks/useThreads.ts",
+    "supabase/functions/concierge-triage/index.ts"
+   ],
+   "tests": [
+    "src/lib/intentClassifier.test.ts (100 historical prompt benchmark)"
+   ],
+   "metric": ">=40% reduction in concierge-triage API calls with 0 routing regressions"
+  },
+  {
+   "step": "OpenAI-compatible local inference adapter in orchestrator",
+   "files": [
+    "src/types/index.ts",
+    "supabase/functions/orchestrate/index.ts",
+    "src/components/reveal/OrchestraDrawer.tsx"
+   ],
+   "tests": [
+    "Local /v1/chat/completions mock tests with stream & truncation verification"
+   ],
+   "metric": "Complete an analysis session using local Ollama model with $0 spend"
+  },
+  {
+   "step": "Routing telemetry and execution ledger",
+   "files": [
+    "supabase/migrations/20260923000000_routing_telemetry.sql",
+    "src/hooks/useThreads.ts",
+    "src/components/reveal/ClawMode.tsx"
+   ],
+   "tests": [
+    "Unit tests for telemetry logging with fail-open safety verification"
+   ],
+   "metric": "100% of routes logged with observable cost-avoidance metrics"
+  }
+ ],
+ "router_name": "Capability Router",
+ "michael_is_wrong_about": "Michael is wrong that expanding Maestro into dental offices, school boards, and homes is an intelligence routing problem. In those domains, the intelligence is trivial (a single database query), while verified data connectors, HIPAA/FERPA regulatory safeguards, and rigid schema validation are the entire product."
+}
