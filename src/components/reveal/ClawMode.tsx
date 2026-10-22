@@ -109,6 +109,14 @@ export default function ClawMode() {
   const isExecutionThread = state.activeThread?.type === 'execution';
   const isExecutionPending = !!state.pendingExecution && state.pendingExecution.threadId === state.activeThread?.id;
   const isBuildSessionActive = !!activeClawBuildSession;
+  // Real executor presence: online and seen within the last minute (same rule as sessionBuild.ts).
+  const hasOnlineExecutor = useMemo(
+    () => (state.executors || []).some((executor) =>
+      executor.status === 'online'
+      && !!executor.last_seen_at
+      && Date.now() - new Date(executor.last_seen_at).getTime() < 60_000),
+    [state.executors],
+  );
 
   // Determine thread type label for context header
   const threadTypeLabel = useMemo(() => {
@@ -118,6 +126,7 @@ export default function ClawMode() {
       case 'broadcast': return 'Broadcast';
       case 'direct': return 'Direct Chat';
       case 'execution': return 'Execution';
+      case 'discovery': return 'Discovery';
       default: return 'Thread';
     }
   }, [state.activeThread]);
@@ -146,9 +155,13 @@ export default function ClawMode() {
     }
 
     if (isBuildSessionActive) {
-      const backendLabel = activeClawBuildSession.executionBackend === 'auto'
-        ? 'Auto resolved to local executor'
-        : 'Local executor';
+      // Label the backend the runway is actually using, not a constant.
+      const backend = activeClawBuildSession.executionBackend;
+      const backendLabel = backend === 'edge'
+        ? 'Edge functions (cloud)'
+        : backend === 'local'
+          ? (hasOnlineExecutor ? 'Local executor' : 'Local executor (offline)')
+          : (hasOnlineExecutor ? 'Auto · local executor online' : 'Auto · no local executor, edge fallback');
       return {
         kind: 'build' as const,
         Icon: Hammer,
@@ -166,7 +179,7 @@ export default function ClawMode() {
         badgeLabel: 'Execute Mode',
         bannerTitle: 'Execution mode armed',
         description: 'Commands run through MaestroClaw. Read-only tasks can auto-run; anything risky stops for approval first.',
-        status: 'Local executor',
+        status: hasOnlineExecutor ? 'Local executor online' : 'Local executor offline',
       };
     }
 
@@ -193,6 +206,7 @@ export default function ClawMode() {
     activeRepoName,
     activeClawBuildSession,
     clawView,
+    hasOnlineExecutor,
     isBuildSessionActive,
     isExecutionPending,
     isExecutionThread,
@@ -284,11 +298,13 @@ export default function ClawMode() {
 
     if (wasBroadcasting.current && latestResponses.length > 0) {
       wasBroadcasting.current = false;
-      if (clawView === 'concierge') {
+      // Brainstorm stays in the concierge view: its summary card lands there and
+      // offers "See the full discussion" to open the carousel on demand.
+      if (clawView === 'concierge' && !state.isBrainstorming) {
         dispatch({ type: 'SET_CLAW_VIEW', payload: 'carousel' });
       }
     }
-  }, [state.isBroadcasting, latestResponses.length, clawView, dispatch]);
+  }, [state.isBroadcasting, state.isBrainstorming, latestResponses.length, clawView, dispatch]);
 
   // ─── Handlers ───────────────────────────────────────────────
 

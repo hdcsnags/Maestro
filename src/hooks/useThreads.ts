@@ -1,11 +1,23 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { invokeEdgeFunction } from '../lib/functions';
 import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse } from '../types';
+import { useOrchestration } from './useOrchestration';
+import { useDeliberation } from './useDeliberation';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
 import { CONCIERGE_MODELS } from '../types';
+import { selectOnlineExecutor } from '../lib/sessionBuild';
+import { buildDiscoveryPrompt, countDiscoveryProgress, parseDiscoveryReply } from '../lib/discoverySchema';
+
+const DISCOVERY_OPENING_MESSAGE = [
+  'This is a guided intake. I will ask two or three questions at a time, in plain language, and write down what you say in your own words.',
+  'Skip anything you do not know yet. Type /done at any point to stop and get the record.',
+  'When the record is ready you can copy it as Markdown or send it to the council to scope.',
+].join('\n\n');
+
+const DISCOVERY_AGENT_ROLE = 'Discovery intake interviewer — asks two or three plain-language questions at a time and records answers in the person\'s own words';
 
 // Matches DecisionRecord in packages/maestroclaw/src/lib/decision-record.ts
 interface StoredDecisionRecord {
@@ -319,6 +331,16 @@ const PLAN_CARD_TITLES: Record<ThreadPlanCardKind, string> = {
 export function useThreads() {
   const { state, dispatch } = useMaestro();
   const { user, session: authSession } = useAuth();
+  const { broadcast, synthesize } = useOrchestration();
+  const { triggerDeliberation } = useDeliberation();
+  // Brainstorm awaits a broadcast, then deliberates and synthesizes. Those two
+  // callbacks read state.responses / state.isDeliberating from their closures,
+  // so always call the latest instance (same pattern as synthesizeRef in
+  // useOrchestration) rather than the one captured when brainstorm started.
+  const synthesizeRef = useRef(synthesize);
+  synthesizeRef.current = synthesize;
+  const triggerDeliberationRef = useRef(triggerDeliberation);
+  triggerDeliberationRef.current = triggerDeliberation;
 
   const ensureAuth = useCallback(async () => {
     if (authSession?.access_token) return authSession;
@@ -1333,6 +1355,29 @@ export function useThreads() {
         return;
       }
 
+      // An executor being online is not enough: it must advertise the adapter
+      // this intent needs, or the job would sit in the queue unclaimed.
+      if (!selectOnlineExecutor(state.executors, intent.adapter)) {
+        const advertised = Array.from(new Set(
+          state.executors
+            .filter((ex) => selectOnlineExecutor([ex]))
+            .flatMap((ex) => Array.isArray(ex.capabilities?.adapters) ? ex.capabilities.adapters : [])
+            .filter((value): value is string => typeof value === 'string'),
+        ));
+        await addSystemEvent(threadId, {
+          kind: 'info',
+          system_event: {
+            tone: 'info',
+            title: `No online executor supports "${intent.adapter}"`,
+            body: advertised.length > 0
+              ? `The online executor advertises: ${advertised.join(', ')}. Start MaestroClaw with the ${intent.adapter} adapter enabled, or rephrase the request for one of the advertised adapters.`
+              : `The online executor advertises no adapters. Check the MaestroClaw worker configuration and restart it.`,
+            adapter: intent.adapter,
+          },
+        });
+        return;
+      }
+
       // Show what we parsed
       await addSystemEvent(threadId, {
         kind: 'execution_intent',
@@ -1564,6 +1609,263 @@ export function useThreads() {
     }
   }, [user, state.activeSession, state.clawBuildSession, addMessage, addSystemEvent, getBuildSetupStatus, updateSessionBuildState, dispatch, ensurePreBuildPlanCards, activateBuildRunway, resolveLocalBuildRouting]);
 
+  // ─── Brainstorm intent ──────────────────────────────────────────
+  // Council answers in analysis mode (no auto-synthesis), debates when at least
+  // three seats answered, then one deliberation-aware synthesis is posted to the
+  // concierge thread as a plain-language summary card.
+  const brainstormFromChat = useCallback(async (prompt: string, sessionOverride?: Session | null): Promise<void> => {
+    const text = prompt.trim();
+    const session = sessionOverride ?? state.activeSession;
+    if (!user || !session || !text) return;
+    if (state.isBroadcasting || state.isBrainstorming) {
+      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — the council is still working.' });
+      return;
+    }
+
+    const conciergeThread = await ensureConciergeThread(session.id);
+    if (!conciergeThread) return;
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: conciergeThread });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+
+    const seats = state.agents.filter(
+      (agent) => agent.is_active && agent.agent_role !== 'executor' && agent.provider_group !== 'maestroclaw',
+    );
+    if (seats.length === 0) {
+      await addSystemEvent(conciergeThread.id, {
+        kind: 'info',
+        system_event: {
+          tone: 'info',
+          title: 'No council seats active',
+          body: 'Turn on at least one council agent in the Orchestra drawer, then try Brainstorm again.',
+        },
+      });
+      return;
+    }
+
+    await addMessage(conciergeThread.id, 'user', `Brainstorm: ${text}`);
+    const broadcastThread = await createThread(session.id, 'broadcast', { title: text.slice(0, 60) });
+    if (broadcastThread) {
+      await addMessage(broadcastThread.id, 'user', text);
+    }
+
+    dispatch({ type: 'SET_IS_BRAINSTORMING', payload: true });
+    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
+    try {
+      await addSystemEvent(conciergeThread.id, {
+        kind: 'info',
+        system_event: {
+          tone: 'info',
+          title: 'Brainstorm started',
+          body: `${seats.length} seat${seats.length === 1 ? '' : 's'} answering${seats.length >= 3 ? ', then debating,' : ''} then one plain-language summary. This usually takes a minute or two.`,
+        },
+      });
+
+      dispatch({ type: 'SET_FOLIO_INDEX', payload: 0 });
+      // modeOverride is required: broadcast() forces build mode while the session
+      // phase is pre_build / build / bouncer, and a brainstorm is always analysis.
+      const roundId = await broadcast(text, seats.map((agent) => agent.id), session, {
+        skipTriage: true,
+        skipSynthesis: true,
+        modeOverride: 'analysis',
+      });
+      if (!roundId) {
+        throw new Error('The council broadcast did not start. Check that at least one provider key is connected in the Vault.');
+      }
+
+      const { data: rawRows } = await supabase
+        .from('responses')
+        .select('agent_name, model, provider, kind')
+        .eq('round_id', roundId);
+      const rows = (rawRows ?? []) as Array<{ agent_name: string; model: string; provider: string; kind?: string | null }>;
+      const primaries = rows.filter((row) => (row.kind ?? 'primary') === 'primary');
+      const seatsAnswered: BrainstormSeat[] = primaries.map((row) => ({
+        name: row.agent_name,
+        model: row.model,
+        provider: row.provider,
+      }));
+
+      let deliberated = false;
+      if (primaries.length >= 3) {
+        deliberated = await triggerDeliberationRef.current(roundId);
+      }
+
+      const result = await synthesizeRef.current(roundId);
+      const meta = result?.synthesis?.metadata ?? {};
+      const consensus = meta.consensus ?? result?.content ?? '';
+      if (!consensus) {
+        throw new Error('Synthesis returned nothing to summarize.');
+      }
+
+      const tradeOffs = meta.trade_offs ?? [];
+      const tensions = meta.unresolved_tensions ?? [];
+      const recommendation = meta.recommendation ?? '';
+      const plainText = [
+        'Brainstorm summary',
+        '',
+        `What they agreed on: ${consensus}`,
+        tradeOffs.length > 0
+          ? `Where they disagreed: ${tradeOffs.map((trade) => `${trade.axis} (${trade.side_a.agent} vs ${trade.side_b.agent})`).join('; ')}`
+          : null,
+        tensions.length > 0 ? `Still to decide: ${tensions.join('; ')}` : null,
+        recommendation ? `Recommendation: ${recommendation}` : null,
+      ].filter((line): line is string => typeof line === 'string').join('\n');
+
+      await addMessage(conciergeThread.id, 'system', plainText, undefined, {
+        kind: 'brainstorm_summary',
+        round_id: roundId,
+        consensus,
+        trade_offs: tradeOffs,
+        unresolved_tensions: tensions,
+        recommendation,
+        ...(meta.acknowledged_weaknesses && meta.acknowledged_weaknesses.length > 0
+          ? { acknowledged_weaknesses: meta.acknowledged_weaknesses }
+          : {}),
+        seats: seatsAnswered,
+        deliberated,
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addSystemEvent(conciergeThread.id, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Brainstorm failed',
+          body: errorMessage,
+        },
+      });
+    } finally {
+      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
+      dispatch({ type: 'SET_IS_BRAINSTORMING', payload: false });
+    }
+  }, [user, state.activeSession, state.isBroadcasting, state.isBrainstorming, state.agents, ensureConciergeThread, addMessage, addSystemEvent, createThread, broadcast, dispatch]);
+
+  // ─── Discovery intent ───────────────────────────────────────────
+  // One 'discovery' thread per session. The intake record lives in the latest
+  // system message of kind 'discovery_record'; each turn replaces it (delete +
+  // insert) so there is exactly one record card and it stays at the bottom.
+  const replaceDiscoveryRecord = useCallback(async (
+    threadId: string,
+    previousMessageId: string | null,
+    intake: DiscoveryIntakeRecord,
+    done: boolean,
+  ): Promise<ThreadMessage | null> => {
+    if (previousMessageId) {
+      await supabase.from('thread_messages').delete().eq('id', previousMessageId);
+      dispatch({ type: 'REMOVE_THREAD_MESSAGE', payload: previousMessageId });
+    }
+    const progress = countDiscoveryProgress(intake);
+    return addMessage(
+      threadId,
+      'system',
+      `Discovery record · ${progress.answered}/${progress.total} answered${done ? ' · complete' : ''}`,
+      undefined,
+      { kind: 'discovery_record', intake, updated_at: new Date().toISOString(), done },
+    );
+  }, [addMessage, dispatch]);
+
+  const discoveryFromChat = useCallback(async (userText: string, sessionOverride?: Session | null): Promise<void> => {
+    const text = userText.trim();
+    const session = sessionOverride ?? state.activeSession;
+    if (!user || !session || !text) return;
+    if (state.isConciergeSending) {
+      dispatch({ type: 'SHOW_TOAST', payload: 'Please wait — a request is still in progress.' });
+      return;
+    }
+
+    // 1. Find (state, then DB) or create the session's discovery thread.
+    let thread = state.threads.find(
+      (candidate) => candidate.session_id === session.id && candidate.type === 'discovery' && candidate.status === 'active',
+    ) ?? null;
+    let isNew = false;
+    if (!thread) {
+      const { data } = await supabase
+        .from('threads')
+        .select('*')
+        .eq('session_id', session.id)
+        .eq('type', 'discovery')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) {
+        thread = data as Thread;
+        dispatch({ type: 'ADD_THREAD', payload: thread });
+      }
+    }
+    if (!thread) {
+      thread = await createThread(session.id, 'discovery', { title: 'Discovery intake' });
+      isNew = true;
+    }
+    if (!thread) return;
+
+    const existingMessages = isNew ? [] : await loadThreadMessages(thread.id);
+    dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
+    dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+    dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+
+    const recordMessage = [...existingMessages]
+      .reverse()
+      .find((message) => message.role === 'system' && message.metadata.kind === 'discovery_record') ?? null;
+    const intake: DiscoveryIntakeRecord = recordMessage?.metadata.intake ?? {};
+
+    dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: true });
+    try {
+      if (isNew) {
+        await addSystemEvent(thread.id, {
+          kind: 'info',
+          system_event: { tone: 'info', title: 'Discovery intake', body: DISCOVERY_OPENING_MESSAGE },
+        });
+      }
+      await addMessage(thread.id, 'user', text);
+
+      // 2. /done ends the intake without another model call.
+      if (/^\/done\b/i.test(text)) {
+        await replaceDiscoveryRecord(thread.id, recordMessage?.id ?? null, intake, true);
+        await addMessage(thread.id, 'concierge', 'Here is the record so far. Copy it as Markdown, or send it to the council to scope.');
+        return;
+      }
+
+      // 3. Ask the concierge model for the next 2–3 questions + captured answers.
+      await ensureAuth();
+      const transcript = existingMessages
+        .filter((message) => message.role === 'user' || message.role === 'concierge')
+        .slice(-12)
+        .map((message) => `${message.role === 'user' ? 'Person' : 'Concierge'}: ${message.content}`)
+        .join('\n\n');
+      const { model, provider } = resolveConciergeRuntime(state.conciergeModel);
+      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+        prompt: buildDiscoveryPrompt({ answers: intake, transcript, userText: text }),
+        provider,
+        model,
+        agentName: 'Concierge',
+        agentRole: DISCOVERY_AGENT_ROLE,
+        mode: 'analysis',
+        session_id: session.id,
+      });
+
+      const parsed = parseDiscoveryReply(result.content ?? result.text ?? '');
+      const merged: DiscoveryIntakeRecord = { ...intake, ...parsed.answers };
+      const progress = countDiscoveryProgress(merged);
+      const done = parsed.done || (progress.total > 0 && progress.answered >= progress.total);
+
+      await addMessage(thread.id, 'concierge', parsed.message || 'Noted. Type /done whenever you want the record.');
+      await replaceDiscoveryRecord(thread.id, recordMessage?.id ?? null, merged, done);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      await addSystemEvent(thread.id, {
+        kind: 'error_retry',
+        system_event: {
+          tone: 'error',
+          title: 'Discovery turn failed',
+          body: errorMessage,
+        },
+      });
+    } finally {
+      dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
+    }
+  }, [user, state.activeSession, state.isConciergeSending, state.threads, state.conciergeModel, createThread, loadThreadMessages, addSystemEvent, addMessage, replaceDiscoveryRecord, ensureAuth, resolveConciergeRuntime, dispatch]);
+
   return {
     loadThreads,
     loadThreadMessages,
@@ -1580,6 +1882,8 @@ export function useThreads() {
     pollJobStatus,
     executeFromChat,
     buildFromChat,
+    brainstormFromChat,
+    discoveryFromChat,
     activateBuildRunway,
     focusDirectThread,
     pinResponse,

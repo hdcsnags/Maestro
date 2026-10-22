@@ -6,7 +6,7 @@ import { useWorkspace } from '../../hooks/useWorkspace';
 import { useIterationLoop } from '../../hooks/useIterationLoop';
 import { supabase } from '../../lib/supabase';
 import {
-  AlertTriangle, ChevronDown, Hammer, MessageSquare, Radio,
+  AlertTriangle, ChevronDown, ClipboardList, Hammer, Lightbulb, MessageSquare, Radio,
   RefreshCw, Zap,
 } from 'lucide-react';
 import { CONCIERGE_MODELS, ComposerIntent, SessionMode, Thread } from '../../types';
@@ -40,6 +40,20 @@ const INTENT_CONFIG: Record<ComposerIntent, IntentConfig> = {
     Icon: Radio,
     color: 'var(--gemini)',
     bg: 'rgba(110, 143, 196, 0.15)', // gemini soft
+  },
+  brainstorm: {
+    label: 'Brainstorm',
+    consequence: 'Council answers, debates, then one plain-language summary',
+    Icon: Lightbulb,
+    color: 'var(--gold)',
+    bg: 'rgba(214, 178, 74, 0.12)',
+  },
+  discovery: {
+    label: 'Discovery',
+    consequence: 'A guided intake: a few questions at a time, then a record you can scope',
+    Icon: ClipboardList,
+    color: 'var(--ember)',
+    bg: 'var(--ember-soft)',
   },
   execute: {
     label: 'Execute',
@@ -78,6 +92,8 @@ export default function RevealComposer(_props: Props) {
     addMessage,
     executeFromChat,
     buildFromChat,
+    brainstormFromChat,
+    discoveryFromChat,
   } = useThreads();
   const { createSession } = useWorkspace();
   const { createLoop, getStepsForLoop } = useIterationLoop();
@@ -176,11 +192,11 @@ export default function RevealComposer(_props: Props) {
   }, [councilAgents, prompt, buildTieredContext]);
   const costLabel = useMemo(() => formatCostRange(costEstimate), [costEstimate]);
 
-  const exceedsCap = composerIntent === 'broadcast' && premiumSelected > PREMIUM_SLOT_CAP;
+  const exceedsCap = (composerIntent === 'broadcast' || composerIntent === 'brainstorm') && premiumSelected > PREMIUM_SLOT_CAP;
   const isElevated = state.executionMode === 'elevated';
   const capBlocks = exceedsCap && !isElevated;
   const capNeedsAck = exceedsCap && isElevated && !elevatedCapAck;
-  const isBusy = state.isConciergeSending || state.isBroadcasting;
+  const isBusy = state.isConciergeSending || state.isBroadcasting || state.isBrainstorming;
   const canSend = prompt.trim() && !isBusy && !capBlocks && !capNeedsAck;
 
   const totalChars = (state.responses || []).reduce((acc, r) => acc + r.content.length, 0);
@@ -193,6 +209,10 @@ export default function RevealComposer(_props: Props) {
     ? `Chat with ${focusedAgent.display_name || focusedAgent.name}…`
     : composerIntent === 'broadcast'
       ? 'Ask the council…'
+      : composerIntent === 'brainstorm'
+        ? 'What should the council think through?'
+      : composerIntent === 'discovery'
+        ? 'Tell me about the project, or type /done for the record…'
       : composerIntent === 'execute'
         ? 'Describe a command to execute…'
         : composerIntent === 'build'
@@ -277,6 +297,31 @@ export default function RevealComposer(_props: Props) {
     prompt, state.isBroadcasting, state.activeSession, state.workspace, sessionMode, clearPrompt, createSession,
     ensureConciergeThread, dispatch, addMessage, createThread, councilAgents, broadcast,
   ]);
+
+  const ensureSessionForIntent = useCallback(async () => {
+    if (state.activeSession) return state.activeSession;
+    if (!state.workspace) return null;
+    return createSession(state.workspace.id, sessionMode);
+  }, [state.activeSession, state.workspace, sessionMode, createSession]);
+
+  const handleBrainstorm = useCallback(async () => {
+    const text = prompt.trim();
+    if (!text || state.isBroadcasting || state.isBrainstorming) return;
+    clearPrompt();
+    // A freshly created session is not in the hook closures yet, so pass it explicitly.
+    const session = await ensureSessionForIntent();
+    if (!session) return;
+    await brainstormFromChat(text, session);
+  }, [prompt, state.isBroadcasting, state.isBrainstorming, clearPrompt, ensureSessionForIntent, brainstormFromChat]);
+
+  const handleDiscovery = useCallback(async () => {
+    const text = prompt.trim();
+    if (!text || state.isConciergeSending) return;
+    clearPrompt();
+    const session = await ensureSessionForIntent();
+    if (!session) return;
+    await discoveryFromChat(text, session);
+  }, [prompt, state.isConciergeSending, clearPrompt, ensureSessionForIntent, discoveryFromChat]);
 
   const handleExecute = useCallback(async () => {
     const text = prompt.trim();
@@ -409,12 +454,16 @@ export default function RevealComposer(_props: Props) {
       await handleChatSend();
     } else if (composerIntent === 'broadcast') {
       await handleCouncilBroadcast();
+    } else if (composerIntent === 'brainstorm') {
+      await handleBrainstorm();
+    } else if (composerIntent === 'discovery') {
+      await handleDiscovery();
     } else if (composerIntent === 'execute') {
       await handleExecute();
     } else if (composerIntent === 'build') {
       await handleBuild();
     }
-  }, [canSend, composerIntent, handleChatSend, handleCouncilBroadcast, handleExecute, handleBuild]);
+  }, [canSend, composerIntent, handleChatSend, handleCouncilBroadcast, handleBrainstorm, handleDiscovery, handleExecute, handleBuild]);
 
   const handleModelSelect = useCallback((modelId: string) => {
     dispatch({ type: 'SET_CONCIERGE_MODEL', payload: modelId });
@@ -539,7 +588,7 @@ export default function RevealComposer(_props: Props) {
             </span>
             <span style={{ opacity: 0.5 }}>—</span>
             <span>{intentCfg.consequence}</span>
-            {composerIntent === 'broadcast' && (
+            {(composerIntent === 'broadcast' || composerIntent === 'brainstorm') && (
               <>
                 <span style={{ opacity: 0.5 }}>·</span>
                 <span>{councilAgents.length} active agent{councilAgents.length === 1 ? '' : 's'}</span>

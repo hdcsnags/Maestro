@@ -69,6 +69,9 @@ function formatAdapterLabel(adapter: string): string {
   if (adapter === 'claude_code') return 'Claude Code';
   if (adapter === 'codex_cli') return 'OpenAI Codex';
   if (adapter === 'copilot_cli') return 'GitHub Copilot';
+  if (adapter === 'gemini_cli') return 'Gemini CLI';
+  if (adapter === 'kimi_cli') return 'Kimi CLI';
+  if (adapter === 'agy_cli') return 'Antigravity';
   return adapter;
 }
 

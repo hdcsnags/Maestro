@@ -1,6 +1,8 @@
 import type { ThreadMessage } from '../../../types';
+import BrainstormSummaryCard from './BrainstormSummaryCard';
 import CommandResultCard from './CommandResultCard';
 import CostRollupCard from './CostRollupCard';
+import DiscoveryRecordCard from './DiscoveryRecordCard';
 import ErrorRetryCard from './ErrorRetryCard';
 import ExecutionApprovalCard from './ExecutionApprovalCard';
 import FileManifestCard from './FileManifestCard';
@@ -26,6 +28,10 @@ export default function SystemEventCard({ message }: { message: ThreadMessage })
       return <CostRollupCard message={message} />;
     case 'reroute_approval':
       return <RerouteApprovalCard message={message} />;
+    case 'brainstorm_summary':
+      return <BrainstormSummaryCard message={message} />;
+    case 'discovery_record':
+      return <DiscoveryRecordCard message={message} />;
     case 'info':
     default:
       return <InfoCard message={message} />;

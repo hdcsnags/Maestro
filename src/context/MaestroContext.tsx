@@ -75,6 +75,9 @@ export interface MaestroState {
   repoMemory: RepoMemoryRecord | null;
   // PRO-01: true while the deliberate edge function call is in-flight
   isDeliberating: boolean;
+  // Brainstorm intent: true from broadcast start until the summary card is posted.
+  // ClawMode uses it to keep the concierge view (no auto-switch to the carousel).
+  isBrainstorming: boolean;
   // PRO-02: iteration loops in this session
   iterationLoops: IterationLoop[];
   // steps keyed by loop_id
@@ -142,6 +145,7 @@ type Action =
   | { type: 'UPDATE_THREAD'; payload: Partial<Thread> & { id: string } }
   | { type: 'SET_THREAD_MESSAGES'; payload: ThreadMessage[] }
   | { type: 'ADD_THREAD_MESSAGE'; payload: ThreadMessage }
+  | { type: 'REMOVE_THREAD_MESSAGE'; payload: string }
   | { type: 'SET_ACTIVE_THREAD'; payload: Thread | null }
   | { type: 'SET_CLAW_VIEW'; payload: ClawView }
   | { type: 'SET_COMPOSER_INTENT'; payload: ComposerIntent }
@@ -164,6 +168,7 @@ type Action =
   | { type: 'SET_REPO_MEMORY'; payload: RepoMemoryRecord | null }
   // PRO-01
   | { type: 'SET_IS_DELIBERATING'; payload: boolean }
+  | { type: 'SET_IS_BRAINSTORMING'; payload: boolean }
   | { type: 'UPDATE_ROUND'; payload: Partial<Round> & { id: string } }
   // PRO-02
   | { type: 'SET_ITERATION_LOOPS'; payload: IterationLoop[] }
@@ -229,6 +234,7 @@ const initial: MaestroState = {
   providerHealth: [],
   repoMemory: null,
   isDeliberating: false,
+  isBrainstorming: false,
   iterationLoops: [],
   iterationSteps: {},
 };
@@ -280,6 +286,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         jobStreamingOutput: {},
         repoMemory: null,
         isDeliberating: false,
+        isBrainstorming: false,
         iterationLoops: [],
         iterationSteps: {},
       };
@@ -394,6 +401,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       return { ...state, threadMessages: [...kept, ...incoming] };
     }
     case 'ADD_THREAD_MESSAGE': return { ...state, threadMessages: [...state.threadMessages, action.payload] };
+    case 'REMOVE_THREAD_MESSAGE':
+      return { ...state, threadMessages: state.threadMessages.filter((m: ThreadMessage) => m.id !== action.payload) };
     case 'SET_ACTIVE_THREAD': return { ...state, activeThread: action.payload };
     case 'SET_CLAW_VIEW': return { ...state, clawView: action.payload };
     case 'SET_COMPOSER_INTENT': return { ...state, composerIntent: action.payload };
@@ -452,6 +461,8 @@ function reducer(state: MaestroState, action: Action): MaestroState {
       return { ...state, repoMemory: action.payload };
     case 'SET_IS_DELIBERATING':
       return { ...state, isDeliberating: action.payload };
+    case 'SET_IS_BRAINSTORMING':
+      return { ...state, isBrainstorming: action.payload };
     case 'UPDATE_ROUND':
       return {
         ...state,

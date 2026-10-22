@@ -49,6 +49,8 @@ export default function CommandPalette() {
     const intents: { id: ComposerIntent; label: string }[] = [
       { id: 'chat', label: 'Chat' },
       { id: 'broadcast', label: 'Broadcast' },
+      { id: 'brainstorm', label: 'Brainstorm' },
+      { id: 'discovery', label: 'Discovery' },
       { id: 'execute', label: 'Execute' },
       { id: 'build', label: 'Build' },
       { id: 'iterate', label: 'Iterate' }

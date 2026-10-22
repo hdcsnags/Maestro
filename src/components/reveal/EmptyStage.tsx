@@ -39,7 +39,8 @@ interface QuickChip {
 
 const QUICK_CHIPS: QuickChip[] = [
   { label: 'Plan a project', draft: 'Help me plan a new project from the ground up. Let\'s start with goals and architecture.', intent: 'chat' },
-  { label: 'Compare approaches', draft: 'Compare the tradeoffs between different architectural approaches for my use case.', intent: 'broadcast' },
+  { label: 'Compare approaches', draft: 'Compare the tradeoffs between different architectural approaches for my use case.', intent: 'brainstorm' },
+  { label: 'Start a discovery intake', draft: 'I have a new project idea I want to talk through.', intent: 'discovery' },
   { label: 'Spec a feature', draft: 'Help me write a detailed spec for a new feature, including acceptance criteria.', intent: 'chat' },
   { label: 'Build this', draft: 'I\'m ready to build. Set up the build flow for this project.', intent: 'build' },
   { label: 'Security review', draft: 'Review my codebase and architecture for security vulnerabilities and risks.', intent: 'broadcast' },

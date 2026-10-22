@@ -1,7 +1,7 @@
 import { useMaestro } from '../../context/MaestroContext';
 import { useThreads } from '../../hooks/useThreads';
 import { Thread } from '../../types';
-import { Plus, Radio, Zap, MessageSquare, Mic } from 'lucide-react';
+import { Plus, Radio, Zap, MessageSquare, Mic, ClipboardList } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -36,6 +36,7 @@ export function AtelierSidebar({ open, onThreadClick }: Props) {
     { label: 'Broadcasts', type: 'broadcast', items: groupThreads('broadcast'), icon: <Radio size={11} /> },
     { label: 'Direct', type: 'direct', items: groupThreads('direct'), icon: <MessageSquare size={11} /> },
     { label: 'Execution', type: 'execution', items: groupThreads('execution'), icon: <Zap size={11} /> },
+    { label: 'Discovery', type: 'discovery', items: groupThreads('discovery'), icon: <ClipboardList size={11} /> },
   ] as const;
 
   return (

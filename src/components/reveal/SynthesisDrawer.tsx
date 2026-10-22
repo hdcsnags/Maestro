@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useMaestro } from '../../context/MaestroContext';
 import { useOrchestration } from '../../hooks/useOrchestration';
-import { Response as MaestroResponse, ExecutionMode } from '../../types';
+import { Response as MaestroResponse, ExecutionMode, Synthesis } from '../../types';
 import { supabase } from '../../lib/supabase';
 
 interface Contradiction {
@@ -54,7 +54,24 @@ export default function SynthesisDrawer() {
     () => latestRound ? state.responses.filter(r => r.round_id === latestRound.id) : [],
     [latestRound, state.responses],
   );
-  const latestSynthesis = latestRound ? state.syntheses.find(s => s.round_id === latestRound.id) : null;
+  // ADD_SYNTHESIS appends, so a round can hold several syntheses (classic, then
+  // the deliberation-aware re-synthesis). Always show the newest one.
+  const latestSynthesis = useMemo(() => {
+    if (!latestRound) return null;
+    return state.syntheses
+      .filter(s => s.round_id === latestRound.id)
+      .reduce<Synthesis | null>((newest, s) => {
+        if (!newest) return s;
+        return new Date(s.created_at).getTime() >= new Date(newest.created_at).getTime() ? s : newest;
+      }, null);
+  }, [latestRound, state.syntheses]);
+  // Deliberation finished after the newest synthesis was written: offer a re-synthesis
+  // so the consensus / trade-offs / tensions fields can be populated.
+  const synthesisPredatesDeliberation = !!(
+    latestSynthesis
+    && latestRound?.deliberation_completed_at
+    && new Date(latestRound.deliberation_completed_at).getTime() > new Date(latestSynthesis.created_at).getTime()
+  );
   const flaggedResponses = latestResponses.filter(r => r.is_flagged);
 
   const contradictions = useMemo(() => detectContradictions(latestResponses), [latestResponses]);
@@ -63,20 +80,27 @@ export default function SynthesisDrawer() {
   const [verificationState, setVerificationState] = useState<VerificationState>('idle');
   const [verificationNote, setVerificationNote] = useState('');
 
-  const handleSynthesize = () => {
-    if (latestRound) synthesize(latestRound.id);
+  const handleSynthesize = async () => {
+    if (!latestRound || state.isSynthesizing) return;
+    dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
+    try {
+      await synthesize(latestRound.id);
+    } finally {
+      dispatch({ type: 'SET_IS_SYNTHESIZING', payload: false });
+    }
   };
 
-  const handleVerify = async () => {
-    setVerificationState('running');
+  // Honest check: this is a synchronous keyword scan of the round's responses for
+  // conflicting positions. It is not a test run or an external verifier, so it
+  // reports instantly and says what it actually checked.
+  const handleVerify = () => {
     setVerificationNote('');
-    await new Promise(r => setTimeout(r, 1400));
     if (hasContradictions) {
       setVerificationState('failed');
-      setVerificationNote(`${contradictions.length} contradiction(s) detected. Resolve divergences before proceeding to execution.`);
+      setVerificationNote(`${contradictions.length} contradiction(s) found by keyword scan. Resolve divergences before proceeding to execution.`);
     } else {
       setVerificationState('passed');
-      setVerificationNote('No contradictions detected. Scope within session bounds. Safe to proceed to patch generation.');
+      setVerificationNote('Keyword scan found no conflicting positions across responses. This is a heuristic check, not a build or test run.');
     }
   };
 
@@ -120,8 +144,21 @@ export default function SynthesisDrawer() {
             </span>
           )}
           {latestResponses.length > 0 && !latestSynthesis && (
-            <button className="reveal-pill primary" style={{ height: '34px', fontSize: '12px' }} onClick={handleSynthesize}>
-              Synthesize
+            <button className="reveal-pill primary" style={{ height: '34px', fontSize: '12px' }} onClick={handleSynthesize} disabled={state.isSynthesizing}>
+              {state.isSynthesizing ? 'Synthesizing…' : 'Synthesize'}
+            </button>
+          )}
+          {latestResponses.length > 0 && latestSynthesis && (
+            <button
+              className={`reveal-pill ${synthesisPredatesDeliberation ? 'primary' : ''}`}
+              style={{ height: '34px', fontSize: '12px' }}
+              onClick={handleSynthesize}
+              disabled={state.isSynthesizing}
+              title={synthesisPredatesDeliberation
+                ? 'Deliberation finished after this synthesis — re-run to capture consensus, trade-offs and unresolved tensions'
+                : 'Run synthesis again for this round'}
+            >
+              {state.isSynthesizing ? 'Synthesizing…' : synthesisPredatesDeliberation ? 'Re-synthesize (post-deliberation)' : 'Re-synthesize'}
             </button>
           )}
           <button className="keycap" onClick={() => dispatch({ type: 'CLOSE_TRANSIENT' })}>Esc</button>
@@ -284,9 +321,9 @@ export default function SynthesisDrawer() {
                   }}
                 />
                 <span className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase' as const, color: verificationColor }}>
-                  {verificationState === 'running' && 'Verification running...'}
-                  {verificationState === 'passed' && 'Verification passed'}
-                  {verificationState === 'failed' && 'Verification failed'}
+                  {verificationState === 'running' && 'Contradiction scan running...'}
+                  {verificationState === 'passed' && 'Contradiction scan: clear'}
+                  {verificationState === 'failed' && 'Contradiction scan: conflicts found'}
                 </span>
               </div>
               {verificationNote && (
@@ -297,13 +334,18 @@ export default function SynthesisDrawer() {
 
           <div className="flex gap-2 flex-wrap mt-auto">
             {verificationState === 'idle' && latestSynthesis && (
-              <button className="reveal-pill" style={{ height: '34px', fontSize: '12px', color: 'var(--ok)', borderColor: 'rgba(78,187,127,0.25)' }} onClick={handleVerify}>
-                Verify
+              <button
+                className="reveal-pill"
+                style={{ height: '34px', fontSize: '12px', color: 'var(--ok)', borderColor: 'rgba(78,187,127,0.25)' }}
+                onClick={handleVerify}
+                title="Keyword scan for conflicting positions across responses (heuristic, instant)"
+              >
+                Scan for contradictions
               </button>
             )}
             {(verificationState === 'passed' || verificationState === 'failed') && (
               <button className="reveal-pill" style={{ height: '34px', fontSize: '12px' }} onClick={() => { setVerificationState('idle'); setVerificationNote(''); }}>
-                Re-verify
+                Reset scan
               </button>
             )}
             <button

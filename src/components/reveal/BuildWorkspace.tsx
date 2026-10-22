@@ -1969,6 +1969,8 @@ export default function BuildWorkspace() {
                       <option value="copilot_cli">Copilot CLI</option>
                       <option value="codex_cli">Codex CLI</option>
                       <option value="gemini_cli">Gemini CLI</option>
+                      <option value="kimi_cli">Kimi CLI</option>
+                      <option value="agy_cli">Antigravity (agy)</option>
                     </select>
                   </div>
                   <div>

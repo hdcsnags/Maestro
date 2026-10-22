@@ -298,6 +298,11 @@ export default function ExecutorSection() {
               }}
             >
               <option value="claude_code">Claude Code</option>
+              <option value="copilot_cli">Copilot CLI</option>
+              <option value="codex_cli">Codex CLI</option>
+              <option value="gemini_cli">Gemini CLI</option>
+              <option value="kimi_cli">Kimi CLI</option>
+              <option value="agy_cli">Antigravity (agy)</option>
               <option value="shell_stub">Shell Stub (test)</option>
             </select>
             <button

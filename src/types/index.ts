@@ -6,12 +6,12 @@ export type ExecutionStrategy = 'per_agent' | 'synthesized';
 export type ExecutionRunStatus = 'pending' | 'approved' | 'running' | 'complete' | 'failed';
 export type SessionMode = 'ask' | 'build';
 export type AgentRole = 'council' | 'executor';
-export type ThreadType = 'concierge' | 'broadcast' | 'direct' | 'execution';
+export type ThreadType = 'concierge' | 'broadcast' | 'direct' | 'execution' | 'discovery';
 export type ThreadStatus = 'active' | 'completed' | 'pinned' | 'archived';
 export type ThreadMessageRole = 'user' | 'agent' | 'concierge' | 'system';
 export type ContextWeight = 'primary' | 'supporting' | 'background';
 export type ClawView = 'concierge' | 'carousel' | 'focus';
-export type ComposerIntent = 'chat' | 'broadcast' | 'execute' | 'build' | 'iterate';
+export type ComposerIntent = 'chat' | 'broadcast' | 'brainstorm' | 'discovery' | 'execute' | 'build' | 'iterate';
 export type VerbosityTier = 'brief' | 'standard' | 'detailed';
 
 export interface Workspace {
@@ -108,7 +108,19 @@ export type ThreadMessageKind =
   | 'error_retry'
   | 'cost_rollup'
   | 'reroute_approval'
+  | 'brainstorm_summary'
+  | 'discovery_record'
   | 'info';
+
+// Seat attribution on a brainstorm summary card: who actually answered.
+export interface BrainstormSeat {
+  name: string;
+  model: string;
+  provider: string;
+}
+
+// Discovery intake answers keyed by schema question id (see src/lib/discoverySchema.ts).
+export type DiscoveryIntakeRecord = Record<string, string | string[]>;
 
 export interface ThreadSystemEvent {
   tone: 'build' | 'execute' | 'approval' | 'pr' | 'error' | 'info';
@@ -150,6 +162,18 @@ export interface ThreadMessageMetadata extends Record<string, unknown> {
   redacted?: boolean;
   redaction_count?: number;
   reroute_approval?: RerouteApprovalMetadata;
+  // kind: 'brainstorm_summary'
+  consensus?: string;
+  trade_offs?: SynthesisTradeOff[];
+  unresolved_tensions?: string[];
+  recommendation?: string;
+  acknowledged_weaknesses?: SynthesisAcknowledgedWeakness[];
+  seats?: BrainstormSeat[];
+  deliberated?: boolean;
+  // kind: 'discovery_record'
+  intake?: DiscoveryIntakeRecord;
+  updated_at?: string;
+  done?: boolean;
 }
 
 // All models available as concierge (union of direct + OpenRouter)
@@ -781,6 +805,8 @@ export const AGENT_DEFAULTS: AgentDefault[] = [
   { name: 'ClawCopilot', display_name: '🖥️ ClawCopilot', role: 'Local build · Copilot CLI',       provider: 'maestroclaw', model: 'copilot_cli',  color: '#c9a84c', is_active: false, slot_index: 1, provider_group: 'maestroclaw', stability_tier: 'stable' },
   { name: 'ClawCodex',   display_name: '🖥️ ClawCodex',   role: 'Local build · OpenAI Codex CLI',  provider: 'maestroclaw', model: 'codex_cli',    color: '#c9a84c', is_active: false, slot_index: 2, provider_group: 'maestroclaw', stability_tier: 'stable' },
   { name: 'ClawGemini',  display_name: '🖥️ ClawGemini',  role: 'Local build · Google Gemini CLI', provider: 'maestroclaw', model: 'gemini_cli',   color: '#c9a84c', is_active: false, slot_index: 3, provider_group: 'maestroclaw', stability_tier: 'stable' },
+  { name: 'ClawKimi',    display_name: '🖥️ ClawKimi',    role: 'Local build · Kimi CLI',          provider: 'maestroclaw', model: 'kimi_cli',     color: '#c9a84c', is_active: false, slot_index: 4, provider_group: 'maestroclaw', stability_tier: 'stable' },
+  { name: 'ClawAgy',     display_name: '🖥️ ClawAgy (Antigravity)', role: 'Local build · Antigravity CLI', provider: 'maestroclaw', model: 'agy_cli', color: '#c9a84c', is_active: false, slot_index: 5, provider_group: 'maestroclaw', stability_tier: 'stable' },
 ];
 
 export const OPENROUTER_FREE_MODELS: OpenRouterModel[] = [
@@ -879,7 +905,7 @@ export const PROVIDER_REGISTRY = [
   { id: 'openai', name: 'OpenAI', models: ['gpt-5.4-mini', 'gpt-5.4'] },
   { id: 'google', name: 'Google Gemini', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },
-  { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli', 'gemini_cli'] },
+  { id: 'maestroclaw', name: 'MaestroClaw (Local)', models: ['claude_code', 'copilot_cli', 'codex_cli', 'gemini_cli', 'kimi_cli', 'agy_cli'] },
 ];
 
 // ─── DIFF-02: Per-repo project memory ─────────────────────────────────────────
@@ -914,7 +940,9 @@ export interface ExecutionIntent {
   action: string;
   command?: string;
   params: Record<string, string>;
-  adapter: 'approved_shell' | 'claude_code' | 'github_api' | 'pty_shell';
+  adapter:
+    | 'approved_shell' | 'claude_code' | 'github_api' | 'pty_shell'
+    | 'codex_cli' | 'copilot_cli' | 'gemini_cli' | 'kimi_cli' | 'agy_cli';
   trust: ExecutionCommandTrust;
   description: string;
 }

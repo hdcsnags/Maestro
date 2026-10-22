@@ -423,9 +423,11 @@ export function useOrchestration() {
     selectedAgentIds: string[],
     sessionOverride?: Session | null,
     options: BroadcastOptions = {},
-  ) => {
+  ): Promise<string | null> => {
+    // Resolves to the round id once every seat has answered and the round is
+    // marked complete (null when the broadcast did not start or was short-circuited).
     const activeSession = sessionOverride ?? state.activeSession;
-    if (!user || !activeSession || !state.workspace) return;
+    if (!user || !activeSession || !state.workspace) return null;
     const phase = activeSession.current_phase;
     const broadcastMode = options.modeOverride ?? (
       activeSession.mode === 'build'
@@ -482,7 +484,7 @@ export function useOrchestration() {
               { kind: 'concierge_triage', triage: triageResult, prompt },
             );
             dispatch({ type: 'SET_IS_TRIAGING', payload: false });
-            return;
+            return null;
           }
         }
       } catch {
@@ -517,7 +519,7 @@ export function useOrchestration() {
       if (roundError || !roundData) {
         console.error('Failed to create round', roundError);
         dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
-        return;
+        return null;
       }
 
       const round: Round = {
@@ -545,7 +547,7 @@ export function useOrchestration() {
         console.warn('[Broadcast] No cloud-eligible agents in selection — aborting broadcast');
         dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
         dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
-        return;
+        return null;
       }
       const roundId = roundData.id as string;
 
@@ -564,7 +566,7 @@ export function useOrchestration() {
 
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
-      if (options.skipSynthesis) return;
+      if (options.skipSynthesis) return roundId;
 
       dispatch({ type: 'SET_IS_SYNTHESIZING', payload: true });
       try {
@@ -572,10 +574,12 @@ export function useOrchestration() {
       } finally {
         dispatch({ type: 'SET_IS_SYNTHESIZING', payload: false });
       }
+      return roundId;
     } catch (err) {
       console.error('Broadcast error:', err);
       dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
+      return null;
     }
   }, [user, state, dispatch, logAudit, buildTieredContext, callAgent, ensureSession]);
 
@@ -768,7 +772,7 @@ export function useOrchestration() {
       const phase: ConciergePhase = sessionRoundCount <= 1 ? 'post_round1' : 'post_round2';
       void triggerConcierge(phase, roundId, content);
 
-      return { content };
+      return { content, synthesis: synthData };
     } catch (err) {
       console.error('Synthesis error:', err);
       return null;

@@ -36,6 +36,16 @@ function getExecutionModeLabel(mode: ExecutionMode): string {
   return MODE_OPTIONS.find((option) => option.id === mode)?.label ?? mode;
 }
 
+// "claude_code" → "claude", "codex_cli" → "codex", "approved_shell" → "shell".
+function compactAdapterName(adapter: string): string {
+  if (adapter === 'claude_code') return 'claude';
+  if (adapter === 'approved_shell') return 'shell';
+  if (adapter === 'pty_shell') return 'pty';
+  if (adapter === 'shell_stub') return 'stub';
+  if (adapter === 'github_api') return 'github';
+  return adapter.replace(/_cli$/, '');
+}
+
 export default function StatusChip({
   kind,
   label,
@@ -70,21 +80,27 @@ export default function StatusChip({
     () => state.executors.filter((executor) => executor.status === 'online' && isExecutorFresh(executor.last_seen_at)),
     [state.executors],
   );
-  const executorLabel = useMemo(() => {
+  // Every adapter the online executor advertises (compact names), so the chip
+  // says what can actually run locally instead of naming only adapters[0].
+  const { executorLabel, executorTooltip } = useMemo(() => {
     const activeExecutor = onlineExecutors[0];
-    if (!activeExecutor) return 'Local executor offline';
+    if (!activeExecutor) {
+      return { executorLabel: 'Local executor offline', executorTooltip: 'No MaestroClaw executor has checked in within the last minute.' };
+    }
 
     const adapters = Array.isArray(activeExecutor.capabilities?.adapters)
       ? activeExecutor.capabilities.adapters.filter((value): value is string => typeof value === 'string')
       : [];
-    const preferredAdapter = adapters[0] ?? null;
-    const matchingAgent = preferredAdapter
-      ? state.agents.find((agent) => agent.provider_group === 'maestroclaw' && agent.model === preferredAdapter)
-      : null;
+    if (adapters.length === 0) {
+      return { executorLabel: `${activeExecutor.name} online (no adapters)`, executorTooltip: `${activeExecutor.name} is online but advertises no adapters.` };
+    }
 
-    const baseLabel = matchingAgent?.display_name || matchingAgent?.name || activeExecutor.name;
-    return `${baseLabel} online`;
-  }, [onlineExecutors, state.agents]);
+    const compact = adapters.map((adapter) => compactAdapterName(adapter));
+    return {
+      executorLabel: `Local: ${compact.join(', ')}`,
+      executorTooltip: `${activeExecutor.name} · adapters: ${adapters.join(', ')}`,
+    };
+  }, [onlineExecutors]);
 
   const cycleExecutionMode = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -123,6 +139,7 @@ export default function StatusChip({
           type="button"
           onClick={() => setOpen((value) => !value)}
           className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-left ${CHIP_TONE[kind]}`}
+          title={executorTooltip}
         >
           <Bot size={12} className={pulse ? 'animate-pulse' : undefined} />
           <span className="max-w-[min(48vw,34rem)] truncate text-[11px] font-medium tracking-wide">
@@ -152,7 +169,7 @@ export default function StatusChip({
         >
           <div className="grid gap-3 md:grid-cols-2">
             <DetailCell icon={<Bot size={13} />} label="Concierge model" value={currentModelLabel} />
-            <DetailCell icon={<Laptop size={13} />} label="Executor" value={executorLabel} />
+            <DetailCell icon={<Laptop size={13} />} label="Executor" value={executorTooltip} />
             <DetailCell icon={<KeyRound size={13} />} label="Connected keys" value={connectedKeyLabel} />
             <DetailCell icon={<Zap size={13} />} label="Current mode" value={getExecutionModeLabel(state.executionMode)} />
           </div>
