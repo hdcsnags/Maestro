@@ -143,10 +143,16 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
   let rawStdout = "";
   const onLine: OnLineFn = (_type, line) => { if (rawStdout.length < 200_000) rawStdout += line + "\n"; };
 
-  log(`${seat.label}: dispatching ${seat.adapter} (${seat.model ?? "default"}) in ${copy}`);
+  log(`${seat.label}: dispatching ${seat.adapter} (${seat.model ?? "default"}) in ${copy}${opts.mode === "code" ? " [code mode: session run, writes allowed in the copy]" : ""}`);
   const t0 = Date.now();
   let res: AdapterResult;
-  try { res = await adapter.run(prompt, copy, opts.timeoutMs, onLine); } catch (e) { res = { success: false, output: "", error: String(e) }; }
+  try {
+    // Code mode uses the adapter's session path (the executor's build_session path): writes land in the
+    // seat's own disposable copy, never in the source. Audit mode uses the read-only task path.
+    res = opts.mode === "code" && adapter.runSession
+      ? await adapter.runSession(prompt, copy, opts.timeoutMs)
+      : await adapter.run(prompt, copy, opts.timeoutMs, onLine);
+  } catch (e) { res = { success: false, output: "", error: String(e) }; }
   let elapsedMs = Date.now() - t0;
 
   // Verdict handling with one stateless re-ask for truncated blocks.
@@ -171,6 +177,17 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
       const pf = join(opts.outDir, `${seat.label}.patch`);
       writeFileSync(pf, patch, "utf-8"); rec.patch_file = pf;
       log(`${seat.label}: patch ${patch.length} chars → ${basename(pf)}`);
+    } else {
+      // Plain-folder source (greenfield site, no repo yet): collect every new or changed file into
+      // <out>/<seat>-files/ so the concierge can review and copy them in.
+      const after = hashTree(copy);
+      const changed = [...after.keys()].filter((k) => before!.get(k) !== after.get(k) && !INSTRUMENTATION.some((f) => k.endsWith(f)));
+      const filesDir = join(opts.outDir, `${seat.label}-files`);
+      for (const rel of changed) { const dest = join(filesDir, rel); mkdirSync(join(dest, ".."), { recursive: true }); cpSync(join(copy, rel), dest); }
+      const removed = [...before!.keys()].filter((k) => !after.has(k));
+      writeFileSync(join(opts.outDir, `${seat.label}-files.json`), JSON.stringify({ changed, removed }, null, 1), "utf-8");
+      rec.patch_file = filesDir; ro = `${changed.length} file(s) written, ${removed.length} removed → ${basename(filesDir)}/`;
+      log(`${seat.label}: ${ro}`);
     }
   } else if (opts.noGit) {
     const after = hashTree(copy);

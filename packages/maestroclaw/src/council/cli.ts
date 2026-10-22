@@ -122,6 +122,23 @@ export async function councilMain(argv: string[]): Promise<void> {
       console.log(renderMatrix(m));
       return;
     }
+    case "rule": {
+      // council rule --run <dir>                              seed/list rulings from the matrix
+      // council rule --run <dir> --item Q3 --verify <who> [--verify-note "…"]
+      // council rule --run <dir> --item Q3 --decision adopt|reject|defer|needs_owner --by michael [--note "…"]
+      // council rule --run <dir> --item Q3 --commit <sha>     |  --regress <who>
+      const runDir = str(a, "run"); if (!runDir) throw new Error("--run <dir> required");
+      const { seedRulings, applyRuling, loadRulings, renderRulings } = await import("./rule.js");
+      const { writeMatrix } = await import("./matrix.js");
+      const item = str(a, "item");
+      if (!item) { const m = writeMatrix(resolve(runDir)); console.log(renderRulings(seedRulings(resolve(runDir), m))); return; }
+      if (!loadRulings(resolve(runDir)).length) seedRulings(resolve(runDir), writeMatrix(resolve(runDir)));
+      const decision = str(a, "decision") as import("./rule.js").RulingDecision | undefined;
+      if (decision && !["adopt", "reject", "defer", "needs_owner"].includes(decision)) throw new Error("--decision must be adopt|reject|defer|needs_owner");
+      const r = applyRuling(resolve(runDir), item, { verify: str(a, "verify"), verifyNote: str(a, "verify-note"), decision, by: str(a, "by"), note: str(a, "note"), commit: str(a, "commit"), regress: str(a, "regress") });
+      console.log(`${r.id}: ${r.status}${r.decision ? ` (${r.decision} by ${r.ruled_by})` : ""}`);
+      return;
+    }
     case "checkpoint": {
       const runDir = str(a, "run"); const text = a._.slice(1).join(" ");
       if (!runDir || !text) throw new Error('usage: council checkpoint --run <dir> "text"');

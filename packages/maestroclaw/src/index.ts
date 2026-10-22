@@ -14,12 +14,15 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 
 // `maestroclaw council …` is the Council Runtime CLI and `maestroclaw skills …` the skills
 // indexer (neither needs Supabase); anything else starts the worker.
-if (process.argv[2] === "council" || process.argv[2] === "skills") {
+if (process.argv[2] === "council" || process.argv[2] === "skills" || process.argv[2] === "rate") {
   const sub = process.argv[2];
   try {
     if (sub === "council") {
       const { councilMain } = await import("./council/cli.js");
       await councilMain(process.argv.slice(3));
+    } else if (sub === "rate") {
+      const { rateMain } = await import("./rate/cli.js");
+      await rateMain(process.argv.slice(3));
     } else {
       const { skillsMain } = await import("./skills/index.js");
       await skillsMain(process.argv.slice(3));
