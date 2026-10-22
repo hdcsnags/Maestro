@@ -68,7 +68,8 @@ async function main() {
     log(`start the worker with:\n  SUPABASE_URL=${API} SUPABASE_ANON_KEY=… EXECUTOR_TOKEN=${token} node dist/index.js`);
   }
 
-  const sub = await fn(jwt, "submit", "POST", { prompt: PROMPT, adapter: ADAPTER, job_type: "code_task", timeout_seconds: 300, allowed_paths: ["**"] });
+  const JOB_TYPE = process.env.JOB_TYPE ?? "code_task";
+  const sub = await fn(jwt, "submit", "POST", { prompt: PROMPT, adapter: ADAPTER, job_type: JOB_TYPE, timeout_seconds: 300, allowed_paths: ["**"], context_bundle: { agent_name: `Local ${ADAPTER}`, smoke: true } });
   const job = sub.job as Record<string, unknown> | undefined;
   if (!job?.id) { log(`submit returned: ${JSON.stringify(sub).slice(0, 400)}`); throw new Error("no job id (approval required?)"); }
   log(`job submitted: ${job.id} status=${job.status}`);
