@@ -6,7 +6,7 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { RunManifest, SeatVerdict, VerdictItem } from "./types.js";
-import { describeAttestation } from "./verdict.js";
+import { describeAttestation, canonicalItemId } from "./verdict.js";
 
 export interface MatrixCell {
   stance: string;
@@ -32,8 +32,15 @@ export interface Matrix {
 
 const PUSHBACK = new Set(["disagree", "partial"]);
 
-function groundedItem(item: VerdictItem): boolean {
-  return Array.isArray(item.claims) && item.claims.some((c) => c && c.status === "verified");
+/**
+ * Grounded = the seat says it ran a verifier AND at least one claim is `verified` WITH evidence
+ * that is not "none". (2026-10-21 council, Q4: a claim marked verified with evidence "none" and
+ * ran_verifier false used to earn the mark.) Still self-reported; the manifest's harness-observed
+ * tool-call count is shown beside it so a reader can compare the two.
+ */
+function groundedItem(item: VerdictItem, ranVerifier: boolean): boolean {
+  if (!ranVerifier || !Array.isArray(item.claims)) return false;
+  return item.claims.some((c) => c && c.status === "verified" && typeof c.evidence === "string" && c.evidence.trim() !== "" && !/^(none|n\/a|-)$/i.test(c.evidence.trim()));
 }
 
 export function loadVerdicts(runDir: string): Record<string, SeatVerdict> {
@@ -47,13 +54,15 @@ export function loadVerdicts(runDir: string): Record<string, SeatVerdict> {
 }
 
 export function buildMatrix(runId: string, verdicts: Record<string, SeatVerdict>, manifest?: RunManifest): Matrix {
-  const seats = Object.keys(verdicts).sort();
+  // Every seat in the manifest is a column, so a failed, windowed or unparseable seat shows as a
+  // column of "·" with its status in the seats table instead of vanishing (2026-10-21 council, Q4).
+  const seats = [...new Set([...(manifest?.seats.map((s) => s.label) ?? []), ...Object.keys(verdicts)])].sort();
   const ids: string[] = [];
   const seen = new Set<string>();
   for (const s of seats) {
-    for (const it of verdicts[s].items ?? []) {
+    for (const it of verdicts[s]?.items ?? []) {
       if (!it || typeof it.id !== "string") continue;
-      const id = it.id.trim();
+      const id = canonicalItemId(it.id);
       if (!seen.has(id)) { seen.add(id); ids.push(id); }
     }
   }
@@ -69,10 +78,10 @@ export function buildMatrix(runId: string, verdicts: Record<string, SeatVerdict>
     const stances = new Set<string>();
     let pushback = 0, grounded_pushback = 0;
     for (const s of seats) {
-      const it = (verdicts[s].items ?? []).find((x) => x && typeof x.id === "string" && x.id.trim() === id);
+      const it = (verdicts[s]?.items ?? []).find((x) => x && typeof x.id === "string" && canonicalItemId(x.id) === id);
       if (!it) { cells[s] = null; continue; }
       const stance = String(it.stance ?? "").toLowerCase();
-      const grounded = groundedItem(it);
+      const grounded = groundedItem(it, verdicts[s]?.attestation?.ran_verifier === true);
       cells[s] = { stance, grounded, summary: String(it.summary ?? ""), ...(it.severity ? { severity: String(it.severity) } : {}) };
       if (stance) stances.add(stance);
       if (PUSHBACK.has(stance)) { pushback++; if (grounded) grounded_pushback++; }
@@ -82,11 +91,12 @@ export function buildMatrix(runId: string, verdicts: Record<string, SeatVerdict>
   const attestations: Matrix["attestations"] = {};
   for (const s of seats) {
     const rec = manifest?.seats.find((x) => x.label === s);
+    const observed = rec?.observed_tool_calls;
     attestations[s] = {
-      attestation: describeAttestation(verdicts[s]),
-      verdict: String(verdicts[s].verdict ?? ""),
+      attestation: verdicts[s] ? `${describeAttestation(verdicts[s])}${typeof observed === "number" ? ` · observed ${observed} tool line(s)` : ""}` : `no verdict (${rec?.verdict ?? "missing"})`,
+      verdict: String(verdicts[s]?.verdict ?? ""),
       elapsed_s: rec?.elapsed_s,
-      model: rec?.resolved_model ?? rec?.model ?? String(verdicts[s].seat ?? ""),
+      model: rec?.resolved_model ?? rec?.model ?? String(verdicts[s]?.seat ?? ""),
       status: rec?.status ?? "",
     };
   }

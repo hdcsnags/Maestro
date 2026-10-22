@@ -6,10 +6,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { execFileSync } from "node:child_process";
 import { join, basename, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { homedir, userInfo } from "node:os";
+import { homedir } from "node:os";
 import type { AdapterResult, OnLineFn } from "../adapters/types.js";
 import { makeAdapter, sandboxDeclaration } from "./seats.js";
-import { extractVerdict, reaskPrompt, withContract } from "./verdict.js";
+import { extractVerdict, reaskPrompt, reaskMissingPrompt, withContract } from "./verdict.js";
 import type { CouncilRunOptions, RunManifest, SeatRecord, SeatSpec, SeatStatus, UsageEntry } from "./types.js";
 
 /** Codex prints a startup banner (model/provider/approval/sandbox/session id) to stdout even in exec mode. */
@@ -77,7 +77,10 @@ export function makeCopy(opts: CouncilRunOptions, label: string): string {
   if (opts.noGit) {
     cpSync(opts.source, copy, { recursive: true, filter: (src) => !basename(src) || !SKIP_DIRS.has(basename(src)) });
   } else {
-    execFileSync("git", ["clone", "--no-hardlinks", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), opts.source, copy], { stdio: "pipe" });
+    // A plain local path makes git ignore --depth (full history lands in the seat copy — 2026-10-21
+    // council, Q7). A file:// URL makes the clone genuinely shallow.
+    const src = /^[a-z]+:\/\//i.test(opts.source) ? opts.source : `file://${resolve(opts.source).replace(/\\/g, "/")}`;
+    execFileSync("git", ["clone", "--no-hardlinks", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), src, copy], { stdio: "pipe" });
   }
   for (const f of INSTRUMENTATION) { const p = join(copy, f); if (existsSync(p)) rmSync(p); }
   return copy;
@@ -155,17 +158,21 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
   } catch (e) { res = { success: false, output: "", error: String(e) }; }
   let elapsedMs = Date.now() - t0;
 
-  // Verdict handling with one stateless re-ask for truncated blocks.
+  // Verdict handling with one stateless re-ask when the block is truncated, missing or unparseable.
   let ext = extractVerdict(res.output);
   let reasks = 0;
-  if (ext.status === "truncated" && opts.reaskTruncated && res.success) {
-    log(`${seat.label}: verdict truncated — re-asking for the block alone`);
+  if (ext.status !== "parsed" && opts.reaskTruncated && res.success && res.output.trim().length > 0) {
+    log(`${seat.label}: verdict ${ext.status} — re-asking for the block alone`);
     reasks = 1;
-    const again = await adapter.run(reaskPrompt(basePrompt, res.output), copy, Math.min(opts.timeoutMs, 10 * 60 * 1000));
+    const p = ext.status === "truncated" ? reaskPrompt(basePrompt, res.output) : reaskMissingPrompt(basePrompt, res.output, ext.error ?? ext.status);
+    const again = await adapter.run(p, copy, Math.min(opts.timeoutMs, 10 * 60 * 1000));
     elapsedMs = Date.now() - t0;
     const ext2 = extractVerdict(again.output);
     if (ext2.status === "parsed") { ext = ext2; res = { ...res, output: `${res.output}\n\n<!-- verdict block recovered by re-ask -->\n${again.output.slice(again.output.lastIndexOf("BEGIN VERDICT"))}` }; }
   }
+  // Harness-observed tool activity: lines in the raw CLI stream that look like tool/exec calls.
+  // Independent of the seat's self-reported attestation; shown beside it in the matrix.
+  const observedToolCalls = (rawStdout.match(/^(exec|tool|\s*\$ |\[tool\]|▶|Running:|Executing|Read\(|Bash\(|Grep\(|Edit\(|Write\()/gm) ?? []).length;
 
   // Read-only / patch verification.
   let ro = "clean";
@@ -210,6 +217,7 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
   const status = classifyExit(res, elapsedMs, opts.timeoutMs);
   rec.status = status; rec.success = res.success; rec.elapsed_s = Math.round(elapsedMs / 1000); rec.chars = res.output.length;
   rec.read_only = ro; rec.verdict = ext.status; rec.reasks = reasks; rec.finished_at = new Date().toISOString();
+  rec.observed_tool_calls = observedToolCalls;
   if (ext.status === "parsed") rec.attestation = ext.json?.attestation ?? { missing: true };
   if (res.error) rec.error = res.error.slice(-2000);
 
@@ -219,24 +227,33 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
     `# ${seat.label} — ${seat.adapter} (${seatModel}) — ${opts.runId}`, "",
     `- status: ${status}`, `- success: ${res.success}`, `- elapsed: ${rec.elapsed_s}s`, `- read-only verification: **${ro}**`,
     `- sandbox: ${rec.sandbox.mode} via \`${rec.sandbox.flag}\` (${rec.sandbox.verified ? "verified by CLI banner" : "declared, not verified"})`,
-    `- verdict block: ${ext.status}${reasks ? ` (after ${reasks} re-ask)` : ""}`, `- copy: ${copy}`,
+    `- verdict block: ${ext.status}${reasks ? ` (after ${reasks} re-ask)` : ""}`, `- observed tool lines: ${observedToolCalls}`,
     res.error ? `\n## adapter error\n\n\`\`\`\n${res.error.slice(-3000)}\n\`\`\`` : "", "", "## Output", "", res.output || "(no output)",
   ].join("\n"), "utf-8");
   rec.output_file = outFile;
   if (ext.status === "parsed") writeFileSync(join(opts.outDir, `${seat.label}-verdict.json`), JSON.stringify(ext.json, null, 1), "utf-8");
   else if (ext.raw) writeFileSync(join(opts.outDir, `${seat.label}-verdict.${ext.status}.txt`), ext.raw, "utf-8");
   saveManifest(opts.outDir, manifest);
-  appendUsage({ ts: new Date().toISOString(), run_id: opts.runId, project: opts.project, seat: seat.label, adapter: seat.adapter, model: seatModel, elapsed_s: rec.elapsed_s, chars: rec.chars, exit_class: status, started_by: safeUser() });
+  appendUsage({ ts: new Date().toISOString(), run_id: opts.runId, project: opts.project, seat: seat.label, adapter: seat.adapter, model: seatModel, elapsed_s: rec.elapsed_s, chars: rec.chars, exit_class: status, started_by: operatorLabel() });
   log(`${seat.label}: ${status} elapsed=${rec.elapsed_s}s chars=${rec.chars} read-only=${ro} verdict=${ext.status}`);
 }
 
-function safeUser(): string { try { return userInfo().username; } catch { return "unknown"; } }
+/** Who started the run, for the usage ledger. MAESTRO_OPERATOR (a label, not an OS username) or "operator". */
+function operatorLabel(): string { return process.env.MAESTRO_OPERATOR ?? "operator"; }
 
 export async function runCouncil(opts: CouncilRunOptions): Promise<RunManifest> {
-  const rawPrompt = readFileSync(opts.promptFile, "utf-8");
-  const prompt = opts.contract ? withContract(rawPrompt) : rawPrompt;
   mkdirSync(opts.outDir, { recursive: true });
-  writeFileSync(join(opts.outDir, "prompt.md"), prompt, "utf-8");
+  // Replay input is immutable: a resume re-reads the run's own frozen prompt.md, not the original
+  // file, which may have changed (2026-10-21 council, Q7).
+  const frozen = join(opts.outDir, "prompt.md");
+  let prompt: string;
+  if (opts.resume && existsSync(frozen)) {
+    prompt = readFileSync(frozen, "utf-8");
+  } else {
+    const rawPrompt = readFileSync(opts.promptFile, "utf-8");
+    prompt = opts.contract ? withContract(rawPrompt) : rawPrompt;
+    writeFileSync(frozen, prompt, "utf-8");
+  }
   const manifest = initManifest(opts, prompt);
   saveManifest(opts.outDir, manifest);
   const todo = opts.seats.filter((s) => manifest.seats.find((r) => r.label === s.label)?.status !== "done");

@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git -C '/c/New folder/MaestroOrchestra/project/Maestro' ls-files)"
-    ]
-  }
-}

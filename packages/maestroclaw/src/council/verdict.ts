@@ -62,28 +62,96 @@ export interface Extracted {
   error?: string;
 }
 
-/** Find the LAST verdict block (a seat may quote the contract back before answering). */
-export function extractVerdict(output: string): Extracted {
-  const b = output.lastIndexOf(BEGIN);
-  if (b < 0) return { status: "missing" };
-  const e = output.indexOf(END, b + BEGIN.length);
-  if (e < 0) return { status: "truncated", raw: output.slice(b + BEGIN.length).trim() };
-  let sec = output.slice(b + BEGIN.length, e).trim();
-  sec = sec.replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
-  try {
-    const json = JSON.parse(sec) as SeatVerdict;
-    if (!json || typeof json !== "object" || Array.isArray(json)) return { status: "unparseable", raw: sec, error: "verdict is not a JSON object" };
-    return { status: "parsed", json, raw: sec };
-  } catch (err) {
-    // One repair pass: trailing commas and smart quotes are the common offenders.
-    const repaired = sec.replace(/,\s*([}\]])/g, "$1").replace(/[“”]/g, '"');
-    try {
-      const json = JSON.parse(repaired) as SeatVerdict;
-      return { status: "parsed", json, raw: repaired };
-    } catch {
-      return { status: "unparseable", raw: sec, error: err instanceof Error ? err.message : String(err) };
+/**
+ * Schema check (2026-10-21 council, Q4: the parser accepted `{}`, `{"items":"bad"}` and `[1,]`).
+ * A verdict is an object whose `items` is an array of objects with string `id` and `stance`,
+ * whose `attestation` (if present) is an object, and whose values are not the contract's
+ * own `<placeholders>`.
+ */
+export function validateVerdict(v: unknown): string | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return "verdict is not a JSON object";
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.items)) return "items must be an array";
+  if (o.items.length === 0) return "items is empty";
+  for (const [i, it] of (o.items as unknown[]).entries()) {
+    if (!it || typeof it !== "object" || Array.isArray(it)) return `items[${i}] is not an object`;
+    const r = it as Record<string, unknown>;
+    if (typeof r.id !== "string" || !r.id.trim()) return `items[${i}].id missing`;
+    if (typeof r.stance !== "string" || !r.stance.trim()) return `items[${i}].stance missing`;
+    if (/^<.*>$/.test(r.id.trim()) || /^<.*>$/.test(r.stance.trim())) return `items[${i}] still holds a template placeholder`;
+    if (r.claims !== undefined) {
+      if (!Array.isArray(r.claims)) return `items[${i}].claims must be an array`;
+      for (const c of r.claims as unknown[]) if (!c || typeof c !== "object" || typeof (c as Record<string, unknown>).text !== "string") return `items[${i}].claims entry malformed`;
     }
   }
+  if (o.attestation !== undefined && (!o.attestation || typeof o.attestation !== "object" || Array.isArray(o.attestation))) return "attestation must be an object";
+  if (typeof o.seat === "string" && /^<.*>$/.test(o.seat.trim())) return "seat still holds the template placeholder";
+  return null;
+}
+
+/** Canonical item id: trimmed, uppercase for Q-numbered ids (`q1` and `Q1 ` are one row). */
+export function canonicalItemId(id: string): string {
+  const t = id.trim();
+  return /^q\d+/i.test(t) ? t.toUpperCase() : t;
+}
+
+function tryParse(sec: string): { json?: SeatVerdict; error?: string } {
+  const clean = sec.trim().replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
+  const attempts = [clean, clean.replace(/,\s*([}\]])/g, "$1").replace(/[“”]/g, '"')];
+  let lastErr = "";
+  for (const a of attempts) {
+    try {
+      const json = JSON.parse(a) as unknown;
+      const bad = validateVerdict(json);
+      if (bad) { lastErr = bad; continue; }
+      const v = json as SeatVerdict;
+      for (const it of v.items ?? []) it.id = canonicalItemId(it.id);
+      return { json: v };
+    } catch (err) { lastErr = err instanceof Error ? err.message : String(err); }
+  }
+  return { error: lastErr };
+}
+
+/**
+ * Find the verdict block. Blocks are scanned from the LAST backwards (a seat may quote the
+ * contract first), and the first one that parses AND validates wins — a trailing quoted
+ * template no longer overrides the real block. For each BEGIN, every following END is tried,
+ * so an END-delimiter string inside the JSON does not break parsing.
+ */
+export function extractVerdict(output: string): Extracted {
+  const begins: number[] = [];
+  for (let i = output.indexOf(BEGIN); i >= 0; i = output.indexOf(BEGIN, i + BEGIN.length)) begins.push(i);
+  if (!begins.length) return { status: "missing" };
+  let firstError: Extracted | null = null;
+  for (const b of [...begins].reverse()) {
+    const start = b + BEGIN.length;
+    const ends: number[] = [];
+    for (let e = output.indexOf(END, start); e >= 0; e = output.indexOf(END, e + END.length)) ends.push(e);
+    if (!ends.length) { if (!firstError) firstError = { status: "truncated", raw: output.slice(start).trim() }; continue; }
+    for (const e of ends) {
+      const sec = output.slice(start, e);
+      const r = tryParse(sec);
+      if (r.json) return { status: "parsed", json: r.json, raw: sec.trim() };
+      if (!firstError) firstError = { status: "unparseable", raw: sec.trim(), error: r.error };
+    }
+  }
+  return firstError ?? { status: "missing" };
+}
+
+/** Prompt for a stateless re-ask when the block was missing or unparseable (not truncated). */
+export function reaskMissingPrompt(originalPrompt: string, output: string, reason: string): string {
+  const tail = output.length > 20_000 ? output.slice(-20_000) : output;
+  return [
+    `Your previous reply to the brief below did not end with a valid BEGIN VERDICT … END VERDICT block (${reason}).`,
+    "Do NOT redo the analysis. Reply with ONLY the block, as valid JSON per the output contract in the brief: an object with seat, attestation, items (array of {id, stance, summary, claims}), verdict, open_questions. Keep summaries to one sentence.",
+    "",
+    "=== YOUR EARLIER REPLY ===",
+    tail,
+    "=== END OF EARLIER REPLY ===",
+    "",
+    "=== THE BRIEF (for reference) ===",
+    originalPrompt,
+  ].join("\n");
 }
 
 /** Prompt for a stateless re-ask: the seat gets its own cut-off reply and must emit only the block. */

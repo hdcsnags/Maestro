@@ -17,7 +17,7 @@ PYTHONIOENCODING=utf-8 node dist/index.js council run \
 ```
 - `council seats` lists the catalog (sol = codex default, astra = gpt-6-astra, gemini = gemini-4-argon-high, gemini38, opus = claude-opus-5-5-high via agy, kimi = kimi-code/k3, sonnet / fable5 = claude_code). Any seat: `label=adapter:model`.
 - `--no-git` copies a plain folder; without it the source is `git clone --depth 1` (untracked files are NOT seen by seats — commit first).
-- `--mode code` lets coder seats write in their own copy; the runtime emits `<seat>.patch` for `git apply --3way`. Codex workspace-write was broken on this Windows box on 2026-09-11; probe with a one-line write before trusting it.
+- `--mode code` runs each seat's session path (writes allowed in its own copy, never the source). With a git source the runtime emits `<seat>.patch` for `git apply --3way`; with `--no-git` (greenfield) it collects new/changed files into `<seat>-files/` + `<seat>-files.json`. Coder seats that work on this machine: `opus` / `sonnet55` / `gemini` via agy (2026-10-21: Opus 5.5 built a complete 3-file site, attested tests). Codex `workspace-write` still writes nothing here (0 files, "corpus_access denied", 2026-09-11 and 2026-10-21) — use Codex for audit seats only until a one-line write probe passes.
 - Outputs: `docs/audits/<project>/<run-id>/` → `prompt.md`, `<seat>.md`, `<seat>-verdict.json`, `manifest.json`, `matrix.md`, `CHECKPOINT.md`. Env overrides: `COUNCIL_OUT_ROOT`, `COUNCIL_SCRATCH` (per-seat copies; default `~/.maestroclaw/council/scratch`), `MAESTRO_COUNCIL_HOME`.
 - The old `scripts/council-dispatch.ts` still works as an env-driven shim (`SOURCE`, `PROMPT_FILE`, `SEATS`, `NO_GIT`, `MODE`).
 
@@ -33,6 +33,7 @@ The runtime appends the output contract (BEGIN VERDICT … END VERDICT with `att
 - `council status --run <dir>` — every seat `done`? A seat at `window` or `timeout` → `council resume --run <dir>` after the reset (see `usage-windows`).
 - `matrix.md` is written automatically when any verdict parsed; `council matrix --run <dir>` rebuilds it. Read the **verification queue** (pushback from ≥2 seats) and the **attestation** table: a seat with `ran_verifier=no` or `attestation missing` is read-only opinion. Grounding predicts quality more than generation (2026-09-06).
 - Verify every queued row yourself before it becomes a decision. Then write `SYNTHESIS.md` beside the outputs: settled / contested (name the axis) / unverifiable, decision list with defaults for Michael.
+- **Ruling ledger:** `council rule --run <dir>` seeds `rulings.json` from the matrix (one row per queued or contested item). Then per item: `--item Q3 --verify <who> --verify-note "…"` (you checked it), `--item Q3 --decision adopt|reject|defer|needs_owner --by michael`, `--item Q3 --commit <sha>` when the fix lands (status → fixed), `--item Q3 --regress <seat>` when a regression seat re-checks. Ruling before verifying is refused.
 - Log the run in `MAESTRO_STATE.md` (Rule 1).
 
 ## Known seat behaviour

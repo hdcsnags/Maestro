@@ -1,0 +1,76 @@
+{
+ "seat": "Claude Opus 5.5 (High)",
+ "attestation": {
+  "ran_verifier": true,
+  "tools_used": [
+   "shell",
+   "read",
+   "test"
+  ],
+  "files_read": 10,
+  "corpus_access": "not_applicable"
+ },
+ "items": [
+  {
+   "id": "Q1",
+   "stance": "agree",
+   "summary": "index.html, styles.css and script.js written with all required sections and no external scripts.",
+   "claims": [
+    {
+     "text": "Six menu items with CAD prices, hours table, address and contact form are present",
+     "status": "verified",
+     "evidence": "verify.mjs content check: menuItems x6, hasHours true, address present"
+    },
+    {
+     "text": "15 Persian spans all carry lang=fa and dir=rtl; html lang=en",
+     "status": "verified",
+     "evidence": "verify.mjs: faSpans 15, faAllRtl true"
+    },
+    {
+     "text": "Email validated client-side and thank-you shown without submitting",
+     "status": "verified",
+     "evidence": "verify.mjs form: 6 bad emails rejected, thanksShown true, formHidden true (computed display), navigated false"
+    }
+   ]
+  },
+  {
+   "id": "Q2",
+   "stance": "agree",
+   "summary": "At 375px emulated mobile there is no horizontal overflow and the layout is single-column; screenshots reviewed.",
+   "claims": [
+    {
+     "text": "scrollWidth equals clientWidth (375) with zero overflowing elements in light and dark",
+     "status": "verified",
+     "evidence": "node verify.mjs run 3 output"
+    },
+    {
+     "text": "Looks correct on a physical phone",
+     "status": "unverified",
+     "evidence": "none"
+    }
+   ]
+  },
+  {
+   "id": "Q3",
+   "stance": "agree",
+   "summary": "Emulated prefers-color-scheme dark switches all theme colours; screenshots of both schemes reviewed.",
+   "claims": [
+    {
+     "text": "Body background is rgb(23,17,12) in dark and rgb(251,246,238) in light, and matchMedia reports the scheme correctly",
+     "status": "verified",
+     "evidence": "verify.mjs Emulation.setEmulatedMedia results"
+    },
+    {
+     "text": "Behaves the same under a real OS dark-mode setting",
+     "status": "inferred",
+     "evidence": "none"
+    }
+   ]
+  }
+ ],
+ "verdict": "DONE",
+ "open_questions": [
+  "Street address and phone number are placeholders, not real bakery details",
+  "Not tested on physical devices or Safari"
+ ]
+}

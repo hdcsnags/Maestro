@@ -10,7 +10,7 @@ import type { RateRecord } from "../src/rate/ingest.js";
 
 test("rulings: seed from matrix, verify-before-rule enforced, lifecycle", () => {
   const verdicts = {
-    a: { items: [{ id: "Q1", stance: "agree", summary: "fine" }, { id: "Q2", stance: "disagree", summary: "bad", claims: [{ text: "t", status: "verified" }] }] },
+    a: { attestation: { ran_verifier: true }, items: [{ id: "Q1", stance: "agree", summary: "fine" }, { id: "Q2", stance: "disagree", summary: "bad", claims: [{ text: "t", status: "verified", evidence: "x.ts:1" }] }] },
     b: { items: [{ id: "Q1", stance: "agree", summary: "fine" }, { id: "Q2", stance: "partial", summary: "meh" }] },
   };
   const dir = mkdtempSync(join(tmpdir(), "rule-"));

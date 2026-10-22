@@ -61,6 +61,8 @@ export interface SeatRecord {
   patch_file?: string;
   copy_dir?: string;
   reasks?: number;
+  /** Harness-observed count of tool/exec lines in the raw CLI stream (independent of the seat's self-report). */
+  observed_tool_calls?: number;
 }
 
 export interface RunManifest {
