@@ -359,6 +359,8 @@ Deno.serve(async (req: Request) => {
         return json({ job: null });
       }
 
+      // Owner's jobs first; then jobs from accounts the owner shared this executor with
+      // (executor_grants, 2026-10-22), limited to the grant's job types.
       const { data: jobs } = await adminClient
         .from("executor_jobs")
         .select("*")
@@ -367,8 +369,22 @@ Deno.serve(async (req: Request) => {
         .in("adapter", capabilities.adapters)
         .order("created_at", { ascending: true })
         .limit(1);
+      if (jobs?.[0]) return json({ job: jobs[0] });
 
-      return json({ job: jobs?.[0] ?? null });
+      const grants = await loadActiveGrants(adminClient, executor.id);
+      for (const g of grants) {
+        const { data: shared } = await adminClient
+          .from("executor_jobs")
+          .select("*")
+          .eq("status", "approved")
+          .eq("requested_by", g.grantee_user_id)
+          .in("job_type", g.job_types)
+          .in("adapter", capabilities.adapters)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        if (shared?.[0]) return json({ job: shared[0] });
+      }
+      return json({ job: null });
     }
 
     if (req.method === "POST" && action === "claim") {
@@ -399,13 +415,22 @@ Deno.serve(async (req: Request) => {
         })
         .eq("id", job_id)
         .eq("status", "approved")
-        .eq("requested_by", executor.owner_user_id)
+        .in("requested_by", await allowedRequesters(adminClient, executor))
         .in("adapter", capabilities.adapters)
         .select()
         .maybeSingle();
 
       if (claimErr) return err(claimErr.message, 500);
       if (!job) return err("Job not available for claiming", 409);
+      // A grantee's job must also match the grant's job types (poll already filtered; re-check on claim).
+      if (job.requested_by !== executor.owner_user_id) {
+        const grants = await loadActiveGrants(adminClient, executor.id);
+        const g = grants.find((x) => x.grantee_user_id === job.requested_by);
+        if (!g || !g.job_types.includes(job.job_type)) {
+          await adminClient.from("executor_jobs").update({ status: "approved", executor_id: null, claimed_at: null, lease_expires_at: null }).eq("id", job_id);
+          return err("Job type not allowed by the executor grant", 403);
+        }
+      }
 
       await adminClient
         .from("executors")
@@ -1057,11 +1082,67 @@ Deno.serve(async (req: Request) => {
 
     // ── STATUS ────────────────────────────────────────────────
     // GET ?action=status  — list user's executors and recent jobs
+    // ── SHARE / UNSHARE / GRANTS (2026-10-22, executor_grants) ──
+    // POST ?action=share    body: { executor_id, email, job_types?, label? }   owner only
+    // POST ?action=unshare  body: { executor_id, grantee_user_id }             owner only
+    // GET  ?action=grants   → { given, received }
+    if (req.method === "POST" && (action === "share" || action === "unshare")) {
+      const bodyResult = await readJsonBody<{ executor_id?: string; email?: string; grantee_user_id?: string; job_types?: unknown; label?: string }>(req, corsHeaders, {
+        maxBytes: EXECUTOR_API_BODY_LIMITS.register,
+        label: "Executor share body",
+      });
+      if (bodyResult instanceof Response) return bodyResult;
+      const body = bodyResult;
+      if (!body.executor_id) return err("executor_id is required");
+      const { data: owned } = await adminClient.from("executors").select("id, name").eq("id", body.executor_id).eq("owner_user_id", userId).maybeSingle();
+      if (!owned) return err("Executor not found or not yours", 404);
+
+      if (action === "unshare") {
+        if (!body.grantee_user_id) return err("grantee_user_id is required");
+        const { error: revokeErr } = await adminClient.from("executor_grants")
+          .update({ revoked_at: new Date().toISOString() })
+          .eq("executor_id", body.executor_id).eq("grantee_user_id", body.grantee_user_id).is("revoked_at", null);
+        if (revokeErr) return err(revokeErr.message, 500);
+        return json({ ok: true });
+      }
+
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (!email || !email.includes("@")) return err("email is required");
+      const { data: granteeId, error: lookupErr } = await supabase.rpc("lookup_user_id_by_email", { p_email: email });
+      if (lookupErr) return err(lookupErr.message, 500);
+      if (!granteeId) return err("No Maestro account with that email yet — ask them to create one first", 404);
+      if (granteeId === userId) return err("That is your own account");
+      const jobTypes = normalizeStringArray(body.job_types);
+      const { data: grant, error: grantErr } = await adminClient.from("executor_grants")
+        .upsert({
+          executor_id: body.executor_id,
+          grantee_user_id: granteeId,
+          granted_by: userId,
+          ...(jobTypes.length ? { job_types: jobTypes } : {}),
+          label: typeof body.label === "string" ? body.label.slice(0, 120) : email,
+          revoked_at: null,
+        }, { onConflict: "executor_id,grantee_user_id" })
+        .select().maybeSingle();
+      if (grantErr) return err(grantErr.message, 500);
+      return json({ grant });
+    }
+
+    if (req.method === "GET" && action === "grants") {
+      const { data: given } = await adminClient.from("executor_grants")
+        .select("*, executors!inner(id, name, owner_user_id)")
+        .eq("executors.owner_user_id", userId).is("revoked_at", null);
+      const { data: received } = await adminClient.from("executor_grants")
+        .select("*, executors!inner(id, name, status, owner_user_id)")
+        .eq("grantee_user_id", userId).is("revoked_at", null);
+      return json({ given: given ?? [], received: received ?? [] });
+    }
+
     if (req.method === "GET" && action === "status") {
+      // Owned executors plus executors shared with the caller (the user client's RLS unions the
+      // owner policy and the grantee policy).
       const { data: executors } = await supabase
         .from("executors")
         .select("*")
-        .eq("owner_user_id", userId)
         .order("created_at", { ascending: false });
 
       const { data: recentJobs } = await adminClient
@@ -1413,6 +1494,23 @@ Deno.serve(async (req: Request) => {
 });
 
 // ── Token validation helper ─────────────────────────────────
+// ── Executor grants (2026-10-22) ─────────────────────────────────────────────
+interface ExecutorGrantRow { grantee_user_id: string; job_types: string[] }
+
+async function loadActiveGrants(adminClient: ReturnType<typeof createClient>, executorId: string): Promise<ExecutorGrantRow[]> {
+  const { data } = await adminClient
+    .from("executor_grants")
+    .select("grantee_user_id, job_types")
+    .eq("executor_id", executorId)
+    .is("revoked_at", null);
+  return ((data ?? []) as ExecutorGrantRow[]).map((g) => ({ grantee_user_id: g.grantee_user_id, job_types: Array.isArray(g.job_types) ? g.job_types : [] }));
+}
+
+async function allowedRequesters(adminClient: ReturnType<typeof createClient>, executor: { id: string; owner_user_id: string }): Promise<string[]> {
+  const grants = await loadActiveGrants(adminClient, executor.id);
+  return [executor.owner_user_id, ...grants.map((g) => g.grantee_user_id)];
+}
+
 // Validates the X-Executor-Token header against the executor's token_hash.
 // Returns the executor record, or an error Response.
 async function validateExecutorToken(
