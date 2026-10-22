@@ -48,6 +48,9 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | Claw Mode chat | `src/components/reveal/ClawMode.tsx` |
 | Thread hook | `src/hooks/useThreads.ts` |
 | Claw Mode spec | `docs/specs/active/CLAW_MODE_SPEC.md` |
+| Council Runtime (2026-10-21) | `packages/maestroclaw/src/council/{cli,run,seats,verdict,matrix,rule}.ts` — `maestroclaw council run|resume|status|matrix|rule|checkpoint|usage|seats`; runs land in `docs/audits/<project>/<run-id>/` |
+| Skills + Rate | `skills/*/SKILL.md` (Agent Skills format; `maestroclaw skills sync` → `skills/index.json` + `.claude/skills` pointers); `packages/maestroclaw/src/rate/` → `grading-lab/rate/` |
+| Local council seat (web ↔ Claw) | `packages/maestroclaw/src/council-seat.ts` (worker) + `executor-api` `complete` (writes the `responses` row) |
 | Claw UI issues | `docs/specs/archive/CLAW_UI_ISSUES.md` |
 
 ## Edge Functions
@@ -68,7 +71,7 @@ It exists because no tool lets one person direct an entire AI orchestra from ide
 | `github-read` | Read repo tree/files |
 | `github-execute` | Branch, commit, PR creation from patches |
 | `vault` | API key CRUD (BYOK) |
-| `executor-api` | MaestroClaw control plane (register, heartbeat, claim, complete, events) |
+| `executor-api` | MaestroClaw control plane (register, heartbeat, claim, complete, events). Job types: `code_task` (default), `build_session`, `council_seat` (2026-10-22: a local CLI seat on a web council round — on `complete` the seat's reply is inserted as a primary `responses` row for `context_bundle.round_id`, provider `maestroclaw`) |
 | `repo-memory-update` | Per-repo persistent memory CRUD (get/summarize/update_direct/forget) — DIFF-02 |
 
 ## Database (21 active tables)

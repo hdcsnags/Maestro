@@ -53,3 +53,17 @@ verify_jwt = false
 
 [functions."iteration-init"]
 verify_jwt = true
+
+# Local-dev ports moved off 5432x (2026-10-22): the Android emulator/adb on this machine holds
+# 54321/54325/54327 as client sockets, so the default bindings fail. Hosted deploys ignore these.
+[api]
+port = 56321
+[db]
+port = 56322
+shadow_port = 56320
+[studio]
+port = 56323
+[inbucket]
+port = 56324
+[analytics]
+port = 56327

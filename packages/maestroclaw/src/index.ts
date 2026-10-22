@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { heartbeat, pollForJob, claimJob, pollForLoop, claimLoop, type ExecutorCapabilities } from "./api.js";
 import { checkAdapters } from "./adapters/index.js";
 import { executeJob, executeSessionJob } from "./executor.js";
+import { executeCouncilSeatJob } from "./council-seat.js";
 import { setIncidentService } from "./executor.js";
 import { IncidentService } from "./lib/kernel/incident-service.js";
 import { runIterationLoop } from "./iteration/runner.js";
@@ -112,7 +113,9 @@ async function main() {
           // Fire-and-forget — do not await; poll loop continues immediately
           const jobRunner = claimed.job_type === "build_session"
             ? executeSessionJob(config, claimed)
-            : executeJob(config, claimed);
+            : claimed.job_type === "council_seat"
+              ? executeCouncilSeatJob(config, claimed)
+              : executeJob(config, claimed);
 
           void jobRunner
             .catch((err: unknown) => {

@@ -503,7 +503,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: job } = await adminClient
         .from("executor_jobs")
-        .select("id, executor_id, build_task_id")
+        .select("id, executor_id, build_task_id, job_type, requested_by, context_bundle")
         .eq("id", job_id)
         .eq("executor_id", executor.id)
         .maybeSingle();
@@ -548,12 +548,59 @@ Deno.serve(async (req: Request) => {
           .eq("id", job.build_task_id);
       }
 
+      // council_seat (2026-10-22): a local CLI seat on a web council round. Land the seat's
+      // reply as a primary `responses` row for the round so the carousel, deliberation and
+      // synthesis treat it like a cloud response. The round must belong to the requesting user.
+      const bundle = (job.context_bundle ?? {}) as Record<string, unknown>;
+      let seatResponseId: string | null = null;
+      if (job.job_type === "council_seat" && typeof bundle.round_id === "string") {
+        const manifest = (artifact_manifest ?? {}) as Record<string, unknown>;
+        const content = typeof manifest.content === "string" && manifest.content.length > 0
+          ? manifest.content
+          : (success ? (result_summary ?? "") : `Local seat failed: ${error_text ?? "no output"}`);
+        const { data: round } = await adminClient
+          .from("rounds")
+          .select("id, sessions!inner(workspace_id, workspaces!inner(user_id))")
+          .eq("id", bundle.round_id)
+          .maybeSingle();
+        const roundOwner = (round as { sessions?: { workspaces?: { user_id?: string } } } | null)?.sessions?.workspaces?.user_id;
+        if (round && roundOwner === job.requested_by) {
+          const { data: inserted } = await adminClient
+            .from("responses")
+            .insert({
+              round_id: bundle.round_id,
+              user_id: job.requested_by,
+              agent_id: typeof bundle.agent_id === "string" ? bundle.agent_id : null,
+              agent_name: typeof bundle.agent_name === "string" ? bundle.agent_name : `Local ${String(manifest.adapter ?? "seat")}`,
+              agent_role: typeof bundle.agent_role === "string" ? bundle.agent_role : "Local CLI seat",
+              agent_color: typeof bundle.agent_color === "string" ? bundle.agent_color : "#c9a84c",
+              provider: "maestroclaw",
+              model: typeof manifest.model === "string" && manifest.model ? `${String(manifest.adapter ?? "")}:${manifest.model}` : String(manifest.adapter ?? "local"),
+              content,
+              title: typeof bundle.title === "string" ? bundle.title : "",
+              signals: {
+                local_seat: true,
+                executor_job_id: job.id,
+                success,
+                verdict_status: manifest.verdict_status ?? null,
+                ...(manifest.verdict && typeof manifest.verdict === "object" ? { verdict: manifest.verdict } : {}),
+              },
+              kind: "primary",
+            })
+            .select("id")
+            .maybeSingle();
+          seatResponseId = (inserted as { id?: string } | null)?.id ?? null;
+        } else {
+          console.warn(`[executor-api] council_seat job ${job.id} names round ${String(bundle.round_id)} not owned by requester; response not written`);
+        }
+      }
+
       await adminClient
         .from("executors")
         .update({ status: "online", updated_at: now })
         .eq("id", executor.id);
 
-      return json({ ok: true, status: finalStatus });
+      return json({ ok: true, status: finalStatus, ...(seatResponseId ? { response_id: seatResponseId } : {}) });
     }
 
     // ── POLL_LOOP ──────────────────────────────────────────────
