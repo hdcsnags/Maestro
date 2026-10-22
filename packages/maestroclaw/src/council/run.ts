@@ -139,8 +139,9 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
     prompt = `Read COUNCIL_PROMPT.md in your working directory and carry out the task it describes.${opts.mode === "audit" ? " Do not modify any file." : ""}`;
   }
   const decl = sandboxDeclaration(seat, opts.mode);
+  // Codex 0.163 prints its startup banner (model, sandbox, session id) on STDERR; capture both.
   let rawStdout = "";
-  const onLine: OnLineFn = (type, line) => { if (type === "stdout" && rawStdout.length < 200_000) rawStdout += line + "\n"; };
+  const onLine: OnLineFn = (_type, line) => { if (rawStdout.length < 200_000) rawStdout += line + "\n"; };
 
   log(`${seat.label}: dispatching ${seat.adapter} (${seat.model ?? "default"}) in ${copy}`);
   const t0 = Date.now();

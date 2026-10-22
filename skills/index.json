@@ -1,0 +1,60 @@
+{
+  "schema": "maestro.skills.index/1",
+  "generated_at": "2026-10-22T01:38:30.132Z",
+  "skills": [
+    {
+      "name": "concierge",
+      "description": "Cold-start as the Maestro concierge — the model that reads the state, briefs and dispatches the council through the Council Runtime, verifies every claim, decides within its autonomy, builds, and keeps MAESTRO_STATE.md. Use at the start of any session in the Maestro repo or when a task involves calling the council.",
+      "harness": [
+        "claude_code",
+        "codex_cli",
+        "agy_cli"
+      ],
+      "path": "skills/concierge/SKILL.md"
+    },
+    {
+      "name": "council",
+      "description": "Dispatch the model council (Sol, Astra, Gemini 4 Argon, Opus 5.5, Kimi, Sonnet, Fable) on any project folder through the Council Runtime (`maestroclaw council`) for a read-only study or a write-capable coding round — brief template, seats, verdict contract, matrix, resume after usage windows, and what to verify before a row becomes a decision.",
+      "harness": [
+        "claude_code",
+        "codex_cli",
+        "agy_cli",
+        "any"
+      ],
+      "path": "skills/council/SKILL.md"
+    },
+    {
+      "name": "discovery-intake",
+      "description": "Run a software discovery intake with a non-developer — a prospective client, a partner, or someone bringing an app idea — conversationally, a few questions at a time, and write a structured intake record the council can scope, price and plan from. Use when someone says \"I have an app idea\", books a discovery call, or the composer's Discovery intent fires.",
+      "harness": [
+        "any"
+      ],
+      "path": "skills/discovery-intake/SKILL.md"
+    },
+    {
+      "name": "harvest",
+      "description": "Turn the \"takeaways\" paragraphs of a session-log entry into skill proposals — repeatable procedures only, never facts about the codebase — and land them as a reviewable diff under skills/ with the entry that justified them, so the next agent inherits the procedure instead of rediscovering it.",
+      "harness": [
+        "claude_code",
+        "codex_cli"
+      ],
+      "path": "skills/harvest/SKILL.md"
+    },
+    {
+      "name": "usage-windows",
+      "description": "What to do when a council or coder seat hits a usage window, quota or payload cap mid-run — recognise it from the seat status, keep working, and resume the same run after the reset with `council resume`.",
+      "harness": [
+        "any"
+      ],
+      "path": "skills/usage-windows/SKILL.md"
+    },
+    {
+      "name": "verify-before-close",
+      "description": "The verify-before-close loop that is Maestro's actual product — how a round, gate or fix pass is closed: an independent verifier from a different model and harness, mechanical hollow-green checks (zero-test suites, swallowed exit codes, byte-identical evidence), per-claim confirmation, and what \"closed with evidence\" means in a state file.",
+      "harness": [
+        "any"
+      ],
+      "path": "skills/verify-before-close/SKILL.md"
+    }
+  ]
+}

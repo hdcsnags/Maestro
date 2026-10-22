@@ -75,12 +75,20 @@ export async function councilMain(argv: string[]): Promise<void> {
       const label = str(a, "label", "LABEL") ?? "council";
       const runId = str(a, "run-id", "RUN_ID") ?? `${new Date().toISOString().slice(0, 10)}-${label}`;
       const outRoot = str(a, "out", "OUT_ROOT") ?? defaultOutRoot(project);
+      // --skills prepends the skills index (name + description + path) so seats know which procedures exist.
+      let seatPreamble: CouncilRunOptions["seatPreamble"];
+      if (bool(a, "skills")) {
+        const { findSkillsRoot, loadSkills, renderIndexForBrief } = await import("../skills/index.js");
+        const root = findSkillsRoot(resolve(source)) ?? findSkillsRoot();
+        if (root) { const idx = renderIndexForBrief(loadSkills(root)); seatPreamble = () => idx; }
+      }
       const opts: CouncilRunOptions = {
         source: resolve(source), promptFile: resolve(promptFile), seats, mode,
         noGit: bool(a, "no-git", "NO_GIT"), branch: str(a, "branch", "BRANCH"),
         project, label, runId, outDir: join(outRoot, runId), scratchRoot: str(a, "scratch", "COUNCIL_SCRATCH") ?? defaultScratchRoot(),
         timeoutMs: Number(str(a, "timeout-min", "TIMEOUT_MIN") ?? 25) * 60 * 1000,
         contract: !bool(a, "no-contract"), reaskTruncated: !bool(a, "no-reask"), resume: bool(a, "resume"),
+        ...(seatPreamble ? { seatPreamble } : {}),
       };
       const m = await runCouncil(opts);
       if (m.seats.some((s) => s.verdict === "parsed")) { writeMatrix(opts.outDir); log(`matrix → ${join(opts.outDir, "matrix.md")}`); }

@@ -12,13 +12,20 @@ import { createConductorRun } from "./conductor/index.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
-// `maestroclaw council …` is the Council Runtime CLI (no Supabase needed); anything else starts the worker.
-if (process.argv[2] === "council") {
-  const { councilMain } = await import("./council/cli.js");
+// `maestroclaw council …` is the Council Runtime CLI and `maestroclaw skills …` the skills
+// indexer (neither needs Supabase); anything else starts the worker.
+if (process.argv[2] === "council" || process.argv[2] === "skills") {
+  const sub = process.argv[2];
   try {
-    await councilMain(process.argv.slice(3));
+    if (sub === "council") {
+      const { councilMain } = await import("./council/cli.js");
+      await councilMain(process.argv.slice(3));
+    } else {
+      const { skillsMain } = await import("./skills/index.js");
+      await skillsMain(process.argv.slice(3));
+    }
   } catch (err) {
-    console.error(`[council] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[${sub}] FAILED: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
   process.exit(0);
