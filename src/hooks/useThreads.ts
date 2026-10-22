@@ -5,7 +5,7 @@ import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
 import { useOrchestration } from './useOrchestration';
 import { useDeliberation } from './useDeliberation';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session, ConversationBackend } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, Executor, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session, ConversationBackend } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
 import { CONCIERGE_MODELS } from '../types';
 import { selectOnlineExecutor } from '../lib/sessionBuild';
@@ -361,6 +361,9 @@ const PLAN_CARD_TITLES: Record<ThreadPlanCardKind, string> = {
   lane: 'Lane assignment',
   spec_lock: 'Lock and start build',
 };
+
+// Bound on the fresh executors re-read a routing decision makes when state looks empty/stale.
+const EXECUTOR_REFRESH_TIMEOUT_MS = 12_000;
 
 export function useThreads() {
   const { state, dispatch } = useMaestro();
@@ -940,25 +943,70 @@ export function useThreads() {
     return { ok: false, error, message: placeholder };
   }, [state.conciergeAdapter, state.conciergeLocalModel, addMessage, dispatch]);
 
+  // Re-read the executors table (bounded by a 12 s abort) and push it into state.
+  // Returns null when the list could not be confirmed (timeout / error / signed out).
+  const fetchExecutorsFresh = useCallback(async (): Promise<Executor[] | null> => {
+    if (!user) return null;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), EXECUTOR_REFRESH_TIMEOUT_MS);
+    try {
+      const { data, error } = await supabase
+        .from('executors')
+        .select('*')
+        .eq('owner_user_id', user.id)
+        .order('created_at', { ascending: false })
+        .abortSignal(controller.signal);
+      if (error || !data) return null;
+      const executors = data as Executor[];
+      dispatch({ type: 'SET_EXECUTORS', payload: executors });
+      return executors;
+    } catch {
+      return null;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }, [user, dispatch]);
+
+  // The executor list a routing decision should trust. `state.executors` is empty or
+  // stale right after sign-in (the hosted REST API has answered in 4-7 s), so when it
+  // shows nobody online for `adapter`, re-read the table before concluding "offline".
+  // `confirmed` is false only when that re-read itself failed.
+  const confirmOnlineExecutors = useCallback(async (
+    adapter?: string,
+  ): Promise<{ executors: Executor[]; confirmed: boolean }> => {
+    if (selectOnlineExecutor(state.executors, adapter)) {
+      return { executors: state.executors, confirmed: true };
+    }
+    const fresh = await fetchExecutorsFresh();
+    if (!fresh) return { executors: state.executors, confirmed: false };
+    return { executors: fresh, confirmed: true };
+  }, [state.executors, fetchExecutorsFresh]);
+
   // Which backend this turn runs on, posting a one-line card when the claw is offline.
   const resolveTurnBackend = useCallback(async (
     threadId: string,
     override: ConversationBackend | undefined,
   ): Promise<ConversationBackend> => {
     const chosen = override ?? state.conversationBackend;
-    const { backend, clawOffline } = resolveEffectiveBackend(chosen, state.executors, state.conciergeAdapter);
+    if (chosen !== 'claw') return 'cloud';
+    const { executors, confirmed } = await confirmOnlineExecutors(state.conciergeAdapter);
+    const { backend, clawOffline } = resolveEffectiveBackend(chosen, executors, state.conciergeAdapter);
     if (clawOffline) {
       await addSystemEvent(threadId, {
         kind: 'info',
         system_event: {
           tone: 'info',
-          title: 'Local executor offline — answering in the cloud',
-          body: `No online MaestroClaw executor advertises ${state.conciergeAdapter}. This turn uses ${state.conciergeModel} through the cloud. Start the worker to route turns locally again.`,
+          title: confirmed
+            ? 'Local executor offline — answering in the cloud'
+            : 'Executor list could not be confirmed — answering in the cloud',
+          body: confirmed
+            ? `No online MaestroClaw executor advertises ${state.conciergeAdapter}. This turn uses ${state.conciergeModel} through the cloud. Start the worker to route turns locally again.`
+            : `Maestro could not read the executor list within ${EXECUTOR_REFRESH_TIMEOUT_MS / 1000}s, so it cannot tell whether a MaestroClaw worker advertising ${state.conciergeAdapter} is online. This turn uses ${state.conciergeModel} through the cloud; the next turn checks again.`,
         },
       });
     }
     return backend;
-  }, [state.conversationBackend, state.executors, state.conciergeAdapter, state.conciergeModel, addSystemEvent]);
+  }, [state.conversationBackend, state.conciergeAdapter, state.conciergeModel, confirmOnlineExecutors, addSystemEvent]);
 
   // Send a message to the concierge and get a response
   const sendToConcierge = useCallback(async (
@@ -1477,19 +1525,19 @@ export function useThreads() {
   ): Promise<void> => {
     if (!user || !state.activeSession) return;
 
-    // Pre-flight: check that at least one executor is online before burning an LLM call
-    const hasOnlineExecutor = state.executors.some(ex => {
-      if (ex.status !== 'online') return false;
-      if (!ex.last_seen_at) return false;
-      return Date.now() - new Date(ex.last_seen_at).getTime() < 60_000;
-    });
-    if (!hasOnlineExecutor) {
+    // Pre-flight: check that at least one executor is online before burning an LLM call.
+    // State can be stale right after sign-in, so re-read the table before refusing.
+    const preflight = await confirmOnlineExecutors();
+    let executors = preflight.executors;
+    if (!selectOnlineExecutor(executors)) {
       await addSystemEvent(threadId, {
         kind: 'error_retry',
         system_event: {
           tone: 'error',
-          title: 'No executor online',
-          body: 'Start MaestroClaw on your local machine, then try again. Check the Vault → Executors panel for status.',
+          title: preflight.confirmed ? 'No executor online' : 'Executor list could not be confirmed',
+          body: preflight.confirmed
+            ? 'Start MaestroClaw on your local machine, then try again. Check the Vault → Executors panel for status.'
+            : `Maestro could not read the executor list within ${EXECUTOR_REFRESH_TIMEOUT_MS / 1000}s. Check your connection and the Vault → Executors panel, then try again.`,
         },
       });
       return;
@@ -1551,9 +1599,12 @@ export function useThreads() {
 
       // An executor being online is not enough: it must advertise the adapter
       // this intent needs, or the job would sit in the queue unclaimed.
-      if (!selectOnlineExecutor(state.executors, intent.adapter)) {
+      if (!selectOnlineExecutor(executors, intent.adapter)) {
+        executors = (await confirmOnlineExecutors(intent.adapter)).executors;
+      }
+      if (!selectOnlineExecutor(executors, intent.adapter)) {
         const advertised = Array.from(new Set(
-          state.executors
+          executors
             .filter((ex) => selectOnlineExecutor([ex]))
             .flatMap((ex) => Array.isArray(ex.capabilities?.adapters) ? ex.capabilities.adapters : [])
             .filter((value): value is string => typeof value === 'string'),
@@ -1646,7 +1697,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.executors, state.providerConnections, addMessage, addSystemEvent, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
+  }, [user, state.activeSession, state.providerConnections, confirmOnlineExecutors, addMessage, addSystemEvent, parseExecutionIntent, submitExecutionJob, pollJobStatus, dispatch]);
 
   const activateBuildRunway = useCallback(async (
     threadId: string,
@@ -1824,12 +1875,16 @@ export function useThreads() {
 
     // Local (MaestroClaw) agents join the council when the conversation backend is the
     // claw and an online executor advertises their adapter; cloud agents always do.
-    const clawCouncil = resolveEffectiveBackend(state.conversationBackend, state.executors, state.conciergeAdapter).backend === 'claw';
+    // Same refreshed check as resolveTurnBackend: do not drop local seats on a stale list.
+    const councilExecutors = state.conversationBackend === 'claw'
+      ? (await confirmOnlineExecutors(state.conciergeAdapter)).executors
+      : state.executors;
+    const clawCouncil = resolveEffectiveBackend(state.conversationBackend, councilExecutors, state.conciergeAdapter).backend === 'claw';
     const seats = state.agents.filter((agent) => {
       if (!agent.is_active || agent.agent_role === 'executor') return false;
       if (agent.provider_group !== 'maestroclaw') return true;
       const adapter = resolveSeatAdapter(agent);
-      return clawCouncil && !!adapter && isExecutorOnlineFor(state.executors, adapter);
+      return clawCouncil && !!adapter && isExecutorOnlineFor(councilExecutors, adapter);
     });
     if (seats.length === 0) {
       await addSystemEvent(conciergeThread.id, {
@@ -1950,7 +2005,7 @@ export function useThreads() {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
       dispatch({ type: 'SET_IS_BRAINSTORMING', payload: false });
     }
-  }, [user, state.activeSession, state.isBroadcasting, state.isBrainstorming, state.agents, state.conversationBackend, state.executors, state.conciergeAdapter, ensureConciergeThread, addMessage, addSystemEvent, createThread, broadcast, dispatch]);
+  }, [user, state.activeSession, state.isBroadcasting, state.isBrainstorming, state.agents, state.conversationBackend, state.executors, state.conciergeAdapter, confirmOnlineExecutors, ensureConciergeThread, addMessage, addSystemEvent, createThread, broadcast, dispatch]);
 
   // ─── Discovery intent ───────────────────────────────────────────
   // One 'discovery' thread per session. The intake record lives in the latest

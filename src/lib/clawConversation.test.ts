@@ -8,6 +8,7 @@ import {
   stripVerdictBlock,
 } from './clawConversation';
 import { buildLocalSeatPrompt } from './localSeatPrompt';
+import { isExecutorOnline } from './sessionBuild';
 import { buildLocalSynthesisPrompt, parseLocalSynthesis } from './localSynthesisPrompt';
 import type { Executor } from '../types';
 
@@ -56,6 +57,14 @@ describe('resolveEffectiveBackend', () => {
     expect(resolveEffectiveBackend('claw', [executor(['codex_cli'])], 'claude_code')).toEqual({ backend: 'cloud', clawOffline: true });
     expect(resolveEffectiveBackend('claw', [executor(['claude_code'], 120_000)], 'claude_code')).toEqual({ backend: 'cloud', clawOffline: true });
     expect(resolveEffectiveBackend('cloud', [executor(['claude_code'])], 'claude_code')).toEqual({ backend: 'cloud', clawOffline: false });
+  });
+
+  it('treats a heartbeat up to 120 s old as online (the REST API has answered in 4-7 s)', () => {
+    expect(resolveEffectiveBackend('claw', [executor(['claude_code'], 90_000)], 'claude_code')).toEqual({ backend: 'claw', clawOffline: false });
+    expect(isExecutorOnline({ ...executor(['claude_code'], 0, 'offline') })).toBe(false);
+    // No last_seen_at: fall back to updated_at.
+    const viaUpdatedAt = { ...executor(['claude_code']), last_seen_at: null, updated_at: new Date(Date.now() - 30_000).toISOString() };
+    expect(isExecutorOnline(viaUpdatedAt)).toBe(true);
   });
 });
 

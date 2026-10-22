@@ -344,25 +344,42 @@ export default function RevealComposer(_props: Props) {
 
     clearPrompt();
 
-    const context = await ensureThreadContext();
-    if (!context) return;
+    // Do not go through ensureThreadContext here: it switches the view to the concierge
+    // thread, and this handler's `state.activeThread` closure then still reports the
+    // previous execution thread, so the run was reused while the view stayed on the
+    // (often empty) concierge thread. Execution stays in its own thread; the concierge
+    // only gets a one-line note that links to it.
+    const session = await ensureSessionForIntent();
+    if (!session) return;
+    const conciergeThread = await ensureConciergeThread(session.id);
 
-    let executionThreadId = context.thread.id;
-    if (state.activeThread?.type === 'execution') {
-      executionThreadId = state.activeThread.id;
-    } else {
-      const executionThread = await createThread(context.sessionId, 'execution', {
+    let executionThread: Thread | null = state.activeThread?.type === 'execution' ? state.activeThread : null;
+    if (!executionThread) {
+      executionThread = await createThread(session.id, 'execution', {
         title: `Execute: ${text.slice(0, 50)}`,
       });
-      if (executionThread) {
-        executionThreadId = executionThread.id;
-        dispatch({ type: 'SET_ACTIVE_THREAD', payload: executionThread });
-      }
+    }
+    const executionThreadId = executionThread?.id ?? conciergeThread?.id;
+    if (!executionThreadId) return;
+
+    if (executionThread) {
+      dispatch({ type: 'SET_ACTIVE_THREAD', payload: executionThread });
+      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
+      dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
+      await loadThreadMessages(executionThreadId);
+    }
+
+    if (conciergeThread && conciergeThread.id !== executionThreadId) {
+      await addMessage(conciergeThread.id, 'system', `Ran \`${text.slice(0, 80)}\` on the Claw`, undefined, {
+        kind: 'info',
+        system_event: { tone: 'info', title: `Ran \`${text.slice(0, 80)}\` on the Claw` },
+        thread_link: { thread_id: executionThreadId, label: 'open' },
+      });
     }
 
     await executeFromChat(executionThreadId, text);
     await loadThreadMessages(executionThreadId);
-  }, [prompt, state.isConciergeSending, state.activeThread, clearPrompt, ensureThreadContext, createThread, dispatch, executeFromChat, loadThreadMessages]);
+  }, [prompt, state.isConciergeSending, state.activeThread, clearPrompt, ensureSessionForIntent, ensureConciergeThread, createThread, dispatch, loadThreadMessages, addMessage, executeFromChat]);
 
   const handleBuild = useCallback(async () => {
     const text = prompt.trim();

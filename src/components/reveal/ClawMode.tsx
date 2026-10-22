@@ -35,6 +35,13 @@ export default function ClawMode() {
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initializedSessionRef = useRef<string | null>(null);
+  // The init effect below must run once per session, never because a hook callback
+  // changed identity (useThreads re-creates them on every thread/session change) and
+  // never because the user opened another thread. Read the latest instances via refs.
+  const threadApiRef = useRef({ createSession, loadThreads, ensureConciergeThread, loadThreadMessages });
+  threadApiRef.current = { createSession, loadThreads, ensureConciergeThread, loadThreadMessages };
+  const activeThreadRef = useRef(state.activeThread);
+  activeThreadRef.current = state.activeThread;
 
   const clawView = state.clawView as ClawView;
   const focusedAgent = useMemo(
@@ -248,41 +255,48 @@ export default function ClawMode() {
           helper: 'text-white/60',
           busyIcon: 'bg-gold/10 text-gold/60',
         };
-  // Initialize per session: load persisted threads + ensure concierge thread
+  // Initialize per session: load persisted threads + ensure concierge thread.
+  // Keyed on the session only. Previously this also depended on the useThreads
+  // callbacks and on activeThread.session_id, so any thread change (an Execute send
+  // creating its thread, a sidebar click) could re-run it and pull the view back to
+  // the concierge thread while a job was still running.
+  const activeSessionId = state.activeSession?.id;
+  const workspaceId = state.workspace?.id;
   useEffect(() => {
     let cancelled = false;
     const init = async () => {
-      let sessionId = state.activeSession?.id;
-      if (!sessionId && state.workspace) {
-        const session = await createSession(state.workspace.id, 'ask');
+      const api = threadApiRef.current;
+      let sessionId = activeSessionId;
+      if (!sessionId && workspaceId) {
+        const session = await api.createSession(workspaceId, 'ask');
         if (!session || cancelled) return;
         sessionId = session.id;
       }
       if (!sessionId || cancelled) return;
+      if (initializedSessionRef.current === sessionId) return;
 
-      const alreadyInitialized = initializedSessionRef.current === sessionId;
-      if (alreadyInitialized && state.activeThread?.session_id === sessionId) {
-        return;
-      }
-
-      await loadThreads(sessionId);
+      const threads = await api.loadThreads(sessionId);
       if (cancelled) return;
 
-      const thread = await ensureConciergeThread(sessionId);
+      // Prefer the row we just loaded so two overlapping runs cannot each create one.
+      const thread = threads.find(t => t.type === 'concierge' && t.status === 'active')
+        ?? await threadApiRef.current.ensureConciergeThread(sessionId);
       if (!thread || cancelled) return;
 
       initializedSessionRef.current = sessionId;
+      // A thread already opened for this session (sidebar click, Execute send) keeps the view.
+      if (activeThreadRef.current?.session_id === sessionId) return;
       dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
       dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-      await loadThreadMessages(thread.id);
+      await api.loadThreadMessages(thread.id);
     };
     void init();
 
     return () => {
       cancelled = true;
     };
-  }, [state.activeSession?.id, state.workspace?.id, state.activeThread?.session_id, createSession, loadThreads, ensureConciergeThread, loadThreadMessages, dispatch]);
+  }, [activeSessionId, workspaceId, dispatch]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -363,22 +377,22 @@ export default function ClawMode() {
     await synthesize(latestRound.id);
   }, [state.isSynthesizing, latestRound, synthesize]);
 
-  // Handle thread click in sidebar
+  // Handle thread click in sidebar: every thread type (concierge, broadcast, execution,
+  // discovery) opens its own message list in the chat column; a direct thread opens the
+  // agent focus view. Switch the view synchronously, then load messages.
   const handleThreadClick = useCallback(async (thread: Thread) => {
     dispatch({ type: 'SET_ACTIVE_THREAD', payload: thread });
-    await loadThreadMessages(thread.id);
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-    if (thread.type === 'concierge') {
-      dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
-      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
-    } else if (thread.type === 'direct' && thread.agent_id) {
+    if (thread.type === 'direct' && thread.agent_id) {
       dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: thread.agent_id });
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'focus' });
     } else {
+      dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
       dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
     }
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
+    await loadThreadMessages(thread.id);
   }, [dispatch, isMobile, loadThreadMessages]);
 
   const SurfaceIcon = surfaceState.Icon;

@@ -78,7 +78,10 @@ export default function WorkspacePage() {
       }
 
       const ctrl = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
+      // Synthetic keydown events (extensions, IME, some autofill) arrive with `key`
+      // undefined; nothing below applies to them.
+      const key = (e.key ?? '').toLowerCase();
+      if (!key) return;
 
       if (ctrl && key === '/') {
         e.preventDefault();

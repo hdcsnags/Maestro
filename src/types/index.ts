@@ -158,6 +158,9 @@ export interface ThreadMessageMetadata extends Record<string, unknown> {
   triage?: TriageResult;
   plan_card?: ThreadPlanCard;
   system_event?: ThreadSystemEvent;
+  // kind: 'info' — a one-line pointer to another thread (e.g. the concierge note
+  // "Ran `git status` on the Claw → open" that links to the execution thread).
+  thread_link?: { thread_id: string; label?: string };
   intent?: ExecutionIntent;
   job_id?: string;
   round_id?: string;

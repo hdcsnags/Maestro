@@ -38,7 +38,9 @@ export interface ArtifactManifestBuffer {
   fileChunks: Map<string, ArtifactFileChunkBuffer>;
 }
 
-const EXECUTOR_STALE_MS = 60_000;
+// A worker heartbeats roughly every 30 s; the hosted REST API has been seen answering in
+// 4-7 s, so 60 s produced false "offline" verdicts while the worker was up.
+export const EXECUTOR_STALE_MS = 120_000;
 const SESSION_POLL_MS = 5_000;
 const SESSION_TIMEOUT_MS = 40 * 60 * 1_000;
 
@@ -48,11 +50,18 @@ export function executorSupportsAdapter(executor: Executor, adapter: string): bo
   return rawAdapters.some((value): value is string => typeof value === 'string' && value === adapter);
 }
 
+/** Online = status 'online' and a heartbeat (last_seen_at, else updated_at) within EXECUTOR_STALE_MS. */
+export function isExecutorOnline(executor: Executor, now = Date.now()): boolean {
+  if (executor.status !== 'online') return false;
+  const heartbeat = executor.last_seen_at ?? executor.updated_at;
+  if (!heartbeat) return false;
+  const age = now - new Date(heartbeat).getTime();
+  return Number.isFinite(age) && age < EXECUTOR_STALE_MS;
+}
+
 export function selectOnlineExecutor(executors: Executor[], adapter?: string): Executor | null {
   return executors.find((executor) => {
-    if (executor.status !== 'online') return false;
-    if (!executor.last_seen_at) return false;
-    if (Date.now() - new Date(executor.last_seen_at).getTime() >= EXECUTOR_STALE_MS) return false;
+    if (!isExecutorOnline(executor)) return false;
     if (adapter && !executorSupportsAdapter(executor, adapter)) return false;
     return true;
   }) ?? null;
