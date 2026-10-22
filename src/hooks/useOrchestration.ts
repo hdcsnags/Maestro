@@ -18,6 +18,21 @@ import {
   ThreadMessage,
   TriageResult,
 } from '../types';
+import {
+  isExecutorOnlineFor,
+  resolveEffectiveBackend,
+  resolveLocalSeatModel,
+  resolveSeatAdapter,
+  stripVerdictBlock,
+} from '../lib/clawConversation';
+import { describeJobFailure, readJobText, submitClawJob, watchClawJob } from '../lib/clawJobs';
+import { buildLocalSeatPrompt, type LocalSeatPersona } from '../lib/localSeatPrompt';
+import {
+  buildLocalSynthesisPrompt,
+  parseLocalSynthesis,
+  type SynthesisDeliberationRow,
+  type SynthesisPrimaryRow,
+} from '../lib/localSynthesisPrompt';
 
 type BroadcastMode = 'analysis' | 'build';
 type AgentCallMode = BroadcastMode | 'build_task';
@@ -418,6 +433,134 @@ export function useOrchestration() {
     }
   }, [user, state.activeRepoConnection, state.activeSession?.id, dispatch, logAudit, ensureSession]);
 
+  // Pull the round's rows back from the DB and add any the client has not seen. The
+  // executor-api `complete` action writes a local seat's `responses` row server-side.
+  const syncRoundResponses = useCallback(async (roundId: string) => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('responses')
+      .select('*')
+      .eq('round_id', roundId)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true });
+    for (const row of (data ?? []) as Response[]) {
+      dispatch({
+        type: 'ADD_RESPONSE',
+        payload: {
+          ...row,
+          signals: (row.signals ?? {}) as Response['signals'],
+          artifacts: (row.artifacts ?? []) as ResponseArtifact[],
+          file_manifest: (row.file_manifest ?? []) as FileManifestEntry[],
+        },
+      });
+    }
+  }, [user, dispatch]);
+
+  // One council seat as a `council_seat` MaestroClaw job (P2). The worker streams the
+  // seat, executor-api lands the `responses` row on completion, and we re-read the round.
+  const runLocalSeat = useCallback(async (
+    agent: Agent,
+    adapter: string,
+    prompt: string,
+    roundId: string,
+    tieredContext: string,
+    persona: LocalSeatPersona | null,
+  ) => {
+    if (!user) return;
+    const model = resolveLocalSeatModel(agent);
+    const seatPrompt = buildLocalSeatPrompt({
+      agentName: agent.name,
+      agentRole: agent.role,
+      prompt,
+      tieredContext,
+      persona,
+      scopedPaths: agent.scoped_paths && agent.scoped_paths.length > 0 ? agent.scoped_paths : undefined,
+      skills: (agent.skills ?? []).filter((skill) => skill.is_active).map((skill) => ({ name: skill.name, instruction: skill.instruction })),
+      verbosityTier: state.verbosityTier,
+    });
+
+    const writeErrorRow = async (title: string, errorMessage: string) => {
+      const { data: rawErrResponse } = await supabase
+        .from('responses')
+        .insert({
+          round_id: roundId,
+          user_id: user.id,
+          agent_id: agent.id,
+          agent_name: agent.name,
+          agent_role: agent.role,
+          agent_color: agent.color,
+          provider: agent.provider,
+          model: model ? `${adapter}:${model}` : adapter,
+          content: `Error: ${agent.name} could not complete the request on the local worker. ${errorMessage}`,
+          title,
+          signals: { status: 'error', note: errorMessage, local_seat: 'true' },
+          artifacts: [] as unknown as never,
+          is_flagged: false,
+          is_lead: false,
+          tokens_used: 0,
+        } as never)
+        .select()
+        .maybeSingle();
+      const errData = rawErrResponse as Response | null;
+      if (errData) {
+        dispatch({ type: 'ADD_RESPONSE', payload: { ...errData, signals: errData.signals as Response['signals'], artifacts: [] } });
+      }
+    };
+
+    let jobId: string | null = null;
+    try {
+      const job = await submitClawJob({
+        prompt: seatPrompt,
+        adapter,
+        jobType: 'council_seat',
+        timeoutSeconds: 900,
+        sessionId: state.activeSession?.id ?? null,
+        contextBundle: {
+          kind: 'council_seat',
+          round_id: roundId,
+          agent_id: agent.id,
+          agent_name: agent.name,
+          agent_role: agent.role,
+          agent_color: agent.color,
+          ...(model ? { model } : {}),
+          title: '',
+        },
+      });
+      jobId = job.id;
+      dispatch({ type: 'ADD_EXECUTOR_JOB', payload: job });
+      dispatch({ type: 'SET_LOCAL_SEAT_JOB', payload: { job_id: job.id, round_id: roundId, agent_id: agent.id, adapter, model, status: job.status } });
+
+      const final = await watchClawJob(job, {
+        onStatus: (snapshot) => {
+          dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: snapshot });
+          dispatch({ type: 'SET_LOCAL_SEAT_JOB', payload: { job_id: job.id, round_id: roundId, agent_id: agent.id, adapter, model, status: snapshot.status } });
+        },
+      });
+      dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: final });
+
+      // executor-api inserted the row on `complete` (success or adapter failure). A job
+      // that expired/cancelled without completing never reached that path.
+      await syncRoundResponses(roundId);
+      const { data: landed } = await supabase
+        .from('responses')
+        .select('id')
+        .eq('round_id', roundId)
+        .eq('agent_id', agent.id)
+        .limit(1)
+        .maybeSingle();
+      if (!landed) {
+        await writeErrorRow('Local seat did not answer', describeJobFailure(final));
+      }
+      await logAudit('agent_response', agent.name, { provider: 'maestroclaw', model: model ? `${adapter}:${model}` : adapter });
+    } catch (err) {
+      console.error(`Local seat ${agent.name} failed:`, err);
+      const rawMessage = err instanceof Error ? err.message : 'Local worker request failed.';
+      await writeErrorRow('Local seat error', rawMessage.trim().slice(0, 240) || 'Local worker request failed.');
+    } finally {
+      if (jobId) dispatch({ type: 'CLEAR_LOCAL_SEAT_JOB', payload: agent.id });
+    }
+  }, [user, state.activeSession?.id, state.verbosityTier, dispatch, logAudit, syncRoundResponses]);
+
   const broadcast = useCallback(async (
     prompt: string,
     selectedAgentIds: string[],
@@ -539,25 +682,55 @@ export function useOrchestration() {
         mode: broadcastMode,
       });
 
-      // Claw agents are executor-only — they cannot participate in cloud broadcast.
-      const targetAgents = state.agents.filter(
-        a => selectedAgentIds.includes(a.id) && a.provider_group !== 'maestroclaw',
-      );
-      if (targetAgents.length === 0) {
-        console.warn('[Broadcast] No cloud-eligible agents in selection — aborting broadcast');
+      // Cloud agents go through `orchestrate`. MaestroClaw agents are council seats only
+      // when the conversation backend is the claw, the round is analysis, and an online
+      // executor advertises their adapter (`council_seat` jobs); otherwise they are
+      // executor-only and skipped, as before.
+      const selected = state.agents.filter(a => selectedAgentIds.includes(a.id));
+      const targetAgents = selected.filter(a => a.provider_group !== 'maestroclaw');
+      const clawCouncil = broadcastMode === 'analysis'
+        && resolveEffectiveBackend(state.conversationBackend, state.executors, state.conciergeAdapter).backend === 'claw';
+      const localSeats = clawCouncil
+        ? selected
+          .map((agent) => ({ agent, adapter: resolveSeatAdapter(agent) }))
+          .filter((seat): seat is { agent: Agent; adapter: string } =>
+            seat.agent.provider_group === 'maestroclaw' && !!seat.adapter && isExecutorOnlineFor(state.executors, seat.adapter))
+        : [];
+      if (targetAgents.length === 0 && localSeats.length === 0) {
+        console.warn('[Broadcast] No eligible agents in selection — aborting broadcast');
         dispatch({ type: 'SET_IS_BROADCASTING', payload: false });
         dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
         return null;
       }
       const roundId = roundData.id as string;
 
-      await Promise.all(
-        targetAgents.map(agent => {
+      // Persona preambles for local seats (the cloud path renders these server-side).
+      const personaByAgentId: Record<string, LocalSeatPersona> = {};
+      const personaIds = Array.from(new Set(localSeats.map(({ agent }) => agent.persona_id).filter((id): id is string => typeof id === 'string' && id.length > 0)));
+      if (personaIds.length > 0) {
+        const { data: personaRows } = await supabase
+          .from('personas')
+          .select('id, voice_preamble, anti_patterns')
+          .in('id', personaIds);
+        const byId = new Map(((personaRows ?? []) as Array<{ id: string; voice_preamble?: string | null; anti_patterns?: string[] | null }>).map((row) => [row.id, row]));
+        for (const { agent } of localSeats) {
+          const row = agent.persona_id ? byId.get(agent.persona_id) : undefined;
+          if (row) personaByAgentId[agent.id] = { voice_preamble: row.voice_preamble ?? null, anti_patterns: row.anti_patterns ?? null };
+        }
+      }
+
+      await Promise.all([
+        ...targetAgents.map(agent => {
           const promptForAgent = options.promptOverridesByAgentId?.[agent.id] ?? prompt;
           const tiered = buildTieredContext(promptForAgent, broadcastMode);
           return callAgent(agent, promptForAgent, roundId, broadcastMode, tiered.contextText, tiered.contextFiles);
         }),
-      );
+        ...localSeats.map(({ agent, adapter }) => {
+          const promptForAgent = options.promptOverridesByAgentId?.[agent.id] ?? prompt;
+          const tiered = buildTieredContext(promptForAgent, broadcastMode);
+          return runLocalSeat(agent, adapter, promptForAgent, roundId, tiered.contextText, personaByAgentId[agent.id] ?? null);
+        }),
+      ]);
 
       await supabase
         .from('rounds')
@@ -581,7 +754,7 @@ export function useOrchestration() {
       dispatch({ type: 'SET_BROADCASTING_AGENTS', payload: [] });
       return null;
     }
-  }, [user, state, dispatch, logAudit, buildTieredContext, callAgent, ensureSession]);
+  }, [user, state, dispatch, logAudit, buildTieredContext, callAgent, runLocalSeat, ensureSession]);
 
   const triggerConcierge = useCallback(async (
     phase: ConciergePhase,
@@ -678,6 +851,72 @@ export function useOrchestration() {
     }
   }, [user, state.activeSession?.id, state.rounds, state.responses, state.syntheses, dispatch, logAudit, ensureSession, appendConciergeEventMessage]);
 
+  // Deliberation-aware synthesis as a local `concierge_turn` job (P4). Returns the same
+  // shape the `synthesize` edge function returns so the row insert below is unchanged.
+  const synthesizeLocally = useCallback(async (
+    roundId: string,
+    fallbackRows: Response[],
+    extraContext: string,
+  ): Promise<SynthesizeInvokeResult> => {
+    const round = state.rounds.find(r => r.id === roundId) ?? null;
+    let roundPrompt = round?.prompt ?? '';
+    let deliberated = !!round?.deliberation_completed_at;
+    if (!round) {
+      const { data } = await supabase
+        .from('rounds')
+        .select('prompt, deliberation_completed_at')
+        .eq('id', roundId)
+        .maybeSingle();
+      const row = data as { prompt?: string; deliberation_completed_at?: string | null } | null;
+      roundPrompt = row?.prompt ?? '';
+      deliberated = !!row?.deliberation_completed_at;
+    }
+
+    const [primariesResult, deliberationsResult] = await Promise.all([
+      supabase
+        .from('responses')
+        .select('id, agent_name, content')
+        .eq('round_id', roundId)
+        .or('kind.is.null,kind.eq.primary')
+        .order('id', { ascending: true }),
+      supabase
+        .from('responses')
+        .select('agent_name, deliberation_pushbacks')
+        .eq('round_id', roundId)
+        .eq('kind', 'deliberation'),
+    ]);
+    let primaries = (primariesResult.data ?? []) as SynthesisPrimaryRow[];
+    if (primaries.length === 0) {
+      primaries = fallbackRows.map(r => ({ id: r.id, agent_name: r.agent_name, content: r.content }));
+    }
+    const deliberations = (deliberationsResult.data ?? []) as SynthesisDeliberationRow[];
+
+    const { prompt } = buildLocalSynthesisPrompt({ prompt: roundPrompt, primaries, deliberations, deliberated, extraContext });
+    const job = await submitClawJob({
+      prompt,
+      adapter: state.conciergeAdapter,
+      jobType: 'concierge_turn',
+      timeoutSeconds: 900,
+      sessionId: state.activeSession?.id ?? null,
+      contextBundle: { kind: 'synthesis', model: state.conciergeLocalModel, agent_name: 'Concierge', round_id: roundId },
+    });
+    dispatch({ type: 'ADD_EXECUTOR_JOB', payload: job });
+    const final = await watchClawJob(job, {
+      onStatus: (snapshot) => dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: snapshot }),
+    });
+    dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: final });
+    if (final.status !== 'succeeded') {
+      throw new Error(describeJobFailure(final));
+    }
+    const text = stripVerdictBlock(readJobText(final));
+    if (!text.trim()) throw new Error('The local worker returned no synthesis text.');
+    const parsed = parseLocalSynthesis(text);
+    return {
+      ...parsed,
+      model_used: `maestroclaw:${state.conciergeAdapter}${state.conciergeLocalModel ? `:${state.conciergeLocalModel}` : ''}`,
+    };
+  }, [state.rounds, state.conciergeAdapter, state.conciergeLocalModel, state.activeSession?.id, dispatch]);
+
   const synthesize = useCallback(async (roundId: string) => {
     if (!user) return;
 
@@ -729,14 +968,30 @@ export function useOrchestration() {
 
     try {
       await ensureSession();
-      // Pass round_id so the synthesize edge function can detect deliberation
-      // completion and switch to deliberation-aware mode (PRO-01). When the
-      // round has no deliberation, the function falls back to classic mode and
-      // metadata fields are simply absent.
-      const result = await invokeEdgeFunction<SynthesizeInvokeResult>('synthesize', {
-        round_id: roundId,
-        responses: combinedContent,
-      });
+
+      // P4: synthesis through the claw. Build the deliberation-aware prompt client-side
+      // and run it as a `concierge_turn`; fall through to the cloud function on failure.
+      let result: SynthesizeInvokeResult | null = null;
+      const synthBackend = resolveEffectiveBackend(state.conversationBackend, state.executors, state.conciergeAdapter);
+      if (synthBackend.backend === 'claw') {
+        try {
+          result = await synthesizeLocally(roundId, toSynthesize, directContext);
+        } catch (err) {
+          console.warn('[Synthesis] local synthesis failed, falling back to the cloud:', err);
+          result = null;
+        }
+      }
+
+      if (!result) {
+        // Pass round_id so the synthesize edge function can detect deliberation
+        // completion and switch to deliberation-aware mode (PRO-01). When the
+        // round has no deliberation, the function falls back to classic mode and
+        // metadata fields are simply absent.
+        result = await invokeEdgeFunction<SynthesizeInvokeResult>('synthesize', {
+          round_id: roundId,
+          responses: combinedContent,
+        });
+      }
       const content = result.content ?? result.synthesis ?? combinedContent;
 
       // Capture the deliberation-aware fields if any. Classic mode returns
@@ -777,7 +1032,7 @@ export function useOrchestration() {
       console.error('Synthesis error:', err);
       return null;
     }
-  }, [user, state.responses, state.rounds, state.activeSession, state.threads, state.threadMessages, state.agents, dispatch, logAudit, triggerConcierge, ensureSession]);
+  }, [user, state.responses, state.rounds, state.activeSession, state.threads, state.threadMessages, state.agents, state.conversationBackend, state.executors, state.conciergeAdapter, dispatch, logAudit, triggerConcierge, ensureSession, synthesizeLocally]);
 
   synthesizeRef.current = synthesize;
 

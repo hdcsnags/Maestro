@@ -19,6 +19,8 @@ interface FolioItem {
   agentModel?: string;
   agentDisplayName?: string;
   roundNumber: number;
+  // Set when this seat is running as a MaestroClaw job (P2): "adapter · model".
+  localSeatLabel?: string;
 }
 
 function getFolioItemLabel(item: FolioItem): string {
@@ -68,6 +70,7 @@ export default function FolioCarousel() {
       result.push({ type: 'response', color: r.agent_color, response: r, roundNumber });
     }
     for (const a of streamingAgents) {
+      const localJob = state.localSeatJobs[a.id];
       result.push({
         type: 'streaming',
         color: a.color,
@@ -77,10 +80,11 @@ export default function FolioCarousel() {
         agentModel: a.model,
         agentDisplayName: a.display_name || a.name,
         roundNumber,
+        ...(localJob ? { localSeatLabel: `${localJob.adapter}${localJob.model ? ` · ${localJob.model}` : ''} · ${localJob.status}` } : {}),
       });
     }
     return result;
-  }, [selectedResponses, streamingAgents, roundNumber]);
+  }, [selectedResponses, streamingAgents, roundNumber, state.localSeatJobs]);
 
   const safeIndex = Math.min(state.folioIndex, Math.max(items.length - 1, 0));
   const compareSource = compareSourceId
@@ -321,7 +325,7 @@ export default function FolioCarousel() {
                       compareDisabled={item.response!.id === synthesizingResponseId || selectedResponses.length < 2}
                     />
                   ) : (
-                    <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} />
+                    <StreamingFolio agentName={item.agentName!} agentRole={item.agentRole!} agentColor={item.color} agentProvider={item.agentProvider} agentModel={item.agentModel} localSeatLabel={item.localSeatLabel} />
                   )}
                 </div>
               </div>

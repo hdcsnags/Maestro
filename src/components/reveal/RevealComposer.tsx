@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { CONCIERGE_MODELS, ComposerIntent, SessionMode, Thread } from '../../types';
 import { estimateBroadcastCost, formatCostRange, isFreeModel, PREMIUM_SLOT_CAP } from '../../lib/cost';
+import { isExecutorOnlineFor, resolveEffectiveBackend, resolveSeatAdapter } from '../../lib/clawConversation';
 
 type ComposerVariant = 'workspace' | 'thread';
 
@@ -116,9 +117,18 @@ export default function RevealComposer(_props: Props) {
   const routingBarRef = useRef<Array<HTMLButtonElement | null>>([]);
 
   const activeAgents = state.agents.filter(a => a.is_active);
+  // MaestroClaw agents are council seats when the conversation backend is the claw and
+  // an online executor advertises their adapter; on the cloud backend they stay
+  // executor-only, as before.
+  const clawCouncil = resolveEffectiveBackend(state.conversationBackend, state.executors, state.conciergeAdapter).backend === 'claw';
   const councilAgents = useMemo(
-    () => activeAgents.filter(a => a.agent_role !== 'executor' && a.provider_group !== 'maestroclaw'),
-    [activeAgents],
+    () => activeAgents.filter(a => {
+      if (a.agent_role === 'executor') return false;
+      if (a.provider_group !== 'maestroclaw') return true;
+      const adapter = resolveSeatAdapter(a);
+      return clawCouncil && !!adapter && isExecutorOnlineFor(state.executors, adapter);
+    }),
+    [activeAgents, clawCouncil, state.executors],
   );
   const focusedAgent = useMemo(
     () => state.focusedAgentId ? state.agents.find(a => a.id === state.focusedAgentId) ?? null : null,

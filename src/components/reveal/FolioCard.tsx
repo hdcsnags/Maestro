@@ -168,7 +168,10 @@ export default function FolioCard({
   };
 
   const signals = response.signals || {};
-  const signalEntries = Object.entries(signals).filter(([, v]) => v).slice(0, 3);
+  const isLocalSeat = response.provider === 'maestroclaw' || String(signals.local_seat ?? '') === 'true';
+  const signalEntries = Object.entries(signals)
+    .filter(([key, v]) => v && !['local_seat', 'executor_job_id', 'success', 'verdict_status', 'verdict'].includes(key))
+    .slice(0, 3);
   const fileManifest: FileManifestEntry[] = response.file_manifest || [];
   const artifacts = response.artifacts || [];
   const displayContent = getFolioDisplayContent(response.content);
@@ -220,8 +223,17 @@ export default function FolioCard({
             <div style={{ fontSize: '13px', fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap' }}>
               {response.agent_role || 'Agent'}
             </div>
-            <div className="font-mono-dm" style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: response.agent_color, whiteSpace: 'nowrap' }}>
+            <div className="font-mono-dm flex items-center gap-2" style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase' as const, color: response.agent_color, whiteSpace: 'nowrap' }}>
               {response.agent_name}
+              {isLocalSeat && (
+                <span
+                  className="reveal-chip"
+                  title={`Answered on the local MaestroClaw worker (${response.model})`}
+                  style={{ color: 'var(--gold)', borderColor: 'rgba(201,168,76,0.3)', background: 'rgba(201,168,76,0.08)', letterSpacing: '0.08em' }}
+                >
+                  Claw
+                </span>
+              )}
             </div>
           </div>
         </div>

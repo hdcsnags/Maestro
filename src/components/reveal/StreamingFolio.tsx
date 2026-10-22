@@ -4,11 +4,22 @@ interface Props {
   agentColor: string;
   agentProvider?: string;
   agentModel?: string;
+  // "running on Claw" chip for seats dispatched as MaestroClaw jobs.
+  localSeatLabel?: string;
 }
 
-export default function StreamingFolio({ agentName, agentRole, agentColor }: Props) {
+export default function StreamingFolio({ agentName, agentRole, agentColor, localSeatLabel }: Props) {
   return (
     <div className="h-full flex flex-col items-center justify-center" style={{ position: 'relative', zIndex: 2 }}>
+      {localSeatLabel && (
+        <span
+          className="reveal-chip"
+          title={localSeatLabel}
+          style={{ position: 'absolute', top: '18px', right: '22px', color: 'var(--gold)', borderColor: 'rgba(201,168,76,0.3)', background: 'rgba(201,168,76,0.08)' }}
+        >
+          Running on Claw · {localSeatLabel}
+        </span>
+      )}
       <div
         className="flex-shrink-0"
         style={{
