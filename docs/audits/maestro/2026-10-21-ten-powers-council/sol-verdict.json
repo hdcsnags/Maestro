@@ -1,0 +1,131 @@
+{
+ "seat": "GPT-6.1",
+ "attestation": {
+  "ran_verifier": true,
+  "tools_used": [
+   "shell",
+   "read",
+   "grep",
+   "test"
+  ],
+  "files_read": 33,
+  "corpus_access": "granted"
+ },
+ "items": [
+  {
+   "id": "Q1",
+   "stance": "partial",
+   "summary": "Publish the CLI first while retaining web intake and control.",
+   "claims": [
+    {
+     "text": "The session log records a council-to-fix loop and identifies missing decision capture, fix mapping, and regression review.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:379-397"
+    }
+   ]
+  },
+  {
+   "id": "Q2",
+   "stance": "partial",
+   "summary": "Advance containment and evidence; defer automatic ranking and cut synthetic prevalence claims.",
+   "claims": [
+    {
+     "text": "The grading protocol records unresolved correlation between rank and output length.",
+     "status": "verified",
+     "evidence": "grading-lab/PROTOCOL.md:46-48"
+    },
+    {
+     "text": "Run status is assigned independently of read-only and verdict findings.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/run.ts:193-196"
+    }
+   ]
+  },
+  {
+   "id": "Q3",
+   "stance": "partial",
+   "summary": "Use item-level evidence stability and snapshot-based rounds.",
+   "claims": [
+    {
+     "text": "The proposal measures convergence using unchanged stance cells and silences unchanged seats.",
+     "status": "verified",
+     "evidence": "MAESTRO_POWERS_PROPOSAL_MYTHOS-5.1.md:52-54"
+    }
+   ]
+  },
+  {
+   "id": "Q4",
+   "stance": "disagree",
+   "summary": "The current parser and grounding marker cannot establish trustworthy attestation.",
+   "claims": [
+    {
+     "text": "In-memory execution accepted an empty object, malformed items, and a repaired array as parsed verdicts.",
+     "status": "verified",
+     "evidence": "Node stripTypeScriptTypes probe of verdict.ts: {} parsed; {\"items\":\"bad\"} parsed; [1,] parsed"
+    },
+    {
+     "text": "A claim marked verified with evidence none produced grounded true.",
+     "status": "verified",
+     "evidence": "Node in-memory buildMatrix probe; packages/maestroclaw/src/council/matrix.ts:35-36"
+    }
+   ]
+  },
+  {
+   "id": "Q5",
+   "stance": "partial",
+   "summary": "Sanitize tracked local permissions and operational records, including Maestro audits.",
+   "claims": [
+    {
+     "text": "The local Claude settings file is tracked and contains a machine-specific shell permission.",
+     "status": "verified",
+     "evidence": "git -c safe.directory=<workspace> ls-files .claude; .claude/settings.local.json:1-7"
+    },
+    {
+     "text": "The permitted Maestro synthesis includes Michael's institutional context.",
+     "status": "verified",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:99"
+    }
+   ]
+  },
+  {
+   "id": "Q6",
+   "stance": "partial",
+   "summary": "Start with a short editable intake and bounded read-only scoping council.",
+   "claims": [
+    {
+     "text": "The intake schema includes private interviewer notes, while the skill specifies an export section for every part.",
+     "status": "verified",
+     "evidence": "skills/discovery-intake/schema.json:73-77; skills/discovery-intake/SKILL.md:19-23"
+    },
+    {
+     "text": "A shared local worker needs explicit authorization boundaries before serving another user's requests.",
+     "status": "inferred",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:30"
+    }
+   ]
+  },
+  {
+   "id": "Q7",
+   "stance": "partial",
+   "summary": "Add immutable replay inputs and independent outcome evaluation.",
+   "claims": [
+    {
+     "text": "Resume retains done seats while initializing a new prompt hash from the currently read prompt.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/run.ts:108-122; packages/maestroclaw/src/council/run.ts:218-225"
+    },
+    {
+     "text": "The prior council rejects custom Harness JSON and requires bounded exploration.",
+     "status": "verified",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:28-29"
+    }
+   ]
+  }
+ ],
+ "verdict": "ADOPT_WITH_CHANGES",
+ "open_questions": [
+  "Full test-suite status remains unverified because tsx is absent from this scratch copy.",
+  "Hosted-to-local authorization for a second account was not demonstrated.",
+  "External research, provider subscription permissions, and deployed service state were not verified."
+ ]
+}

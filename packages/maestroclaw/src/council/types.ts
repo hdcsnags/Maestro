@@ -104,6 +104,8 @@ export interface CouncilRunOptions {
   resume: boolean;
   /** Extra text prepended to the prompt per seat (persona/dissent). */
   seatPreamble?: (seat: SeatSpec) => string;
+  /** Repo-relative paths removed from every seat copy before dispatch (blindness scrub). */
+  scrub?: string[];
 }
 
 export interface UsageEntry {

@@ -1,0 +1,115 @@
+{
+  "schema": "maestro.council.run/1",
+  "run_id": "2026-10-21-ten-powers-council",
+  "project": "maestro",
+  "label": "ten-powers-council",
+  "mode": "audit",
+  "source": "C:\\New folder\\MaestroOrchestra\\project\\Maestro",
+  "branch": "mythos/powers",
+  "no_git": false,
+  "prompt_file": "C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\council\\briefs\\2026-10-21-ten-powers.md",
+  "prompt_sha256": "0e434739dcbbaeb2ecb41206b5edcbd85d29d7cf0b0e19992cc05ad23f7d59fe",
+  "timeout_ms": 1500000,
+  "created_at": "2026-10-22T01:38:55.764Z",
+  "updated_at": "2026-10-22T01:47:43.871Z",
+  "seats": [
+    {
+      "label": "sol",
+      "adapter": "codex_cli",
+      "model": "(default)",
+      "status": "done",
+      "copy_dir": "C:\\Users\\Owner\\.maestroclaw\\council\\scratch\\maestro-sol-cgKMQI\\repo",
+      "started_at": "2026-10-22T01:39:00.753Z",
+      "sandbox": {
+        "mode": "read-only",
+        "flag": "--sandbox read-only",
+        "verified": true
+      },
+      "resolved_model": "gpt-6.1-sol (session 01a16143)",
+      "success": true,
+      "elapsed_s": 110,
+      "chars": 12170,
+      "read_only": "clean",
+      "verdict": "parsed",
+      "reasks": 0,
+      "finished_at": "2026-10-22T01:40:50.866Z",
+      "attestation": {
+        "ran_verifier": true,
+        "tools_used": [
+          "shell",
+          "read",
+          "grep",
+          "test"
+        ],
+        "files_read": 33,
+        "corpus_access": "granted"
+      },
+      "output_file": "C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\audits\\maestro\\2026-10-21-ten-powers-council\\sol.md"
+    },
+    {
+      "label": "gemini",
+      "adapter": "agy_cli",
+      "model": "gemini-4-argon-high",
+      "status": "done",
+      "copy_dir": "C:\\Users\\Owner\\.maestroclaw\\council\\scratch\\maestro-gemini-m8634g\\repo",
+      "started_at": "2026-10-22T01:39:04.238Z",
+      "sandbox": {
+        "mode": "none",
+        "flag": "--dangerously-skip-permissions --add-dir <copy> (agy --sandbox fails on Windows)",
+        "verified": false
+      },
+      "success": true,
+      "elapsed_s": 519,
+      "chars": 17673,
+      "read_only": "clean",
+      "verdict": "parsed",
+      "reasks": 0,
+      "finished_at": "2026-10-22T01:47:43.870Z",
+      "attestation": {
+        "ran_verifier": true,
+        "tools_used": [
+          "shell",
+          "read",
+          "grep",
+          "test"
+        ],
+        "files_read": 38,
+        "corpus_access": "granted"
+      },
+      "output_file": "C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\audits\\maestro\\2026-10-21-ten-powers-council\\gemini.md"
+    },
+    {
+      "label": "opus",
+      "adapter": "agy_cli",
+      "model": "claude-opus-5-5-high",
+      "status": "done",
+      "copy_dir": "C:\\Users\\Owner\\.maestroclaw\\council\\scratch\\maestro-opus-hywlBy\\repo",
+      "started_at": "2026-10-22T01:39:07.477Z",
+      "sandbox": {
+        "mode": "none",
+        "flag": "--dangerously-skip-permissions --add-dir <copy> (agy --sandbox fails on Windows)",
+        "verified": false
+      },
+      "success": true,
+      "elapsed_s": 253,
+      "chars": 14245,
+      "read_only": "clean",
+      "verdict": "parsed",
+      "reasks": 0,
+      "finished_at": "2026-10-22T01:43:20.717Z",
+      "attestation": {
+        "ran_verifier": true,
+        "tools_used": [
+          "read",
+          "shell",
+          "grep",
+          "test"
+        ],
+        "files_read": 15,
+        "corpus_access": "granted"
+      },
+      "output_file": "C:\\New folder\\MaestroOrchestra\\project\\Maestro\\docs\\audits\\maestro\\2026-10-21-ten-powers-council\\opus.md"
+    }
+  ],
+  "checkpoints": []
+}

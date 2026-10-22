@@ -205,18 +205,26 @@ Ranked by leverage per week of work. Each entry: what, why now (evidence), how (
 
 ## 3. Public-readiness checklist (what has to be true before it stands)
 
-1. One entry point: `maestroclaw council …` runs a study on any folder with a brief file and no edits to source. Paths from config.
-2. `scripts/eliana-*.ts` frozen or moved to `examples/`; `.michael/` and project audits with private content (Eliana theology, Elay business) excluded from the public tree or moved to a private sibling repo. `docs/audits/maestro/` can stay as the worked example.
+*Amended 2026-10-21 after the three-seat council (see `docs/audits/maestro/2026-10-21-ten-powers-council/SYNTHESIS.md`). Items marked ✓ are done on `mythos/powers`.*
+
+1. ✓ One entry point: `maestroclaw council …` runs a study on any folder with a brief file and no edits to source. Paths from config.
+2. `scripts/eliana-*.ts` frozen or moved to `examples/`; `.michael/` and project audits with private content (Eliana theology, Elay business) excluded from the public tree or moved to a private sibling repo. `docs/audits/maestro/` stays only after an identifier scrub (it names the employer and local paths).
 3. Roster probed, not hard-coded; the UI shows staleness.
-4. Supabase project id, GitHub App name and `gh` account names out of tracked docs.
-5. The two adapter honesty bugs fixed (`agy_cli` empty-success, truncated verdict).
+4. Identifiers out of tracked docs and data: Supabase project ref, GitHub App name, `gh` account names, employer name, `C:\New folder\…` paths, the work-account mention — in `MAESTRO_STATE.md`, `docs/session-log/HISTORY.md`, `AGENTS.md` (Rule 0 item 7 hard path), `grading-lab/`, `graphify-out/`.
+5. ✓ The two adapter honesty bugs fixed (`agy_cli` empty-success, truncated verdict re-ask).
 6. `README.md` leads with the council protocol and a five-minute worked run, then the web console.
-7. One public worked example end to end: brief → seats → matrix → rulings → fix pass → regression seat, on a small open repo.
-8. Threat model written in two columns, hosted and local, as `PHILOSOPHY` Part 6 promises.
+7. ✓ (first half) A public worked example: `docs/examples/noor-bakery/` (a coder seat builds a site, attested). Still owed: a full brief → seats → matrix → rulings → fix pass → regression seat loop on a small open repo.
+8. Threat model written in two columns, hosted and local, as `PHILOSOPHY` Part 6 promises; plus the Windows containment stance (agy and claude seats run without a sandbox; Codex read-only is the only verified one).
+9. ✓ `.claude/settings.local.json` untracked (it was tracked with machine-specific permissions).
+10. Remove tracked third-party archives and assets: `.michael/MiroFish-main.zip` (AGPL-3.0), `.michael/RyseEnergyDrinks-main.zip`, `.michael/architect-cli-main.zip`, root PNGs; add a `LICENSE`; license or remove `.addons/`.
+11. Publish from a squashed orphan branch or a fresh export: the 364-commit history carries every scrubbed file and email.
+12. ✓ Runtime outputs carry no OS username (operator label) and the seat copy path lives only in the manifest.
 
 ---
 
 ## 4. Sequencing
+
+*Re-ranked 2026-10-21 by the council (3/3 ADOPT_WITH_CHANGES): Power 8 (reader swarm) deferred this cycle; Powers 9 and 10 pulled into weeks 1–2; Power 4 before Power 3; top-k and seat ablation deferred until a shadow-council sampler and a `synthesize` command exist; `harvest` stays a concierge procedure, not an LLM auto-step. Debate Room amendments: fixed dissent seat, two-round cap, dissent excluded from convergence, no silence rule, stance changes must cite new evidence, verifier between rounds, contested items only, snapshot digests per round, stop on item-level evidence stability. New follow-ups: `council pack` (context packer and blindness scrubber; `--scrub` landed), `--max-seat-minutes`, a council-vs-solo baseline task in grading-lab, claim ids and a per-run nonce in the verdict block.*
 
 Keeps the 2026-07-01 decision intact (trust spine, then Rate v1 thin) and the 09-22 ruling (ledger and route receipts first).
 

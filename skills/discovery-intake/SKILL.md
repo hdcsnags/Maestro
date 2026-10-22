@@ -17,7 +17,7 @@ The questions live in `schema.json` beside this file (same schema as the First C
 6. After the call, fill part `p` yourself: your read, the signal checklist, gut viability 1–5, questions for the scoping session.
 
 ## The record
-Write `intake-<slug>-<date>.md` exactly like the First Call export: a heading with client and date, one `##` per part, `**question**` then the answer or `_(no answer)_`, and a final `## Not yet answered` list. In Maestro, the same content is the `discovery` thread's structured message (`metadata.intake` = the answers object keyed by question id) so the scoping job can read it.
+Write `intake-<slug>-<date>.md` exactly like the First Call export: a heading with client and date, one `##` per part **except `p`** (private notes never leave the interviewer's side; export them only into the interviewer's own copy), `**question**` then the answer or `_(no answer)_`, and a final `## Not yet answered` list. In Maestro, the same content is the `discovery` thread's structured message (`metadata.intake` = the answers object keyed by question id) so the scoping job can read it.
 
 ## Hand-off to scoping
 A scoping brief for the council (`council`) takes the record plus these numbered questions: Q1 viability and the one-line pitch; Q2 the smallest launchable version (what is in, what waits); Q3 platform and stack with reasons; Q4 risks and unknowns to clear before quoting; Q5 a phased plan with rough ranges per phase; Q6 the questions to send back before a proposal. Seats must mark every estimate `inferred`; nothing in an intake is verified.

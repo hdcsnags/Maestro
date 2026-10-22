@@ -1,0 +1,194 @@
+{
+ "run_id": "2026-10-21-ten-powers-council",
+ "seats": [
+  "gemini",
+  "opus",
+  "sol"
+ ],
+ "rows": [
+  {
+   "id": "Q1",
+   "cells": {
+    "gemini": {
+     "stance": "agree",
+     "grounded": true,
+     "summary": "Make the Council Runtime CLI primary and the web console a run viewer, matching every shipped result since August."
+    },
+    "opus": {
+     "stance": "agree",
+     "grounded": true,
+     "summary": "CLI protocol primary and web as run viewer is right, but what shipped results was protocol plus concierge plus human verification, so ship skills and protocol with the CLI as reference runner."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Publish the CLI first while retaining web intake and control."
+    }
+   },
+   "pushback": 1,
+   "contested": true,
+   "grounded_pushback": 1
+  },
+  {
+   "id": "Q2",
+   "cells": {
+    "gemini": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Move Powers 9 and 10 up to Weeks 1-2, move Power 6 top-k/ablation and Power 7 LLM auto-harvest down, and cut Power 8's synthetic reader swarm."
+    },
+    "opus": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Order 1,4,3,5,9,10(merge),7,6,2; cut 8; defer ablation since no synthesize command exists."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Advance containment and evidence; defer automatic ranking and cut synthetic prevalence claims."
+    }
+   },
+   "pushback": 3,
+   "contested": false,
+   "grounded_pushback": 3
+  },
+  {
+   "id": "Q3",
+   "cells": {
+    "gemini": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Fix the dissent role to one seat instead of rotating, run verifier checks between R1 and R2, prompt only on contested items, and cap at 2 rounds."
+    },
+    "opus": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Silence rule inflates the convergence score, stance changes need cited new evidence, dissent stance must be excluded, item ids need canonicalising, and checkable items should go to a verifier not another round."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Use item-level evidence stability and snapshot-based rounds."
+    }
+   },
+   "pushback": 3,
+   "contested": false,
+   "grounded_pushback": 3
+  },
+  {
+   "id": "Q4",
+   "cells": {
+    "gemini": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Harden verdict.ts and matrix.ts against unchecked self-attestation, fix the agy_cli re-ask argv bug, and derive tool/file telemetry from the harness."
+    },
+    "opus": {
+     "stance": "disagree",
+     "grounded": true,
+     "summary": "Contract is self-reported and unvalidated; verified claims with no evidence get the grounded mark, last block wins, junk schema parses, failed seats vanish; add claim ids, severity, stance referent, nonce, evidence path checks, harness-measured attestation."
+    },
+    "sol": {
+     "stance": "disagree",
+     "grounded": true,
+     "summary": "The current parser and grounding marker cannot establish trustworthy attestation."
+    }
+   },
+   "pushback": 3,
+   "contested": true,
+   "grounded_pushback": 3
+  },
+  {
+   "id": "Q5",
+   "cells": {
+    "gemini": {
+     "stance": "disagree",
+     "grounded": true,
+     "summary": "Proposal §3 misses employer/personal leaks in docs/audits/maestro/, MAESTRO_STATE.md, HISTORY.md, AGENTS.md, grading-lab/, graphify-out/, and .michael/*.zip."
+    },
+    "opus": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Checklist misses: no LICENSE, tracked AGPL and third-party zips plus unlicensed .addons, git history, runtime-emitted absolute paths and usernames, AGENTS.md hard path, work-account mention."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Sanitize tracked local permissions and operational records, including Maestro audits."
+    }
+   },
+   "pushback": 3,
+   "contested": true,
+   "grounded_pushback": 3
+  },
+  {
+   "id": "Q6",
+   "cells": {
+    "gemini": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "The Discovery/Brainstorm workflow is sound, but cross-account web-to-Claw routing is blocked in code; ship a single-workspace council_run job first."
+    },
+    "opus": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Right instinct, wrong shape: discovery-intake is a client-screening form whose Maestro hooks do not exist; smallest version is her own CLIs plus a brainstorm brief and plain-language synthesis, making her the first external CLI user."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Start with a short editable intake and bounded read-only scoping council."
+    }
+   },
+   "pushback": 3,
+   "contested": false,
+   "grounded_pushback": 3
+  },
+  {
+   "id": "Q7",
+   "cells": {
+    "gemini": {
+     "stance": "agree",
+     "grounded": true,
+     "summary": "Add a Context Packer & Blindness Scrubber power (council pack) and address non-Codex Windows unsandboxed execution and CLI subscription ToS risks."
+    },
+    "opus": {
+     "stance": "disagree",
+     "grounded": true,
+     "summary": "Missing: containment for untrusted repos (agy skip-permissions, post-hoc in-copy write check only), depth-1 clone silently full history, no per-run cost cap, no council-vs-solo baseline, author synthesizing its own review."
+    },
+    "sol": {
+     "stance": "partial",
+     "grounded": true,
+     "summary": "Add immutable replay inputs and independent outcome evaluation."
+    }
+   },
+   "pushback": 2,
+   "contested": true,
+   "grounded_pushback": 2
+  }
+ ],
+ "attestations": {
+  "gemini": {
+   "attestation": "ran_verifier=yes tools=shell/read/grep/test files=38 corpus=granted",
+   "verdict": "ADOPT_WITH_CHANGES",
+   "elapsed_s": 519,
+   "model": "gemini-4-argon-high",
+   "status": "done"
+  },
+  "opus": {
+   "attestation": "ran_verifier=yes tools=read/shell/grep/test files=15 corpus=granted",
+   "verdict": "ADOPT_WITH_CHANGES",
+   "elapsed_s": 253,
+   "model": "claude-opus-5-5-high",
+   "status": "done"
+  },
+  "sol": {
+   "attestation": "ran_verifier=yes tools=shell/read/grep/test files=33 corpus=granted",
+   "verdict": "ADOPT_WITH_CHANGES",
+   "elapsed_s": 110,
+   "model": "gpt-6.1-sol (session 01a16143)",
+   "status": "done"
+  }
+ }
+}

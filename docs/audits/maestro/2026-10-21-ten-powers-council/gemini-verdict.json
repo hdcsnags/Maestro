@@ -1,0 +1,175 @@
+{
+ "seat": "Gemini 4 Argon (High)",
+ "attestation": {
+  "ran_verifier": true,
+  "tools_used": [
+   "shell",
+   "read",
+   "grep",
+   "test"
+  ],
+  "files_read": 38,
+  "corpus_access": "granted"
+ },
+ "items": [
+  {
+   "id": "Q1",
+   "stance": "agree",
+   "summary": "Make the Council Runtime CLI primary and the web console a run viewer, matching every shipped result since August.",
+   "claims": [
+    {
+     "text": "The web app took its last feature commit (C-06) on 2026-07-06, with its 52nd migration and concierge/audit-log functions still unapplied/undeployed.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:13,147,519"
+    },
+    {
+     "text": "Every shipped result from 2026-08-17 to 2026-10-21 ran via local CLI dispatch scripts, briefs, and SYNTHESIS.md without Supabase.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:208-516"
+    },
+    {
+     "text": "maestroclaw council and maestroclaw skills execute directly from the CLI without loading Supabase config.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/index.ts:15-32"
+    }
+   ]
+  },
+  {
+   "id": "Q2",
+   "stance": "partial",
+   "summary": "Move Powers 9 and 10 up to Weeks 1-2, move Power 6 top-k/ablation and Power 7 LLM auto-harvest down, and cut Power 8's synthetic reader swarm.",
+   "claims": [
+    {
+     "text": "Three of four council adapters (agy_cli, claude_code, kimi_cli) currently declare sandbox mode 'none' on Windows.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/seats.ts:90-101"
+    },
+    {
+     "text": "Minimum-sufficient top-k routing starves the grading flywheel unless paired with a shadow council exploration sampler.",
+     "status": "verified",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:28"
+    },
+    {
+     "text": "Ungrounded models in the 09-06 and 10-18 studies had the highest false/permissive rates, whereas grounded seats plus emulator passes caught real defects.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:270,362-365"
+    }
+   ]
+  },
+  {
+   "id": "Q3",
+   "stance": "partial",
+   "summary": "Fix the dissent role to one seat instead of rotating, run verifier checks between R1 and R2, prompt only on contested items, and cap at 2 rounds.",
+   "claims": [
+    {
+     "text": "Rotating the mandatory dissent seat each round forces stance changes that conflict with stopping on full-matrix stance stability.",
+     "status": "verified",
+     "evidence": "MAESTRO_POWERS_PROPOSAL_MYTHOS-5.1.md:52-53"
+    },
+    {
+     "text": "Appending full round outputs to DEBATE.md risks hitting agy_cli's ~5-minute response window on large payloads.",
+     "status": "verified",
+     "evidence": "skills/usage-windows/SKILL.md:11"
+    }
+   ]
+  },
+  {
+   "id": "Q4",
+   "stance": "partial",
+   "summary": "Harden verdict.ts and matrix.ts against unchecked self-attestation, fix the agy_cli re-ask argv bug, and derive tool/file telemetry from the harness.",
+   "claims": [
+    {
+     "text": "groundedItem() in matrix.ts marks an item grounded if any single claim has status==='verified', ignoring attestation.ran_verifier and evidence validity.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/matrix.ts:36-38"
+    },
+    {
+     "text": "extractVerdict() accepts any non-array JSON object as 'parsed' without validating attestation or items, and run.ts only re-asks on 'truncated'.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/verdict.ts:74-76"
+    },
+    {
+     "text": "runSeat() writes COUNCIL_PROMPT.md for agy_cli on initial dispatch to avoid ENAMETOOLONG, but passes reaskPrompt() (up to 20KB tail + full brief) as raw argv on re-ask.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/run.ts:137-140,158"
+    },
+    {
+     "text": "Existing unit tests in packages/maestroclaw/test/council.test.ts pass 5/5.",
+     "status": "verified",
+     "evidence": "npx --prefix packages/maestroclaw tsx --test packages/maestroclaw/test/council.test.ts"
+    }
+   ]
+  },
+  {
+   "id": "Q5",
+   "stance": "disagree",
+   "summary": "Proposal §3 misses employer/personal leaks in docs/audits/maestro/, MAESTRO_STATE.md, HISTORY.md, AGENTS.md, grading-lab/, graphify-out/, and .michael/*.zip.",
+   "claims": [
+    {
+     "text": "docs/audits/maestro/2026-09-22-vision-council/ (which §3 keeps as the worked example) names DSBN and local C:\\New folder paths.",
+     "status": "verified",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:99"
+    },
+    {
+     "text": "MAESTRO_STATE.md, HISTORY.md, CLAW_MODE_SPEC.md, IMPLEMENTATION_PLAN.md, and grading-lab/ contain hhlnadxbrdwxcxwfbvwh, hdcsnags, and Michael-Thomas_dsbn.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:668,677-678"
+    },
+    {
+     "text": "AGENTS.md hardcodes C:\\New folder\\Elianas RhythmMigrate\\CONCIERGE.md and graphify-out/manifest.json indexes eliana-wordstudy-*-mthomas.ts.",
+     "status": "verified",
+     "evidence": "AGENTS.md:15"
+    },
+    {
+     "text": ".michael/MiroFish-main.zip (AGPL-3.0), .michael/RyseEnergyDrinks-main.zip, and root PNGs are tracked in git.",
+     "status": "verified",
+     "evidence": "git ls-files"
+    }
+   ]
+  },
+  {
+   "id": "Q6",
+   "stance": "partial",
+   "summary": "The Discovery/Brainstorm workflow is sound, but cross-account web-to-Claw routing is blocked in code; ship a single-workspace council_run job first.",
+   "claims": [
+    {
+     "text": "useOrchestration.ts explicitly filters out provider_group === 'maestroclaw' from broadcast().",
+     "status": "verified",
+     "evidence": "src/hooks/useOrchestration.ts:541-543"
+    },
+    {
+     "text": "packages/maestroclaw/src/index.ts only polls build_session and single-adapter executeJob, with no multi-seat council job runner.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/index.ts:110-112"
+    },
+    {
+     "text": "executor-api poll and claim enforce .eq('requested_by', executor.owner_user_id), blocking a second user account from using Michael's executor.",
+     "status": "verified",
+     "evidence": "supabase/functions/executor-api/index.ts:366,402"
+    }
+   ]
+  },
+  {
+   "id": "Q7",
+   "stance": "agree",
+   "summary": "Add a Context Packer & Blindness Scrubber power (council pack) and address non-Codex Windows unsandboxed execution and CLI subscription ToS risks.",
+   "claims": [
+    {
+     "text": "makeCopy() in run.ts only strips session.log, .maestroclaw-session.log, and COUNCIL_PROMPT.md, leaving MAESTRO_STATE.md/STATE.md exposed in clones.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/run.ts:26,73-84"
+    },
+    {
+     "text": "agy_cli runs with --dangerously-skip-permissions and sandbox disabled by default on Windows.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/adapters/agy-cli.ts:198-212"
+    }
+   ]
+  }
+ ],
+ "verdict": "ADOPT_WITH_CHANGES",
+ "open_questions": [
+  "Whether public release will use a squashed orphan git branch so git log history does not leak scrubbed files and emails.",
+  "Whether delegated executor sharing for a second user account should be scoped at the workspace table level with an explicit job_type allowlist (council_run only)."
+ ]
+}

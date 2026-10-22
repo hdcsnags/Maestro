@@ -83,6 +83,13 @@ export function makeCopy(opts: CouncilRunOptions, label: string): string {
     execFileSync("git", ["clone", "--no-hardlinks", "--depth", "1", ...(opts.branch ? ["--branch", opts.branch] : []), src, copy], { stdio: "pipe" });
   }
   for (const f of INSTRUMENTATION) { const p = join(copy, f); if (existsSync(p)) rmSync(p); }
+  // Blindness scrub (2026-09-05 leak; Gemini 4 Argon 2026-10-21 Q7): remove files that summarise
+  // other seats' findings before this seat reads the copy. Opt-in because some briefs ask seats
+  // to read the state file on purpose.
+  for (const rel of opts.scrub ?? []) {
+    const p = join(copy, rel);
+    if (existsSync(p)) { rmSync(p, { recursive: true, force: true }); log(`${label}: scrubbed ${rel} from the copy`); }
+  }
   return copy;
 }
 
@@ -164,7 +171,12 @@ async function runSeat(opts: CouncilRunOptions, manifest: RunManifest, seat: Sea
   if (ext.status !== "parsed" && opts.reaskTruncated && res.success && res.output.trim().length > 0) {
     log(`${seat.label}: verdict ${ext.status} — re-asking for the block alone`);
     reasks = 1;
-    const p = ext.status === "truncated" ? reaskPrompt(basePrompt, res.output) : reaskMissingPrompt(basePrompt, res.output, ext.error ?? ext.status);
+    let p = ext.status === "truncated" ? reaskPrompt(basePrompt, res.output) : reaskMissingPrompt(basePrompt, res.output, ext.error ?? ext.status);
+    // agy takes the prompt as argv: hand the re-ask over as a file too (Gemini 4 Argon, 2026-10-21 council, Q4).
+    if (seat.adapter === "agy_cli") {
+      writeFileSync(join(copy, "COUNCIL_PROMPT.md"), p, "utf-8");
+      p = "Read COUNCIL_PROMPT.md in your working directory and do exactly what it says: reply with only the verdict block.";
+    }
     const again = await adapter.run(p, copy, Math.min(opts.timeoutMs, 10 * 60 * 1000));
     elapsedMs = Date.now() - t0;
     const ext2 = extractVerdict(again.output);

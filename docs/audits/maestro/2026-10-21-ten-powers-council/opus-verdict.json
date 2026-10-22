@@ -1,0 +1,181 @@
+{
+ "seat": "claude-opus-5-5-high (agy_cli)",
+ "attestation": {
+  "ran_verifier": true,
+  "tools_used": [
+   "read",
+   "shell",
+   "grep",
+   "test"
+  ],
+  "files_read": 15,
+  "corpus_access": "granted"
+ },
+ "items": [
+  {
+   "id": "Q1",
+   "stance": "agree",
+   "summary": "CLI protocol primary and web as run viewer is right, but what shipped results was protocol plus concierge plus human verification, so ship skills and protocol with the CLI as reference runner.",
+   "claims": [
+    {
+     "text": "Every session-log result from 09-05 to 10-21 came from council-dispatch scripts plus a concierge; web app last feature 07-06.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:208-519"
+    },
+    {
+     "text": "AGENT_DEFAULTS still lists Gemini 2.5 and GPT-5.4 models.",
+     "status": "verified",
+     "evidence": "src/types/index.ts (grep model:)"
+    }
+   ]
+  },
+  {
+   "id": "Q2",
+   "stance": "partial",
+   "summary": "Order 1,4,3,5,9,10(merge),7,6,2; cut 8; defer ablation since no synthesize command exists.",
+   "claims": [
+    {
+     "text": "Council CLI has run/resume/status/matrix/checkpoint/usage/seats only; no synthesize.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/cli.ts:50-55"
+    },
+    {
+     "text": "Proposal ranks Debate Room second but sequences it weeks 6-7.",
+     "status": "verified",
+     "evidence": "MAESTRO_POWERS_PROPOSAL_MYTHOS-5.1.md:229"
+    },
+    {
+     "text": "Local HTTP inference provider is absent per 09-22 council.",
+     "status": "verified",
+     "evidence": "docs/audits/maestro/2026-09-22-vision-council/SYNTHESIS.md:60"
+    }
+   ]
+  },
+  {
+   "id": "Q3",
+   "stance": "partial",
+   "summary": "Silence rule inflates the convergence score, stance changes need cited new evidence, dissent stance must be excluded, item ids need canonicalising, and checkable items should go to a verifier not another round.",
+   "claims": [
+    {
+     "text": "Matrix keys rows on exact id strings so Q1 and q1 split into separate rows.",
+     "status": "verified",
+     "evidence": "scratch probe.mjs run against matrix.ts buildMatrix"
+    },
+    {
+     "text": "10-18 VOTD council converged on mechanics and diverged on taste, which the log says belongs to the owner.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:250"
+    }
+   ]
+  },
+  {
+   "id": "Q4",
+   "stance": "disagree",
+   "summary": "Contract is self-reported and unvalidated; verified claims with no evidence get the grounded mark, last block wins, junk schema parses, failed seats vanish; add claim ids, severity, stance referent, nonce, evidence path checks, harness-measured attestation.",
+   "claims": [
+    {
+     "text": "A claim with status verified, evidence none and ran_verifier false is marked grounded in the matrix.",
+     "status": "verified",
+     "evidence": "matrix.ts:35-37; probe.mjs output row Q1 liar disagree+G"
+    },
+    {
+     "text": "extractVerdict takes the last block, so a trailing quoted block overrides the real one.",
+     "status": "verified",
+     "evidence": "verdict.ts:67; probe.mjs case 2"
+    },
+    {
+     "text": "Re-ask fires only for truncated, not missing or unparseable blocks.",
+     "status": "verified",
+     "evidence": "run.ts:155"
+    },
+    {
+     "text": "The end delimiter text inside a JSON string makes the block unparseable.",
+     "status": "verified",
+     "evidence": "probe.mjs case 6"
+    }
+   ]
+  },
+  {
+   "id": "Q5",
+   "stance": "partial",
+   "summary": "Checklist misses: no LICENSE, tracked AGPL and third-party zips plus unlicensed .addons, git history, runtime-emitted absolute paths and usernames, AGENTS.md hard path, work-account mention.",
+   "claims": [
+    {
+     "text": "Root has no LICENSE file; .addons contains no LICENSE files.",
+     "status": "verified",
+     "evidence": "Get-ChildItem root and .addons -Recurse LICENSE*"
+    },
+    {
+     "text": "MiroFish-main.zip, RyseEnergyDrinks-main.zip, architect-cli-main.zip are git-tracked.",
+     "status": "verified",
+     "evidence": "git ls-files -s .michael/*.zip"
+    },
+    {
+     "text": "Repo history has 364 commits and is not shallow.",
+     "status": "verified",
+     "evidence": "git rev-list --count HEAD; git rev-parse --is-shallow-repository"
+    },
+    {
+     "text": "Runtime writes copy path and OS username into run outputs; 10 tracked files already contain the user home path.",
+     "status": "verified",
+     "evidence": "run.ts:205, run.ts:212; git grep -l Users/Owner"
+    },
+    {
+     "text": "Session log records running Astra on Michael's work account.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:322"
+    }
+   ]
+  },
+  {
+   "id": "Q6",
+   "stance": "partial",
+   "summary": "Right instinct, wrong shape: discovery-intake is a client-screening form whose Maestro hooks do not exist; smallest version is her own CLIs plus a brainstorm brief and plain-language synthesis, making her the first external CLI user.",
+   "claims": [
+    {
+     "text": "No discovery thread or metadata.intake exists in src, supabase or maestroclaw src.",
+     "status": "verified",
+     "evidence": "git grep -i discovery -- src supabase packages/maestroclaw/src (no hits); skills/discovery-intake/SKILL.md:20"
+    },
+    {
+     "text": "Sharing personal CLI subscriptions with another person may breach provider terms.",
+     "status": "unverified",
+     "evidence": "none"
+    }
+   ]
+  },
+  {
+   "id": "Q7",
+   "stance": "disagree",
+   "summary": "Missing: containment for untrusted repos (agy skip-permissions, post-hoc in-copy write check only), depth-1 clone silently full history, no per-run cost cap, no council-vs-solo baseline, author synthesizing its own review.",
+   "claims": [
+    {
+     "text": "agy seats run with dangerously-skip-permissions; claude and kimi declare no sandbox.",
+     "status": "verified",
+     "evidence": "packages/maestroclaw/src/council/seats.ts:94-100"
+    },
+    {
+     "text": "Read-only verification only inspects the seat copy after the run.",
+     "status": "verified",
+     "evidence": "run.ts:164-185"
+    },
+    {
+     "text": "git clone --depth 1 from a local path produced a full-history non-shallow copy.",
+     "status": "verified",
+     "evidence": "run.ts:80; git rev-parse --is-shallow-repository = false"
+    },
+    {
+     "text": "MAESTRO_STATE still lists agy empty-success as broken though the fix is in agy-cli.ts.",
+     "status": "verified",
+     "evidence": "MAESTRO_STATE.md:146; packages/maestroclaw/src/adapters/agy-cli.ts:268-272"
+    }
+   ]
+  }
+ ],
+ "verdict": "ADOPT_WITH_CHANGES",
+ "open_questions": [
+  "Whether agy tool traces are available on stdout to derive attestation from the harness instead of self-report.",
+  "Exact subscription terms for Codex, Claude and Google plans on use by a second person.",
+  "Whether the conductor intends to publish with existing git history or a fresh export."
+ ]
+}

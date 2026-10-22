@@ -50,6 +50,7 @@ export async function councilMain(argv: string[]): Promise<void> {
     console.log(`maestroclaw council <run|resume|status|matrix|checkpoint|usage|seats> [flags]\n` +
       `  run    --source <dir> --prompt <file> --seats astra,gemini,sol [--mode audit|code] [--no-git] [--branch b]\n` +
       `         [--project p] [--label l] [--run-id id] [--out dir] [--timeout-min 25] [--no-contract] [--no-reask] [--seats-file f]\n` +
+      `         [--skills] [--scrub MAESTRO_STATE.md,STATE.md]   (blindness scrub: paths removed from every seat copy)\n` +
       `  resume --run <dir>        status --run <dir>        matrix --run <dir>\n` +
       `  checkpoint --run <dir> "text"        usage [--days 30]        seats\n` +
       `Home: ${councilHome()}  (MAESTRO_COUNCIL_HOME, COUNCIL_SCRATCH, COUNCIL_OUT_ROOT override)`);
@@ -89,6 +90,8 @@ export async function councilMain(argv: string[]): Promise<void> {
         timeoutMs: Number(str(a, "timeout-min", "TIMEOUT_MIN") ?? 25) * 60 * 1000,
         contract: !bool(a, "no-contract"), reaskTruncated: !bool(a, "no-reask"), resume: bool(a, "resume"),
         ...(seatPreamble ? { seatPreamble } : {}),
+        // --scrub MAESTRO_STATE.md,STATE.md,docs/audits  (paths removed from every seat copy)
+        ...(str(a, "scrub") ? { scrub: str(a, "scrub")!.split(",").map((s) => s.trim()).filter(Boolean) } : {}),
       };
       const m = await runCouncil(opts);
       if (m.seats.some((s) => s.verdict === "parsed")) { writeMatrix(opts.outDir); log(`matrix → ${join(opts.outDir, "matrix.md")}`); }
