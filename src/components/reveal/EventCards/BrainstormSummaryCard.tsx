@@ -22,6 +22,7 @@ export default function BrainstormSummaryCard({ message }: { message: ThreadMess
   const consensus = typeof meta.consensus === 'string' ? meta.consensus : '';
   const recommendation = typeof meta.recommendation === 'string' ? meta.recommendation : '';
   const deliberated = meta.deliberated === true;
+  const deliberationNote = typeof meta.deliberation_note === 'string' ? meta.deliberation_note : '';
   const tradeOffs = useMemo(() => (Array.isArray(meta.trade_offs) ? meta.trade_offs : []), [meta.trade_offs]);
   const tensions = useMemo(() => (Array.isArray(meta.unresolved_tensions) ? meta.unresolved_tensions : []), [meta.unresolved_tensions]);
   const weaknesses = useMemo(() => (Array.isArray(meta.acknowledged_weaknesses) ? meta.acknowledged_weaknesses : []), [meta.acknowledged_weaknesses]);
@@ -69,12 +70,15 @@ export default function BrainstormSummaryCard({ message }: { message: ThreadMess
     <div className="mx-1 my-1 rounded-xl border border-gold/20 bg-gold/5 px-4 py-3">
       <div className="flex items-center justify-between gap-3 mb-3">
         <span className="text-xs font-semibold text-gold/80 uppercase tracking-wider">Brainstorm summary</span>
-        <span className="text-[10px] text-white/40">
-          {seats.length} seat{seats.length === 1 ? '' : 's'}{deliberated ? ' · debated' : ' · no debate (fewer than 3 answered)'}
+        <span className="text-[10px] text-white/40" title={deliberationNote || undefined}>
+          {seats.length} seat{seats.length === 1 ? '' : 's'}{deliberated ? ' · debated' : deliberationNote ? ' · no debate (skipped)' : ' · no debate (fewer than 3 answered)'}
         </span>
       </div>
 
       <div className="flex flex-col gap-3">
+        {deliberationNote && (
+          <p className="text-[11px] leading-relaxed text-white/45 m-0">{deliberationNote}</p>
+        )}
         <div>
           <SectionLabel color="var(--ok)">What they agreed on</SectionLabel>
           <p className="text-sm leading-relaxed text-white/80 m-0 whitespace-pre-wrap">{consensus || 'Nothing recorded.'}</p>

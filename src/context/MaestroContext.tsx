@@ -8,8 +8,12 @@ import {
   ClawView, ComposerIntent, ExecutionIntent, ClawBuildSessionState, SessionBuildProgress,
   SessionBuildState, SessionRunProgress, createEmptySessionBuildState,
   ProviderHealthRecord, RepoMemoryRecord, IterationLoop, IterationStep,
-  VerbosityTier,
+  VerbosityTier, ConversationBackend, LocalSeatJob,
 } from '../types';
+import {
+  DEFAULT_CONCIERGE_ADAPTER, DEFAULT_CONCIERGE_LOCAL_MODEL,
+  readStoredConversationPrefs, writeStoredConversationPrefs,
+} from '../lib/clawConversation';
 
 export type ViewMode = 'stacked' | 'carousel';
 export type DrawerTarget = 'orchestra' | 'trust' | 'synthesis' | 'vault' | 'pre-build' | 'build-log' | null;
@@ -61,6 +65,14 @@ export interface MaestroState {
   verbosityTier: VerbosityTier;
   focusedAgentId: string | null;
   conciergeModel: string;
+  // Conversation-through-Claw (2026-10-22): where concierge / discovery / synthesis turns
+  // run. 'claw' is the default; a turn silently downgrades to the cloud when no online
+  // executor advertises `conciergeAdapter` (see resolveEffectiveBackend).
+  conversationBackend: ConversationBackend;
+  conciergeAdapter: string;
+  conciergeLocalModel: string;
+  // Council seats currently running as MaestroClaw jobs — keyed by agent_id.
+  localSeatJobs: Record<string, LocalSeatJob>;
   isConciergeSending: boolean;
   pendingExecution: { jobId?: string; approvalToken?: string; intent: ExecutionIntent; threadId: string } | null;
   buildDrawerExpanded: boolean;
@@ -153,6 +165,12 @@ type Action =
   | { type: 'SET_VERBOSITY_TIER'; payload: VerbosityTier }
   | { type: 'SET_FOCUSED_AGENT_ID'; payload: string | null }
   | { type: 'SET_CONCIERGE_MODEL'; payload: string }
+  | { type: 'SET_CONVERSATION_BACKEND'; payload: ConversationBackend }
+  | { type: 'SET_CONCIERGE_ADAPTER'; payload: string }
+  | { type: 'SET_CONCIERGE_LOCAL_MODEL'; payload: string }
+  | { type: 'SET_LOCAL_SEAT_JOB'; payload: LocalSeatJob }
+  | { type: 'CLEAR_LOCAL_SEAT_JOB'; payload: string }
+  | { type: 'UPDATE_THREAD_MESSAGE'; payload: Partial<ThreadMessage> & { id: string } }
   | { type: 'SET_IS_CONCIERGE_SENDING'; payload: boolean }
   | { type: 'SET_BUILD_DRAWER_EXPANDED'; payload: boolean }
   | { type: 'SET_CLAW_BUILD_SESSION'; payload: ClawBuildSessionState | null }
@@ -177,6 +195,8 @@ type Action =
   | { type: 'SET_ITERATION_STEPS'; payload: { loopId: string; steps: IterationStep[] } }
   | { type: 'ADD_ITERATION_STEP'; payload: IterationStep }
   | { type: 'UPDATE_ITERATION_STEP'; payload: Partial<IterationStep> & { id: string; loop_id: string } };
+
+const storedConversationPrefs = readStoredConversationPrefs();
 
 const initial: MaestroState = {
   workspace: null,
@@ -224,7 +244,11 @@ const initial: MaestroState = {
   composerDraft: '',
   verbosityTier: 'standard',
   focusedAgentId: null,
-  conciergeModel: 'claude-haiku-4-5',
+  conciergeModel: 'claude-sonnet-4-6',
+  conversationBackend: storedConversationPrefs.conversationBackend ?? 'claw',
+  conciergeAdapter: storedConversationPrefs.conciergeAdapter ?? DEFAULT_CONCIERGE_ADAPTER,
+  conciergeLocalModel: storedConversationPrefs.conciergeLocalModel ?? DEFAULT_CONCIERGE_LOCAL_MODEL,
+  localSeatJobs: {},
   isConciergeSending: false,
   pendingExecution: null,
   buildDrawerExpanded: false,
@@ -289,6 +313,7 @@ function reducer(state: MaestroState, action: Action): MaestroState {
         isBrainstorming: false,
         iterationLoops: [],
         iterationSteps: {},
+        localSeatJobs: {},
       };
     }
     case 'UPDATE_ACTIVE_SESSION':
@@ -299,7 +324,17 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_ROUNDS': return { ...state, rounds: action.payload };
     case 'ADD_ROUND': return { ...state, rounds: [...state.rounds, action.payload], selectedRoundIndex: -1, folioIndex: 0 };
     case 'SET_RESPONSES': return { ...state, responses: action.payload };
-    case 'ADD_RESPONSE': return { ...state, responses: [...state.responses, action.payload] };
+    case 'ADD_RESPONSE': {
+      // Local seats land their rows server-side and the client re-reads the round, so an
+      // id can arrive twice; replace in place instead of duplicating a folio.
+      const exists = state.responses.some(r => r.id === action.payload.id);
+      return {
+        ...state,
+        responses: exists
+          ? state.responses.map(r => r.id === action.payload.id ? action.payload : r)
+          : [...state.responses, action.payload],
+      };
+    }
     case 'UPDATE_RESPONSE':
       return {
         ...state,
@@ -410,6 +445,30 @@ function reducer(state: MaestroState, action: Action): MaestroState {
     case 'SET_VERBOSITY_TIER': return { ...state, verbosityTier: action.payload };
     case 'SET_FOCUSED_AGENT_ID': return { ...state, focusedAgentId: action.payload };
     case 'SET_CONCIERGE_MODEL': return { ...state, conciergeModel: action.payload };
+    case 'SET_CONVERSATION_BACKEND':
+      writeStoredConversationPrefs({ conversationBackend: action.payload });
+      return { ...state, conversationBackend: action.payload };
+    case 'SET_CONCIERGE_ADAPTER':
+      writeStoredConversationPrefs({ conciergeAdapter: action.payload });
+      return { ...state, conciergeAdapter: action.payload };
+    case 'SET_CONCIERGE_LOCAL_MODEL':
+      writeStoredConversationPrefs({ conciergeLocalModel: action.payload });
+      return { ...state, conciergeLocalModel: action.payload };
+    case 'SET_LOCAL_SEAT_JOB':
+      return { ...state, localSeatJobs: { ...state.localSeatJobs, [action.payload.agent_id]: action.payload } };
+    case 'CLEAR_LOCAL_SEAT_JOB': {
+      if (!(action.payload in state.localSeatJobs)) return state;
+      const next = { ...state.localSeatJobs };
+      delete next[action.payload];
+      return { ...state, localSeatJobs: next };
+    }
+    case 'UPDATE_THREAD_MESSAGE':
+      return {
+        ...state,
+        threadMessages: state.threadMessages.map((m: ThreadMessage) =>
+          m.id === action.payload.id ? { ...m, ...action.payload } : m
+        ),
+      };
     case 'SET_IS_CONCIERGE_SENDING': return { ...state, isConciergeSending: action.payload };
     case 'SET_BUILD_DRAWER_EXPANDED': return { ...state, buildDrawerExpanded: action.payload };
     case 'SET_CLAW_BUILD_SESSION': return { ...state, clawBuildSession: action.payload };

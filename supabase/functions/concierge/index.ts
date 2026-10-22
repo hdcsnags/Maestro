@@ -67,7 +67,7 @@ function pickModel(req: ConciergeRequest): string {
     0,
   );
   if (totalTokens > 8000) return "claude-sonnet-4-6";
-  return "claude-haiku-4-5";
+  return "claude-sonnet-4-6";
 }
 
 function buildUserMessage(req: ConciergeRequest): string {
@@ -512,7 +512,7 @@ Deno.serve(async (req: Request) => {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5",
+          model: "claude-sonnet-4-6",
           max_tokens: 256,
           system: `You are Maestro's Concierge. The user is waiting for a build broadcast to complete. Be brief (under 80 words), direct, and helpful. Current build status: ${buildContext}. If asked what's happening, describe the status naturally. If asked a product or code question, answer concisely. Do not start every sentence with "I".`,
           messages: [{ role: "user", content: chatMessage }],

@@ -60,6 +60,9 @@ export interface Agent {
   skills?: AgentSkill[];
   agent_role?: AgentRole;
   persona_id?: string | null;
+  // Per-seat local CLI model when this agent runs through MaestroClaw (e.g. 'sonnet',
+  // 'gemini-4-argon-high'). Optional; see DEFAULT_LOCAL_SEAT_MODELS in lib/clawConversation.
+  local_model?: string | null;
 }
 
 export interface PersonaRow {
@@ -110,6 +113,7 @@ export type ThreadMessageKind =
   | 'reroute_approval'
   | 'brainstorm_summary'
   | 'discovery_record'
+  | 'local_turn'
   | 'info';
 
 // Seat attribution on a brainstorm summary card: who actually answered.
@@ -174,11 +178,33 @@ export interface ThreadMessageMetadata extends Record<string, unknown> {
   intake?: DiscoveryIntakeRecord;
   updated_at?: string;
   done?: boolean;
+  // kind: 'local_turn' — a concierge/discovery turn streamed from a MaestroClaw job
+  streaming?: boolean;
+  adapter?: string;
+  local_model?: string;
+  error?: string;
+  retry_text?: string;
+  retry_kind?: 'concierge' | 'discovery';
+  // kind: 'brainstorm_summary' — honest note when deliberation was skipped/partial
+  deliberation_note?: string;
+}
+
+// Where concierge / discovery / synthesis turns run: through the local MaestroClaw
+// worker (CLI subscriptions, no API keys) or the cloud edge functions.
+export type ConversationBackend = 'claw' | 'cloud';
+
+// A council seat currently running as a MaestroClaw job (FolioCarousel chip).
+export interface LocalSeatJob {
+  job_id: string;
+  round_id: string;
+  agent_id: string;
+  adapter: string;
+  model?: string;
+  status: ExecutorJob['status'];
 }
 
 // All models available as concierge (union of direct + OpenRouter)
 export const CONCIERGE_MODELS: { id: string; label: string; provider: string }[] = [
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic' },
   { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'anthropic' },
   { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', provider: 'openai' },
@@ -771,8 +797,12 @@ export const FREE_TIER_FALLBACKS: Record<string, string> = {
 // sign up, broadcast, and pay $0 by default.
 export const AGENT_DEFAULTS: AgentDefault[] = [
   // ─── Anthropic ──────────────────────────────────────────────────
-  { name: 'Claude Haiku 4.5',  display_name: 'Claude Haiku 4.5',  role: 'Fast analysis · Triage',          provider: 'anthropic', model: 'claude-haiku-4-5',  color: '#e07b5a', is_active: true,  slot_index: 0, provider_group: 'anthropic', stability_tier: 'stable' },
-  { name: 'Claude Sonnet 4.6', display_name: 'Claude Sonnet 4.6', role: 'Build lead · Code generation',    provider: 'anthropic', model: 'claude-sonnet-4-6', color: '#e07b5a', is_active: false, slot_index: 1, provider_group: 'anthropic', stability_tier: 'stable' },
+  // No Haiku (owner directive 2026-10-22). Sonnet 4.6 is the active slot 0; slot 1 is a
+  // second Sonnet seat (analysis voice) so slot indexes stay unique. ensureAgents upserts
+  // by (workspace_id, provider_group, slot_index) with ignoreDuplicates, so existing
+  // workspaces keep their rows — the old Haiku slot-0 row is remapped in useWorkspace.
+  { name: 'Claude Sonnet 4.6', display_name: 'Claude Sonnet 4.6', role: 'Build lead · Code generation',    provider: 'anthropic', model: 'claude-sonnet-4-6', color: '#e07b5a', is_active: true,  slot_index: 0, provider_group: 'anthropic', stability_tier: 'stable' },
+  { name: 'Claude Sonnet 4.6 (Analyst)', display_name: 'Claude Sonnet 4.6 (Analyst)', role: 'Fast analysis · Triage', provider: 'anthropic', model: 'claude-sonnet-4-6', color: '#e07b5a', is_active: false, slot_index: 1, provider_group: 'anthropic', stability_tier: 'stable' },
   { name: 'Claude Opus 4.6',   display_name: 'Claude Opus 4.6',   role: 'Deep reasoning · Architecture',   provider: 'anthropic', model: 'claude-opus-4-6',   color: '#e07b5a', is_active: false, slot_index: 2, provider_group: 'anthropic', stability_tier: 'stable' },
 
   // ─── OpenAI ─────────────────────────────────────────────────────
@@ -834,7 +864,6 @@ export interface OpenRouterModel {
 export const OPENROUTER_MODELS: OpenRouterModel[] = [
   { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6', tier: 'paid' },
   { id: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6', tier: 'paid' },
-  { id: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5', tier: 'paid' },
   { id: 'openai/gpt-5.4', label: 'GPT-5.4', tier: 'paid' },
   { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini', tier: 'paid' },
   { id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'paid' },
@@ -876,7 +905,7 @@ export const DESIGNER_LANES: DesignerLane[] = [
     display_name: 'Structure Lead',
     description: 'App shell, flow, information architecture',
     preferred_model: 'claude-sonnet-4-6',
-    fallback_model: 'claude-haiku-4-5',
+    fallback_model: 'gpt-5.4-mini',
   },
   {
     role: 'product_practical',
@@ -901,7 +930,7 @@ export const DESIGN_MODE_LANES: Record<'lite' | 'standard' | 'exploration', Desi
 };
 
 export const PROVIDER_REGISTRY = [
-  { id: 'anthropic', name: 'Anthropic', models: ['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-6'] },
+  { id: 'anthropic', name: 'Anthropic', models: ['claude-sonnet-4-6', 'claude-opus-4-6'] },
   { id: 'openai', name: 'OpenAI', models: ['gpt-5.4-mini', 'gpt-5.4'] },
   { id: 'google', name: 'Google Gemini', models: ['gemini-2.5-flash', 'gemini-2.5-pro'] },
   { id: 'openrouter', name: 'OpenRouter', models: OPENROUTER_MODELS.map(m => m.id) },

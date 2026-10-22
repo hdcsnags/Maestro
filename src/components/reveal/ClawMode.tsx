@@ -16,6 +16,7 @@ import FolioCarousel from './FolioCarousel';
 import BuildRunwayCard from './BuildRunwayCard';
 import ConciergeEventCard from './ConciergeEventCard';
 import SystemEventCard from './EventCards/SystemEventCard';
+import LocalTurnCard from './EventCards/LocalTurnCard';
 import PlanCardRenderer from './PlanCards/PlanCardRenderer';
 import RevealComposer from './RevealComposer';
 import { IterationCard } from './IterationCard';
@@ -558,6 +559,10 @@ function MessageBubble({ message, modelLabel, agentColor }: {
 
   if (!isUser && !isSystem && (metadataKind === 'concierge_decision' || metadataKind === 'concierge_triage')) {
     return <ConciergeEventCard message={message} />;
+  }
+
+  if (!isUser && !isSystem && metadataKind === 'local_turn') {
+    return <LocalTurnCard message={message} accentColor={accentColor} />;
   }
 
   if (isSystem && metadataKind === 'plan_card') {

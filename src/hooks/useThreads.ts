@@ -5,11 +5,45 @@ import { useMaestro } from '../context/MaestroContext';
 import { useAuth } from '../context/AuthContext';
 import { useOrchestration } from './useOrchestration';
 import { useDeliberation } from './useDeliberation';
-import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session } from '../types';
+import type { Thread, ThreadMessage, ThreadType, ExecutionIntent, ExecutorJob, FileManifestEntry, ProviderConnection, ThreadPlanCardKind, Response as MaestroResponse, BrainstormSeat, DiscoveryIntakeRecord, Session, ConversationBackend } from '../types';
 import { classifyCommandTrust, EXECUTION_INTENT_PROMPT } from '../lib/trustHints';
 import { CONCIERGE_MODELS } from '../types';
 import { selectOnlineExecutor } from '../lib/sessionBuild';
 import { buildDiscoveryPrompt, countDiscoveryProgress, parseDiscoveryReply } from '../lib/discoverySchema';
+import {
+  CONCIERGE_LOCAL_SYSTEM_PROMPT,
+  buildDiscoveryLocalSystemPrompt,
+  flattenConciergePrompt,
+  isExecutorOnlineFor,
+  resolveEffectiveBackend,
+  resolveSeatAdapter,
+  stripVerdictBlock,
+} from '../lib/clawConversation';
+import { describeJobFailure, readJobText, submitClawJob, watchClawJob } from '../lib/clawJobs';
+
+// Options shared by the concierge and discovery turns (Conversation-through-Claw).
+export interface ConversationTurnOptions {
+  // Force one backend for this turn ("Retry in the cloud" on a failed local turn).
+  backendOverride?: ConversationBackend;
+  // The user message is already in the thread (retry) — do not insert it again.
+  skipUserMessage?: boolean;
+}
+
+interface LocalTurnRequest {
+  threadId: string;
+  sessionId: string;
+  prompt: string;
+  retryText: string;
+  retryKind: 'concierge' | 'discovery';
+  // Turn the raw worker text into what the bubble should finally show.
+  finalizeContent?: (raw: string) => string;
+}
+
+type LocalTurnResult =
+  | { ok: true; text: string; message: ThreadMessage | null }
+  | { ok: false; error: string; message: ThreadMessage | null };
+
+const LOCAL_TURN_PERSIST_MS = 1_500;
 
 const DISCOVERY_OPENING_MESSAGE = [
   'This is a guided intake. I will ask two or three questions at a time, in plain language, and write down what you say in your own words.',
@@ -775,11 +809,26 @@ export function useThreads() {
     });
   }, [focusDirectThread]);
 
-  // Build conversation history for the orchestrate call
-  const buildConversationContext = useCallback((threadId: string): string => {
+  // Build conversation history for the orchestrate call. System cards (info, errors,
+  // plan cards) and unfinished/failed local turns are not part of the conversation.
+  const buildConversationContext = useCallback((
+    threadId: string,
+    options: { dropTrailingUserMessage?: string } = {},
+  ): string => {
     const messages = state.threadMessages
       .filter(m => m.thread_id === threadId)
+      .filter(m => !(m.role === 'system' && typeof m.metadata?.kind === 'string'))
+      .filter(m => !(m.metadata?.kind === 'local_turn' && (m.metadata.streaming === true || typeof m.metadata.error === 'string')))
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    if (options.dropTrailingUserMessage) {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'user') {
+          if (messages[i].content === options.dropTrailingUserMessage) messages.splice(i, 1);
+          break;
+        }
+      }
+    }
 
     if (messages.length === 0) return '';
 
@@ -789,10 +838,133 @@ export function useThreads() {
     }).join('\n\n');
   }, [state.threadMessages]);
 
+  // ── Conversation through Claw ──────────────────────────────────
+  // One concierge/discovery turn as a `concierge_turn` job on the local worker: a
+  // placeholder bubble appears at once, stdout lines stream into it (persisted at most
+  // every ~1.5 s), and the finished text replaces it. Failures stay in the bubble with
+  // a "Retry in the cloud" action (LocalTurnCard).
+  const runLocalTurn = useCallback(async (req: LocalTurnRequest): Promise<LocalTurnResult> => {
+    const adapter = state.conciergeAdapter;
+    const model = state.conciergeLocalModel;
+    const baseMeta: ThreadMessage['metadata'] = { kind: 'local_turn', adapter, local_model: model };
+    const failureMeta = (error: string): ThreadMessage['metadata'] => ({
+      ...baseMeta,
+      streaming: false,
+      error,
+      retry_text: req.retryText,
+      retry_kind: req.retryKind,
+    });
+
+    let job: ExecutorJob;
+    try {
+      job = await submitClawJob({
+        prompt: req.prompt,
+        adapter,
+        jobType: 'concierge_turn',
+        timeoutSeconds: 900,
+        sessionId: req.sessionId,
+        contextBundle: { kind: 'concierge_turn', model, agent_name: 'Concierge', thread_id: req.threadId },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      const message = await addMessage(req.threadId, 'concierge', `Local turn could not start: ${error}`, undefined, failureMeta(error));
+      return { ok: false, error, message };
+    }
+    dispatch({ type: 'ADD_EXECUTOR_JOB', payload: job });
+
+    const placeholder = await addMessage(req.threadId, 'concierge', '', undefined, { ...baseMeta, job_id: job.id, streaming: true });
+    const placeholderId = placeholder?.id ?? null;
+
+    const persist = async (content: string, metadata: ThreadMessage['metadata']) => {
+      if (!placeholderId) return;
+      await supabase
+        .from('thread_messages')
+        .update({ content, metadata } as never)
+        .eq('id', placeholderId);
+    };
+
+    let buffer = '';
+    let lastPersist = Date.now();
+    let persistTimer: number | null = null;
+    const flushStream = () => {
+      persistTimer = null;
+      lastPersist = Date.now();
+      void persist(buffer, { ...baseMeta, job_id: job.id, streaming: true });
+    };
+
+    let final: ExecutorJob;
+    try {
+      final = await watchClawJob(job, {
+        onLines: (lines, stream) => {
+          if (stream !== 'stdout') return;
+          buffer = buffer ? `${buffer}\n${lines.join('\n')}` : lines.join('\n');
+          if (placeholderId) {
+            dispatch({ type: 'UPDATE_THREAD_MESSAGE', payload: { id: placeholderId, content: buffer } });
+          }
+          const elapsed = Date.now() - lastPersist;
+          if (elapsed >= LOCAL_TURN_PERSIST_MS) flushStream();
+          else if (persistTimer === null) persistTimer = window.setTimeout(flushStream, LOCAL_TURN_PERSIST_MS - elapsed);
+        },
+        onStatus: (snapshot) => dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: snapshot }),
+      });
+    } catch (err) {
+      if (persistTimer !== null) window.clearTimeout(persistTimer);
+      const error = err instanceof Error ? err.message : 'Unknown error';
+      const content = `Local turn failed: ${error}`;
+      await persist(content, failureMeta(error));
+      if (placeholderId) dispatch({ type: 'UPDATE_THREAD_MESSAGE', payload: { id: placeholderId, content, metadata: failureMeta(error) } });
+      return { ok: false, error, message: placeholder };
+    }
+    if (persistTimer !== null) window.clearTimeout(persistTimer);
+    dispatch({ type: 'UPDATE_EXECUTOR_JOB', payload: final });
+
+    const rawText = final.status === 'succeeded' ? stripVerdictBlock(readJobText(final)) : '';
+    if (final.status === 'succeeded' && rawText.trim().length > 0) {
+      const shown = req.finalizeContent ? req.finalizeContent(rawText) : rawText;
+      const redacted = redactThreadOutput(shown);
+      const metadata: ThreadMessage['metadata'] = {
+        ...baseMeta,
+        job_id: job.id,
+        streaming: false,
+        ...(redacted.redactionCount > 0 ? { redacted: true, redaction_count: redacted.redactionCount } : {}),
+      };
+      await persist(redacted.content, metadata);
+      if (placeholderId) dispatch({ type: 'UPDATE_THREAD_MESSAGE', payload: { id: placeholderId, content: redacted.content, metadata } });
+      return { ok: true, text: rawText, message: placeholder };
+    }
+
+    const error = final.status === 'succeeded' ? 'The local worker returned no text.' : describeJobFailure(final);
+    const content = `Local turn ${final.status === 'succeeded' ? 'returned nothing' : final.status}: ${error}`;
+    await persist(content, failureMeta(error));
+    if (placeholderId) dispatch({ type: 'UPDATE_THREAD_MESSAGE', payload: { id: placeholderId, content, metadata: failureMeta(error) } });
+    return { ok: false, error, message: placeholder };
+  }, [state.conciergeAdapter, state.conciergeLocalModel, addMessage, dispatch]);
+
+  // Which backend this turn runs on, posting a one-line card when the claw is offline.
+  const resolveTurnBackend = useCallback(async (
+    threadId: string,
+    override: ConversationBackend | undefined,
+  ): Promise<ConversationBackend> => {
+    const chosen = override ?? state.conversationBackend;
+    const { backend, clawOffline } = resolveEffectiveBackend(chosen, state.executors, state.conciergeAdapter);
+    if (clawOffline) {
+      await addSystemEvent(threadId, {
+        kind: 'info',
+        system_event: {
+          tone: 'info',
+          title: 'Local executor offline — answering in the cloud',
+          body: `No online MaestroClaw executor advertises ${state.conciergeAdapter}. This turn uses ${state.conciergeModel} through the cloud. Start the worker to route turns locally again.`,
+        },
+      });
+    }
+    return backend;
+  }, [state.conversationBackend, state.executors, state.conciergeAdapter, state.conciergeModel, addSystemEvent]);
+
   // Send a message to the concierge and get a response
   const sendToConcierge = useCallback(async (
     threadId: string,
     userMessage: string,
+    options: ConversationTurnOptions = {},
   ): Promise<ThreadMessage | null> => {
     if (!user || !state.activeSession) return null;
 
@@ -801,12 +973,16 @@ export function useThreads() {
     try {
       await ensureAuth();
 
-      // 1. Save user message
-      const userMsg = await addMessage(threadId, 'user', userMessage);
-      if (!userMsg) throw new Error('Failed to save user message');
+      // 1. Save user message (unless this is a retry of a message already in the thread)
+      if (!options.skipUserMessage) {
+        const userMsg = await addMessage(threadId, 'user', userMessage);
+        if (!userMsg) throw new Error('Failed to save user message');
+      }
 
       // 2. Build conversation context from thread history
-      const conversationHistory = buildConversationContext(threadId);
+      const conversationHistory = buildConversationContext(threadId, {
+        dropTrailingUserMessage: options.skipUserMessage ? userMessage : undefined,
+      });
 
       // 3. Load recent decision records for this session (MEM-02)
       let decisionMemory = '';
@@ -833,7 +1009,25 @@ export function useThreads() {
         // best-effort: don't let memory load failure block the concierge
       }
 
-      // 4. Build the prompt with decision memory prefix + conversation context
+      // 4. Conversation-through-Claw: run the turn on the local worker when it is online.
+      const backend = await resolveTurnBackend(threadId, options.backendOverride);
+      if (backend === 'claw') {
+        const localPrompt = flattenConciergePrompt({
+          system: CONCIERGE_LOCAL_SYSTEM_PROMPT,
+          conversation: `${decisionMemory}${conversationHistory}`,
+          user: userMessage,
+        });
+        const result = await runLocalTurn({
+          threadId,
+          sessionId: state.activeSession.id,
+          prompt: localPrompt,
+          retryText: userMessage,
+          retryKind: 'concierge',
+        });
+        return result.message;
+      }
+
+      // 4b. Build the prompt with decision memory prefix + conversation context
       const prompt = decisionMemory + (conversationHistory
         ? `${conversationHistory}\n\nUser: ${userMessage}`
         : userMessage);
@@ -873,7 +1067,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, addSystemEvent, buildConversationContext, dispatch, resolveConciergeRuntime]);
+  }, [user, state.activeSession, state.conciergeModel, ensureAuth, addMessage, addSystemEvent, buildConversationContext, dispatch, resolveConciergeRuntime, resolveTurnBackend, runLocalTurn]);
 
   // Send a message to a specific agent in a direct thread
   const sendToAgent = useCallback(async (
@@ -943,7 +1137,7 @@ export function useThreads() {
 
     try {
       await ensureAuth();
-      for (const candidate of getConciergeCandidates('claude-haiku-4-5')) {
+      for (const candidate of getConciergeCandidates('claude-sonnet-4-6')) {
         try {
           const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
             prompt: userMessage,
@@ -1041,14 +1235,14 @@ export function useThreads() {
             'postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'executor_job_events', filter: `job_id=eq.${jobId}` },
             (payload) => {
-              const rec = payload.new as { event_type: string; body: Record<string, unknown> };
+              const rec = payload.new as { event_type: string; payload: Record<string, unknown> };
               if (rec.event_type === 'completed') {
                 dispatch({ type: 'STREAMING_CLEAR', payload: jobId });
                 supabase.removeChannel(channel);
                 return;
               }
               if (rec.event_type !== 'stdout' && rec.event_type !== 'stderr') return;
-              const body: Record<string, unknown> = rec.body ?? {};
+              const body: Record<string, unknown> = rec.payload ?? {};
               const lines: string[] = Array.isArray(body.lines)
                 ? (body.lines as string[])
                 : typeof body.text === 'string'
@@ -1063,16 +1257,16 @@ export function useThreads() {
         // Backfill events that arrived before our subscription (subscribe-then-backfill pattern)
         supabase
           .from('executor_job_events')
-          .select('event_type, body, created_at')
+          .select('event_type, payload, created_at')
           .eq('job_id', jobId)
           .in('event_type', ['stdout', 'stderr'])
           .order('created_at', { ascending: true })
-          .returns<{ event_type: string; body: Record<string, unknown> | null; created_at: string }[]>()
+          .returns<{ event_type: string; payload: Record<string, unknown> | null; created_at: string }[]>()
           .then(({ data }) => {
             if (!data || data.length === 0) return;
             const backfillLines: string[] = [];
             for (const row of data) {
-              const body = (row.body ?? {}) as Record<string, unknown>;
+              const body = (row.payload ?? {}) as Record<string, unknown>;
               if (Array.isArray(body.lines)) {
                 backfillLines.push(...(body.lines as string[]));
               } else if (typeof body.text === 'string') {
@@ -1628,9 +1822,15 @@ export function useThreads() {
     dispatch({ type: 'SET_CLAW_VIEW', payload: 'concierge' });
     dispatch({ type: 'SET_FOCUSED_AGENT_ID', payload: null });
 
-    const seats = state.agents.filter(
-      (agent) => agent.is_active && agent.agent_role !== 'executor' && agent.provider_group !== 'maestroclaw',
-    );
+    // Local (MaestroClaw) agents join the council when the conversation backend is the
+    // claw and an online executor advertises their adapter; cloud agents always do.
+    const clawCouncil = resolveEffectiveBackend(state.conversationBackend, state.executors, state.conciergeAdapter).backend === 'claw';
+    const seats = state.agents.filter((agent) => {
+      if (!agent.is_active || agent.agent_role === 'executor') return false;
+      if (agent.provider_group !== 'maestroclaw') return true;
+      const adapter = resolveSeatAdapter(agent);
+      return clawCouncil && !!adapter && isExecutorOnlineFor(state.executors, adapter);
+    });
     if (seats.length === 0) {
       await addSystemEvent(conciergeThread.id, {
         kind: 'info',
@@ -1685,9 +1885,20 @@ export function useThreads() {
         provider: row.provider,
       }));
 
+      // Deliberation still runs through the cloud `deliberate` function, which cannot
+      // call a local seat. With local seats in the round (or the claw backend chosen),
+      // skip it and say so on the card rather than burning keys on a partial debate.
       let deliberated = false;
+      let deliberationNote: string | undefined;
+      const hasLocalSeats = seats.some((seat) => seat.provider_group === 'maestroclaw');
       if (primaries.length >= 3) {
-        deliberated = await triggerDeliberationRef.current(roundId);
+        if (clawCouncil || hasLocalSeats) {
+          deliberationNote = hasLocalSeats
+            ? 'Deliberation skipped: local Claw seats cannot debate through the cloud yet.'
+            : 'Deliberation skipped: the conversation backend is the Claw.';
+        } else {
+          deliberated = await triggerDeliberationRef.current(roundId);
+        }
       }
 
       const result = await synthesizeRef.current(roundId);
@@ -1723,6 +1934,7 @@ export function useThreads() {
           : {}),
         seats: seatsAnswered,
         deliberated,
+        ...(deliberationNote ? { deliberation_note: deliberationNote } : {}),
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -1738,7 +1950,7 @@ export function useThreads() {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
       dispatch({ type: 'SET_IS_BRAINSTORMING', payload: false });
     }
-  }, [user, state.activeSession, state.isBroadcasting, state.isBrainstorming, state.agents, ensureConciergeThread, addMessage, addSystemEvent, createThread, broadcast, dispatch]);
+  }, [user, state.activeSession, state.isBroadcasting, state.isBrainstorming, state.agents, state.conversationBackend, state.executors, state.conciergeAdapter, ensureConciergeThread, addMessage, addSystemEvent, createThread, broadcast, dispatch]);
 
   // ─── Discovery intent ───────────────────────────────────────────
   // One 'discovery' thread per session. The intake record lives in the latest
@@ -1764,7 +1976,11 @@ export function useThreads() {
     );
   }, [addMessage, dispatch]);
 
-  const discoveryFromChat = useCallback(async (userText: string, sessionOverride?: Session | null): Promise<void> => {
+  const discoveryFromChat = useCallback(async (
+    userText: string,
+    sessionOverride?: Session | null,
+    options: ConversationTurnOptions = {},
+  ): Promise<void> => {
     const text = userText.trim();
     const session = sessionOverride ?? state.activeSession;
     if (!user || !session || !text) return;
@@ -1817,7 +2033,9 @@ export function useThreads() {
           system_event: { tone: 'info', title: 'Discovery intake', body: DISCOVERY_OPENING_MESSAGE },
         });
       }
-      await addMessage(thread.id, 'user', text);
+      if (!options.skipUserMessage) {
+        await addMessage(thread.id, 'user', text);
+      }
 
       // 2. /done ends the intake without another model call.
       if (/^\/done\b/i.test(text)) {
@@ -1828,28 +2046,59 @@ export function useThreads() {
 
       // 3. Ask the concierge model for the next 2–3 questions + captured answers.
       await ensureAuth();
-      const transcript = existingMessages
+      const transcriptMessages = existingMessages
         .filter((message) => message.role === 'user' || message.role === 'concierge')
+        .filter((message) => !(message.metadata?.kind === 'local_turn' && (message.metadata.streaming === true || typeof message.metadata.error === 'string')));
+      if (options.skipUserMessage) {
+        // Retry: the message being retried is already the last user turn in the thread.
+        for (let i = transcriptMessages.length - 1; i >= 0; i -= 1) {
+          if (transcriptMessages[i].role === 'user') {
+            if (transcriptMessages[i].content === text) transcriptMessages.splice(i, 1);
+            break;
+          }
+        }
+      }
+      const transcript = transcriptMessages
         .slice(-12)
         .map((message) => `${message.role === 'user' ? 'Person' : 'Concierge'}: ${message.content}`)
         .join('\n\n');
-      const { model, provider } = resolveConciergeRuntime(state.conciergeModel);
-      const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
-        prompt: buildDiscoveryPrompt({ answers: intake, transcript, userText: text }),
-        provider,
-        model,
-        agentName: 'Concierge',
-        agentRole: DISCOVERY_AGENT_ROLE,
-        mode: 'analysis',
-        session_id: session.id,
-      });
+      const discoveryBody = buildDiscoveryPrompt({ answers: intake, transcript, userText: text });
 
-      const parsed = parseDiscoveryReply(result.content ?? result.text ?? '');
+      let rawReply = '';
+      const backend = await resolveTurnBackend(thread.id, options.backendOverride);
+      if (backend === 'claw') {
+        const local = await runLocalTurn({
+          threadId: thread.id,
+          sessionId: session.id,
+          prompt: flattenConciergePrompt({ system: buildDiscoveryLocalSystemPrompt(DISCOVERY_AGENT_ROLE), user: discoveryBody }),
+          retryText: text,
+          retryKind: 'discovery',
+          finalizeContent: (raw) => parseDiscoveryReply(raw).message || 'Noted. Type /done whenever you want the record.',
+        });
+        if (!local.ok) return;
+        rawReply = local.text;
+      } else {
+        const { model, provider } = resolveConciergeRuntime(state.conciergeModel);
+        const result = await invokeEdgeFunction<OrchestrateResult>('orchestrate', {
+          prompt: discoveryBody,
+          provider,
+          model,
+          agentName: 'Concierge',
+          agentRole: DISCOVERY_AGENT_ROLE,
+          mode: 'analysis',
+          session_id: session.id,
+        });
+        rawReply = result.content ?? result.text ?? '';
+      }
+
+      const parsed = parseDiscoveryReply(rawReply);
       const merged: DiscoveryIntakeRecord = { ...intake, ...parsed.answers };
       const progress = countDiscoveryProgress(merged);
       const done = parsed.done || (progress.total > 0 && progress.answered >= progress.total);
 
-      await addMessage(thread.id, 'concierge', parsed.message || 'Noted. Type /done whenever you want the record.');
+      if (backend !== 'claw') {
+        await addMessage(thread.id, 'concierge', parsed.message || 'Noted. Type /done whenever you want the record.');
+      }
       await replaceDiscoveryRecord(thread.id, recordMessage?.id ?? null, merged, done);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -1864,7 +2113,7 @@ export function useThreads() {
     } finally {
       dispatch({ type: 'SET_IS_CONCIERGE_SENDING', payload: false });
     }
-  }, [user, state.activeSession, state.isConciergeSending, state.threads, state.conciergeModel, createThread, loadThreadMessages, addSystemEvent, addMessage, replaceDiscoveryRecord, ensureAuth, resolveConciergeRuntime, dispatch]);
+  }, [user, state.activeSession, state.isConciergeSending, state.threads, state.conciergeModel, createThread, loadThreadMessages, addSystemEvent, addMessage, replaceDiscoveryRecord, ensureAuth, resolveConciergeRuntime, resolveTurnBackend, runLocalTurn, dispatch]);
 
   return {
     loadThreads,

@@ -29,7 +29,7 @@ const DESIGNER_LANES: Record<DesignerRole, DesignerLane> = {
     display_name: "Structure Lead",
     description: "App shell, flow, information architecture",
     preferred_model: "claude-sonnet-4-6",
-    fallback_model: "claude-haiku-4-5",
+    fallback_model: "claude-sonnet-4-6",
   },
   product_practical: {
     role: "product_practical",

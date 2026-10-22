@@ -83,7 +83,27 @@ export function useWorkspace() {
       .order('provider_group', { ascending: true })
       .order('slot_index', { ascending: true });
 
-    const agents = (rawAgents ?? []) as Agent[];
+    let agents = (rawAgents ?? []) as Agent[];
+
+    // No Haiku (2026-10-22): existing workspaces still carry the old Haiku slot-0 row
+    // (ignoreDuplicates leaves it alone). Remap it in place to the Sonnet 4.6 default so
+    // the roster matches AGENT_DEFAULTS without touching the user's is_active toggle.
+    const legacyHaiku = agents.filter(a => a.model === 'claude-haiku-4-5');
+    if (legacyHaiku.length > 0) {
+      const sonnet = AGENT_DEFAULTS.find(a => a.provider_group === 'anthropic' && a.slot_index === 0);
+      if (sonnet) {
+        for (const row of legacyHaiku) {
+          await supabase
+            .from('agents')
+            .update({ name: sonnet.name, display_name: sonnet.display_name, role: sonnet.role, model: sonnet.model } as never)
+            .eq('id', row.id);
+        }
+        agents = agents.map(a => a.model === 'claude-haiku-4-5'
+          ? { ...a, name: sonnet.name, display_name: sonnet.display_name, role: sonnet.role, model: sonnet.model }
+          : a);
+      }
+    }
+
     dispatch({ type: 'SET_AGENTS', payload: agents });
   }, [user, dispatch]);
 
