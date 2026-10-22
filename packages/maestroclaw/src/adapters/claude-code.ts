@@ -31,8 +31,29 @@ const FALLBACK_MODEL = process.env.CLAW_CLAUDE_FALLBACK_MODEL ?? "";
  *   2. Native --fallback-model (CLAW_CLAUDE_FALLBACK_MODEL) on overload/rate-limit
  *   3. Hard default: "sonnet" alias
  */
+export interface ClaudeCodeAdapterOptions {
+  /** Per-instance model override. Falls back to CLAW_CLAUDE_MODEL / "sonnet". */
+  model?: string;
+  fallbackModel?: string;
+  /** Alternate CLAUDE_CONFIG_DIR (a second signed-in profile) for this instance only. */
+  configDir?: string;
+}
+
 export class ClaudeCodeAdapter implements Adapter {
   name = "claude_code";
+  private readonly model: string;
+  private readonly fallbackModel: string;
+  private readonly configDir: string | undefined;
+
+  constructor(options: ClaudeCodeAdapterOptions = {}) {
+    this.model = options.model ?? PRIMARY_MODEL;
+    this.fallbackModel = options.fallbackModel ?? FALLBACK_MODEL;
+    this.configDir = options.configDir;
+  }
+
+  private childEnv(): Record<string, string> {
+    return this.configDir ? buildChildEnv({ CLAUDE_CONFIG_DIR: this.configDir }) : buildChildEnv();
+  }
 
   async check(): Promise<boolean> {
     try {
@@ -56,7 +77,7 @@ export class ClaudeCodeAdapter implements Adapter {
     // Rate-limit/overload fallback is now handled natively by Claude Code's
     // own --fallback-model flag (passed inside runWithModel), not by a
     // second manual invocation here.
-    return this.runWithModel(prompt, workDir, timeoutMs, PRIMARY_MODEL, onLine);
+    return this.runWithModel(prompt, workDir, timeoutMs, this.model, onLine);
   }
 
   async runSession(
@@ -67,7 +88,7 @@ export class ClaudeCodeAdapter implements Adapter {
     const sessionPrompt = `${prompt}\n${AGENT_01_SESSION_INSTRUCTIONS}`;
     // Session mode: --dangerously-skip-permissions lets Claude write files without prompts.
     // --output-format is omitted — we collect files via dir-diff, not by parsing stdout.
-    return this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, PRIMARY_MODEL);
+    return this.runSessionWithModel(sessionPrompt, workDir, timeoutMs, this.model);
   }
 
   private runWithModel(
@@ -87,7 +108,7 @@ export class ClaudeCodeAdapter implements Adapter {
     });
 
     const args = ["--print", "--output-format", "text", "--model", model];
-    if (FALLBACK_MODEL) args.push("--fallback-model", FALLBACK_MODEL);
+    if (this.fallbackModel) args.push("--fallback-model", this.fallbackModel);
 
     return new Promise((resolve) => {
       const proc = spawn(
@@ -96,7 +117,7 @@ export class ClaudeCodeAdapter implements Adapter {
         {
           cwd: workDir,
           shell: true,
-          env: buildChildEnv(),
+          env: this.childEnv(),
         }
       );
 
@@ -201,7 +222,7 @@ export class ClaudeCodeAdapter implements Adapter {
     });
 
     const args = ["--print", "--dangerously-skip-permissions", "--model", model];
-    if (FALLBACK_MODEL) args.push("--fallback-model", FALLBACK_MODEL);
+    if (this.fallbackModel) args.push("--fallback-model", this.fallbackModel);
 
     return new Promise((resolve) => {
       const proc = spawn(
@@ -210,7 +231,7 @@ export class ClaudeCodeAdapter implements Adapter {
         {
           cwd: workDir,
           shell: true,
-          env: buildChildEnv(),
+          env: this.childEnv(),
         }
       );
 

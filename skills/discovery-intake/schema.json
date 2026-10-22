@@ -1,0 +1,80 @@
+{
+  "schema": "maestro.discovery-intake/1",
+  "parts": [
+    { "id": "s1", "title": "The story", "say": "Tell me how this started. What made you want to build this?", "q": [
+      { "id": "s1_story", "t": "long", "q": "How did the idea start?", "hint": "Let them talk. Capture the words they use; those words go into the spec." },
+      { "id": "s1_oneliner", "t": "text", "q": "If you described the app in one sentence to a friend, what would you say?" },
+      { "id": "s1_problem", "t": "long", "q": "What problem does it solve, and for whom?" },
+      { "id": "s1_today", "t": "long", "q": "How do those people handle this today, without the app?", "hint": "WhatsApp groups, spreadsheets, phone calls, a competitor. The current workaround sets the bar the app has to beat." },
+      { "id": "s1_whynow", "t": "text", "q": "Why now? Is something pushing the timing?" }
+    ]},
+    { "id": "s2", "title": "Who uses it", "say": "Let me make sure I understand everyone who would touch this.", "q": [
+      { "id": "s2_types", "t": "long", "q": "Who are the different kinds of people who would use it?", "hint": "Customers, drivers, shop owners, admins. Each type usually means its own login and its own screens." },
+      { "id": "s2_scale", "t": "single", "q": "At launch, roughly how many people would use it?", "o": ["Just us", "Under 100", "100 to 1,000", "1,000 to 10,000", "More than 10,000", "Not sure"] },
+      { "id": "s2_admin", "t": "long", "q": "Who runs it behind the scenes? What do they need to see or change?" },
+      { "id": "s2_signin", "t": "text", "q": "Do people need accounts? How should they sign in?", "hint": "Phone number, email, Google or Apple, invite only." }
+    ]},
+    { "id": "s3", "title": "What it must do", "say": "Now the part I care about most. I want to find the smallest version that is still worth launching.", "q": [
+      { "id": "s3_mvp", "t": "long", "q": "If the app could only do ONE thing on day one, what would it be?", "hint": "This is the first version. Everything else is version two." },
+      { "id": "s3_must", "t": "long", "q": "What are the three to five things it absolutely must do?" },
+      { "id": "s3_journey", "t": "long", "q": "Walk me through it. A person opens the app for the first time. What happens, step by step, until they are done?" },
+      { "id": "s3_reference", "t": "long", "q": "Is there an app that is close to what you imagine? What would you keep, and what would you change?", "hint": "The single most useful scoping question. Get the actual app names." },
+      { "id": "s3_nice", "t": "long", "q": "What would be nice to have later, but could wait?" },
+      { "id": "s3_not", "t": "long", "q": "Is there anything you have decided it should NOT do?" }
+    ]},
+    { "id": "s4", "title": "Where it runs", "say": "A few practical ones about where and how people will use it.", "q": [
+      { "id": "s4_platforms", "t": "multi", "q": "Where does it need to run?", "o": ["iPhone (App Store)", "Android (Google Play)", "Website in a browser", "Desktop", "Not sure"] },
+      { "id": "s4_languages", "t": "multi", "q": "Which languages should it support?", "o": ["English", "Persian (Farsi)", "French", "Arabic", "Other"], "hint": "Persian and Arabic mean right-to-left layout, planned from day one." },
+      { "id": "s4_regions", "t": "text", "q": "Which countries or cities will it be used in?", "hint": "Affects payments, SMS, app store accounts and privacy law." },
+      { "id": "s4_offline", "t": "single", "q": "Does it need to work without internet?", "o": ["Yes, often", "Sometimes", "No", "Not sure"] }
+    ]},
+    { "id": "s5", "title": "Connections and money", "say": "Does anything outside the app need to be involved? Payments, maps, messages, other systems?", "q": [
+      { "id": "s5_payments", "t": "long", "q": "Does money move through the app? Who pays whom, and how?", "hint": "One-time, subscription, per order, or cash outside the app. An app that holds money between two parties is a different size of project." },
+      { "id": "s5_integrations", "t": "multi", "q": "What should it connect to?", "o": ["Payments (Stripe, PayPal)", "Maps and location", "Push notifications", "SMS or WhatsApp", "Email", "Calendar", "In-app chat", "Video calls", "Social login", "Accounting or CRM", "A system they already use", "AI features (chat, recommendations)", "None yet", "Not sure"] },
+      { "id": "s5_existing", "t": "text", "q": "Do you already use software this would need to talk to?" },
+      { "id": "s5_content", "t": "text", "q": "Who creates the content in the app (listings, posts, products)? You, or the users?" }
+    ]},
+    { "id": "s6", "title": "Data and trust", "say": "What kind of information will the app be holding about people?", "q": [
+      { "id": "s6_data", "t": "multi", "q": "What kinds of information will it hold?", "o": ["Names and contact details", "Payment or banking details", "Location history", "Health or medical", "Children's information", "Photos or documents", "Business or financial records", "Messages between users", "Nothing sensitive", "Not sure"] },
+      { "id": "s6_residency", "t": "single", "q": "Any requirement about where the data is stored?", "o": ["Must stay in Canada", "Must stay in another specific country", "No preference", "Not sure"] },
+      { "id": "s6_legal", "t": "text", "q": "Any rules or regulations you know apply to this kind of business?", "hint": "In Ontario: PIPEDA for personal data, PHIPA if health data is involved. Note it, do not advise." }
+    ]},
+    { "id": "s7", "title": "What exists already", "say": "What do you already have in hand that I could look at?", "q": [
+      { "id": "s7_name", "t": "text", "q": "Does it have a name? A domain? A logo?" },
+      { "id": "s7_assets", "t": "multi", "q": "What exists today?", "o": ["Sketches or drawings", "Designs or mockups", "A written plan or document", "An existing website", "An existing app or code", "A spreadsheet or database of data", "A waitlist or interested users", "Nothing yet"] },
+      { "id": "s7_prior", "t": "long", "q": "Have you worked with developers or an agency on this before? What happened?", "hint": "A previous build that stalled is context, not a red flag on its own. Ask what they have from it." },
+      { "id": "s7_send", "t": "text", "q": "What can you send me after the call?" }
+    ]},
+    { "id": "s8", "title": "The business", "say": "How does this work as a business, or what is it for?", "q": [
+      { "id": "s8_model", "t": "single", "q": "How will it make money, or what is it for?", "o": ["Subscription", "Per-transaction or commission", "One-time purchase", "Advertising", "Free, it supports an existing business", "Internal tool for our own company", "Not decided"] },
+      { "id": "s8_customer", "t": "text", "q": "Who is the paying customer, and is that the same person as the user?" },
+      { "id": "s8_validation", "t": "long", "q": "Have you talked with people who would use it? What did they say?" },
+      { "id": "s8_success", "t": "text", "q": "Six months after launch, what would make you say it worked?" }
+    ]},
+    { "id": "s9", "title": "Timeline and budget", "say": "Two questions people sometimes find awkward. I ask them plainly because they decide what we can propose.", "q": [
+      { "id": "s9_deadline", "t": "text", "q": "Is there a date this needs to be ready by? What is driving it?" },
+      { "id": "s9_budget", "t": "single", "q": "Do you have a budget range in mind for the first version?", "o": ["Under $5,000 CAD", "$5,000 to $15,000", "$15,000 to $40,000", "$40,000 to $100,000", "Over $100,000", "Prefer not to say yet", "No idea, would like guidance"], "hint": "Ask it straight and do not react to the number. \"No idea\" is a fine answer; it means you propose options." },
+      { "id": "s9_phased", "t": "single", "q": "Would you be open to launching a smaller first version and growing it?", "o": ["Yes", "Maybe", "No, it needs to be complete"] },
+      { "id": "s9_ongoing", "t": "single", "q": "After launch, who looks after it?", "o": ["We would want you to maintain it", "We would hire someone", "Not sure"] }
+    ]},
+    { "id": "s10", "title": "Working together", "say": "Last few, about how we would work if we go ahead.", "q": [
+      { "id": "s10_decider", "t": "text", "q": "Who makes the final decisions on this project?" },
+      { "id": "s10_contact", "t": "text", "q": "Who would I talk to day to day, and how do you prefer to communicate?", "hint": "WhatsApp, email, phone. Which language." },
+      { "id": "s10_cadence", "t": "single", "q": "How often would you want to see progress?", "o": ["Weekly demo", "Every two weeks", "Monthly", "Only at milestones"] },
+      { "id": "s10_ownership", "t": "single", "q": "Do you expect to own the code and the accounts at the end?", "o": ["Yes, fully", "Not sure what that means", "Happy for the developer to host it"], "hint": "Recommend yes. It protects them and it protects you." },
+      { "id": "s10_quotes", "t": "text", "q": "Are you talking with other developers as well?", "hint": "Either answer is fine. It tells you how to position the proposal." },
+      { "id": "s10_questions", "t": "long", "q": "What questions do you have for me?" }
+    ]},
+    { "id": "s11", "title": "Wrap-up", "say": "Here is what happens next: I will write up what I heard, go through it with my team, and come back within a few days with questions, a suggested first version and a rough range. Does that work?", "q": [
+      { "id": "s11_open", "t": "long", "q": "Things they could not answer or need to check", "client": "Anything you still need to find out or decide?" },
+      { "id": "s11_promised", "t": "long", "q": "What I promised to send, and by when", "client": "Anything you would like us to send you?" },
+      { "id": "s11_next", "t": "text", "q": "Next call or follow-up date", "client": "When is a good time for a follow-up call?" }
+    ]},
+    { "id": "p", "title": "Private notes", "private": true, "say": "Not shown to the person interviewed. Fill in right after the call while it is fresh.", "q": [
+      { "id": "p_read", "t": "long", "q": "Your read: clarity, energy, who talked, what they care about most" },
+      { "id": "p_flags", "t": "multi", "q": "Signals to weigh", "o": ["No budget, or would not discuss it", "Expects it in weeks", "Scope grew while we talked", "Wants equity or revenue share instead of payment", "Marketplace with two sides to fill", "Needs money to move through the app", "No clear decision maker", "Previous developer relationship ended badly", "Clear problem and real users", "Has assets ready (designs, data, users)", "Realistic about phasing"] },
+      { "id": "p_viability", "t": "single", "q": "Gut viability", "o": ["1 Pass", "2 Doubtful", "3 Possible", "4 Promising", "5 Strong"] },
+      { "id": "p_scoping", "t": "long", "q": "Questions for the scoping session" }
+    ]}
+  ]
+}

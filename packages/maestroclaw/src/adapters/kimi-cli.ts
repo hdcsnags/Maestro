@@ -20,8 +20,18 @@ const PRIMARY_MODEL = process.env.CLAW_KIMI_MODEL ?? "";
 // the PowerShell `Get-Command` resolution path — that's expected, not a bug.
 const KIMI_ENV_OVERRIDES = { PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
 
+export interface KimiCliAdapterOptions {
+  /** Per-instance model override. Falls back to CLAW_KIMI_MODEL. */
+  model?: string;
+}
+
 export class KimiCliAdapter implements Adapter {
   name = "kimi_cli";
+  private readonly model: string;
+
+  constructor(options: KimiCliAdapterOptions = {}) {
+    this.model = options.model ?? PRIMARY_MODEL;
+  }
 
   async check(): Promise<boolean> {
     try {
@@ -76,7 +86,7 @@ export class KimiCliAdapter implements Adapter {
       adapter: this.name,
       mode,
       content: `Starting kimi_cli ${mode} run`,
-      metadata: { command: "kimi --print", model: PRIMARY_MODEL || "(kimi default)" },
+      metadata: { command: "kimi --print", model: this.model || "(kimi default)" },
     });
 
     const invocation = await resolveCliInvocation("kimi");
@@ -119,8 +129,8 @@ export class KimiCliAdapter implements Adapter {
         "text",
         "--final-message-only",
       ];
-      if (PRIMARY_MODEL) {
-        kimiArgs.push("-m", PRIMARY_MODEL);
+      if (this.model) {
+        kimiArgs.push("-m", this.model);
       }
 
       const proc = spawn(

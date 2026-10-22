@@ -83,8 +83,22 @@ interface AgyJsonResult {
   duration_seconds?: number;
 }
 
+export interface AgyCliAdapterOptions {
+  /** Per-instance model override. Falls back to CLAW_AGY_MODEL. */
+  model?: string;
+  /** Per-instance effort override. Falls back to CLAW_AGY_EFFORT. */
+  effort?: string;
+}
+
 export class AgyCliAdapter implements Adapter {
   name = "agy_cli";
+  private readonly model: string;
+  private readonly effort: string;
+
+  constructor(options: AgyCliAdapterOptions = {}) {
+    this.model = options.model ?? PRIMARY_MODEL;
+    this.effort = options.effort ?? EFFORT;
+  }
 
   async check(): Promise<boolean> {
     try {
@@ -155,7 +169,7 @@ export class AgyCliAdapter implements Adapter {
       content: `Starting agy_cli ${mode} run`,
       metadata: {
         command: "agy --print",
-        model: PRIMARY_MODEL || "(agy default)",
+        model: this.model || "(agy default)",
         sandbox: SANDBOX_OPT_IN,
       },
     });
@@ -185,12 +199,12 @@ export class AgyCliAdapter implements Adapter {
       "--add-dir",
       workDir,
     ];
-    if (PRIMARY_MODEL) {
-      agyArgs.push("--model", PRIMARY_MODEL);
+    if (this.model) {
+      agyArgs.push("--model", this.model);
     }
     // See file-header note 4: --effort hard-errors for Claude-family model tags via agy.
-    if (EFFORT && !PRIMARY_MODEL.toLowerCase().startsWith("claude")) {
-      agyArgs.push("--effort", EFFORT);
+    if (this.effort && !this.model.toLowerCase().startsWith("claude")) {
+      agyArgs.push("--effort", this.effort);
     }
     // See file-header note 3: opt-in only, confirmed broken on Windows as of this writing.
     if (SANDBOX_OPT_IN) {
@@ -250,12 +264,18 @@ export class AgyCliAdapter implements Adapter {
 
         const processExitedCleanly = code === 0 && !signal;
         const agyReportedSuccess = parsed?.status === "SUCCESS";
-        const success = processExitedCleanly && (parsed ? agyReportedSuccess : true);
-
         const output = parsed?.response ?? stdout.trimEnd();
+        // 2026-09-22 bug: agy returned status SUCCESS with an empty response (a silently
+        // auto-denied tool call, see header note 2) and the council recorded it as a
+        // successful seat. In task mode the response IS the deliverable, so empty = failure.
+        // Session mode collects files by dir-diff and may legitimately say nothing.
+        const emptyTaskResponse = mode === "task" && output.trim().length === 0;
+        const success = processExitedCleanly && (parsed ? agyReportedSuccess : true) && !emptyTaskResponse;
+
         const error = success
           ? undefined
-          : parsed?.error
+          : (emptyTaskResponse ? "agy returned an empty response (status SUCCESS); treated as failure in task mode" : undefined)
+            || parsed?.error
             || stderr.trim()
             || (signal
               ? `agy terminated with signal ${signal}`

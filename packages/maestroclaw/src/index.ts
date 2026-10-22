@@ -12,6 +12,18 @@ import { createConductorRun } from "./conductor/index.js";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
+// `maestroclaw council …` is the Council Runtime CLI (no Supabase needed); anything else starts the worker.
+if (process.argv[2] === "council") {
+  const { councilMain } = await import("./council/cli.js");
+  try {
+    await councilMain(process.argv.slice(3));
+  } catch (err) {
+    console.error(`[council] FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 async function main() {
   console.log("🐾 MaestroClaw v0.1.0 — Local Execution Node");
   console.log("─".repeat(50));

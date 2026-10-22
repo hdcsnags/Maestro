@@ -34,14 +34,18 @@ const PRIMARY_MODEL = process.env.CLAW_CODEX_MODEL ?? "";
 export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export interface CodexCliAdapterOptions {
   sandbox?: CodexSandboxMode;
+  /** Per-instance model override (council seats run several models in one process). Falls back to CLAW_CODEX_MODEL. */
+  model?: string;
 }
 
 export class CodexCliAdapter implements Adapter {
   name = "codex_cli";
   private readonly sandbox: CodexSandboxMode;
+  private readonly model: string;
 
   constructor(options: CodexCliAdapterOptions = {}) {
     this.sandbox = options.sandbox ?? "workspace-write";
+    this.model = options.model ?? PRIMARY_MODEL;
   }
 
   async check(): Promise<boolean> {
@@ -96,7 +100,7 @@ export class CodexCliAdapter implements Adapter {
       adapter: this.name,
       mode,
       content: `Starting codex_cli ${mode} run`,
-      metadata: { command: "codex exec", sandbox: this.sandbox, model: PRIMARY_MODEL || "(codex default)" },
+      metadata: { command: "codex exec", sandbox: this.sandbox, model: this.model || "(codex default)" },
     });
 
     const outputFilePath = join(workDir, `.maestroclaw-codex-last-message-${Date.now()}.txt`);
@@ -175,8 +179,8 @@ export class CodexCliAdapter implements Adapter {
         "--output-last-message",
         outputFilePath,
       ];
-      if (PRIMARY_MODEL) {
-        codexArgs.push("--model", PRIMARY_MODEL);
+      if (this.model) {
+        codexArgs.push("--model", this.model);
       }
 
       const proc = spawn(
